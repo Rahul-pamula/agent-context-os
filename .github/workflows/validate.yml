@@ -28,10 +28,13 @@ jobs:
         run: |
           chmod +x scripts/generate-repo-map.sh
           bash scripts/generate-repo-map.sh
-          if ! git diff --quiet REPO_MAP.md; then
+          # Ignore the volatile "Generated: <date> | Commit: <hash>" header — it
+          # embeds the current HEAD hash, which the committed file can never match
+          # (the file lives inside the commit). Gate only on the file/tree content.
+          if ! git diff --quiet -I '^Generated:' REPO_MAP.md; then
             echo "REPO_MAP.md is out of date. Run: bash scripts/generate-repo-map.sh"
             echo ""
-            git diff REPO_MAP.md
+            git diff -I '^Generated:' REPO_MAP.md
             exit 1
           fi
           echo "REPO_MAP.md is current."
