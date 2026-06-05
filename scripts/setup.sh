@@ -26,8 +26,8 @@ prompt_yn() {
 # ── Welcome ─────────────────────────────────────────────────────────────────
 
 echo ""
-echo "  claude-context-starter — setup"
-echo "  ─────────────────────────────"
+echo "  claude-context-os — setup"
+echo "  ─────────────────────────"
 echo ""
 
 # ── 1. Your name ────────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ fi
 echo ""
 CURRENT_REMOTE=$(git remote get-url origin 2>/dev/null || echo "")
 
-if echo "$CURRENT_REMOTE" | grep -q "claude-context-starter"; then
+if echo "$CURRENT_REMOTE" | grep -q "claude-context-os"; then
   echo "  Your git remote still points to the template repo."
   echo "  You'll want your own repo so you can push your context."
   echo ""

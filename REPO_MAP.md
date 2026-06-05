@@ -1,6 +1,6 @@
 # Repo Map
 
-Generated: 2026-06-05 | Commit: 6c3d0e6 (2026-05-14)
+Generated: 2026-06-05 | Commit: 19b0d02 (2026-06-05)
 
 ---
 
@@ -19,9 +19,9 @@ Generated: 2026-06-05 | Commit: 6c3d0e6 (2026-05-14)
 
 | File | Lines | Last Modified | Description |
 |------|-------|---------------|-------------|
-| `CHANGELOG.md` | 131 | 2026-05-11 | Changelog |
+| `CHANGELOG.md` | 131 | 2026-06-05 | Changelog |
 | `CLAUDE.md` | 73 | 2026-05-11 | [Your Name] — Context |
-| `README.md` | 216 | 2026-05-14 | claude-context-starter |
+| `README.md` | 216 | 2026-06-05 | claude-context-os |
 | `ROUTING.md` | 32 | 2026-03-20 | Context Routing |
 | `SETUP-PROMPTS.md` | 139 | 2026-03-06 | Setup Prompts |
 | `TODO.md` | 18 | 2026-03-07 | TODO |

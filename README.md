@@ -1,4 +1,4 @@
-# claude-context-starter
+# claude-context-os
 
 > **In one sentence:** Your Claude context as a version-controlled repo — files Claude Code reads directly and claude.ai reads as project knowledge, a file-based auto-memory that grows and self-curates, and the commands to run a `/start` → work → `/end` loop — so your context lives in git with a diff, a history, and a blame view instead of scattered across UI fields.
 
@@ -13,7 +13,7 @@ It also gives Claude a persistent, file-based **auto-memory** that grows over ti
 ## Quick start
 
 ```bash
-git clone https://github.com/conorbronsdon/claude-context-starter.git my-context
+git clone https://github.com/conorbronsdon/claude-context-os.git my-context
 cd my-context
 bash scripts/setup.sh
 ```
