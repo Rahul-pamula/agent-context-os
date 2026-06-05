@@ -1,6 +1,12 @@
 # Changelog
 
 ## [Unreleased]
+### Added
+- `scripts/check-links.sh` — deterministic broken-link checker. Walks every inline link in tracked markdown, skips fenced/inline code and external URLs, and fails on any local target that doesn't resolve. Pure bash + awk + git; catches SSOT drift when a cross-referenced file is renamed or moved. Wired into `.github/workflows/validate.yml`.
+- `docs/first-skill.md` — five-minute hand-held tutorial: copy a command, change three things, run it. Lowers the activation barrier for building your first skill.
+### Changed
+- `.github/workflows/validate.yml` — adds a "Check for broken local links" step.
+- `README.md` — adds a one-sentence summary up top, a "Start small" onboarding nudge, a License section, links the new first-skill tutorial, and documents `check-links.sh` in the Validation section.
 
 ## [0.9.0] — Parallel-session hooks + skill-creator
 ### Added

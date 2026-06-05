@@ -17,6 +17,11 @@ jobs:
           chmod +x scripts/validate-skills.sh
           ./scripts/validate-skills.sh
 
+      - name: Check for broken local links
+        run: |
+          chmod +x scripts/check-links.sh
+          bash scripts/check-links.sh
+
       - name: Check REPO_MAP.md is up to date
         run: |
           chmod +x scripts/generate-repo-map.sh

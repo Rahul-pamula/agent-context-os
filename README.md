@@ -1,5 +1,7 @@
 # claude-context-starter
 
+> **In one sentence:** Your Claude context as a version-controlled repo — files Claude Code reads directly and claude.ai reads as project knowledge, a file-based auto-memory that grows and self-curates, and the commands to run a `/start` → work → `/end` loop — so your context lives in git with a diff, a history, and a blame view instead of scattered across UI fields.
+
 Most people paste their context into Claude's project instructions and forget about it. It goes stale. They lose track of what's there. When something changes — a new job, a new project, a new workflow — updating it means hunting through UI fields with no version history. And if you use Claude in multiple places, you're maintaining the same context in multiple places.
 
 This repo flips that. Your context lives in files. Claude Code reads them directly; claude.ai projects read the same files as uploaded knowledge. Update a file once, and every interface you use stays current. Build a skill once — like the `avoid-ai-writing` skill included here — and it works as a slash command in Claude Code and as uploaded context in any claude.ai project.
@@ -46,6 +48,8 @@ claude
 ```
 
 `/start` loads your state and gives you a briefing. At the end of your session, run `/end` to log what happened. That's the core loop — `/start` → work → `/end`.
+
+**Start small.** Don't port your whole working life on day one. Run the core loop for a week, add one project, build one skill when you hit a task you repeat. The structure scales when you're ready — it doesn't demand everything up front.
 
 | Command | When | What it does |
 |---------|------|-------------|
@@ -108,7 +112,7 @@ To build your own:
 1. Run `/skill-creator` and describe what the skill should do — it generates the SKILL.md, the command file, and the CLAUDE.md additions for you to review.
 2. Or do it manually: read `docs/agent-template.md`, create `projects/<your-project>/skills/<your-skill-name>/SKILL.md`, add a command file in `commands/`, add a row to `CLAUDE.md`, then run `scripts/validate-skills.sh`.
 
-See `projects/README.md` for conventions and the example musician project for the full pattern.
+New here? **[docs/first-skill.md](docs/first-skill.md)** walks you through building your first skill by hand in five minutes — copy one, change three things, run it. See `projects/README.md` for conventions and the example musician project for the full pattern.
 
 ---
 
@@ -165,9 +169,10 @@ The `.mcp.json` is already configured. See `references/gws-mcp-setup.md` for det
 
 ```bash
 bash scripts/validate-skills.sh
+bash scripts/check-links.sh
 ```
 
-Checks for: missing frontmatter, CLAUDE.md over 100 lines, committed secrets, stale files (90+ days).
+`validate-skills.sh` checks for: missing frontmatter, CLAUDE.md over 100 lines, committed secrets, stale files (90+ days). `check-links.sh` walks every inline link in tracked markdown and fails on any local target that doesn't resolve — so a renamed or moved file can't silently break a cross-reference. Both run in CI on every push and PR (`.github/workflows/validate.yml`), need nothing but bash, and pass before you commit.
 
 ---
 
@@ -197,6 +202,12 @@ This is a template — the most useful contributions are structural: better exam
 - [Conor Bronsdon](https://github.com/conorbronsdon) — Modular, Chain of Thought podcast
 
 Using this template? Open a PR adding yourself.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE). Fork it, adapt it, make it yours; no attribution required.
 
 ---
 
