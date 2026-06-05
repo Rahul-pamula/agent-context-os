@@ -1,12 +1,43 @@
+<div align="center">
+
 # claude-context-os
 
-> **In one sentence:** Your Claude context as a version-controlled repo — files Claude Code reads directly and claude.ai reads as project knowledge, a file-based auto-memory that grows and self-curates, and the commands to run a `/start` → work → `/end` loop — so your context lives in git with a diff, a history, and a blame view instead of scattered across UI fields.
+An operating system for your Claude context — version-controlled files, a self-curating memory, and a `/start` → work → `/end` session loop, shared across Claude Code and claude.ai.
+
+[![GitHub stars](https://img.shields.io/github/stars/conorbronsdon/claude-context-os?style=social)](https://github.com/conorbronsdon/claude-context-os/stargazers)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![Built for Claude Code](https://img.shields.io/badge/built%20for-Claude%20Code-d97757?style=flat-square)](https://docs.anthropic.com/en/docs/claude-code)
+[![Validate](https://github.com/conorbronsdon/claude-context-os/actions/workflows/validate.yml/badge.svg)](https://github.com/conorbronsdon/claude-context-os/actions/workflows/validate.yml)
+[![X](https://img.shields.io/badge/X-@ConorBronsdon-black?style=flat-square&logo=x)](https://x.com/ConorBronsdon)
+
+</div>
+
+---
 
 Most people paste their context into Claude's project instructions and forget about it. It goes stale. They lose track of what's there. When something changes — a new job, a new project, a new workflow — updating it means hunting through UI fields with no version history. And if you use Claude in multiple places, you're maintaining the same context in multiple places.
 
 This repo flips that. Your context lives in files. Claude Code reads them directly; claude.ai projects read the same files as uploaded knowledge. Update a file once, and every interface you use stays current. Build a skill once — like the `avoid-ai-writing` skill included here — and it works as a slash command in Claude Code and as uploaded context in any claude.ai project.
 
 It also gives Claude a persistent, file-based **auto-memory** that grows over time (typed entries for user/feedback/project/reference) plus a `/dream` curator that runs autonomous passes over the memory dir — rot detection, contradiction surfacing, pattern capture — and produces reviewable proposals before anything writes back. See [`docs/auto-memory.md`](docs/auto-memory.md) and [`docs/dream-architecture.md`](docs/dream-architecture.md).
+
+---
+
+## See it work
+
+`/setup` interviews you and fills in your files. After that, `/start` reads your state, priorities, and projects and hands you a session plan instead of a blank prompt. For a filled-in version of the included example musician project, it reads like:
+
+> **Session briefing — Tuesday**
+>
+> **Top 3 this week** *(from `state/weekly-priorities.md`)*
+> 1. Pitch "Slow Light" to 10 playlist curators — release window closes Friday
+> 2. Draft the EP press one-pager
+> 3. Book one more show for the August run
+>
+> **Picking up from last session:** you drafted 4 curator emails and were waiting on the updated cover art before sending — it landed in `inbox/` yesterday.
+>
+> **Suggested first move:** send the 4 drafted pitches, then write the next 6.
+
+Every line came from plain markdown in the repo — not a chat you rebuild from memory each morning. Run `/end` and it writes the session to `sessions/` and updates `state/`, so tomorrow's `/start` knows exactly where you left off.
 
 ---
 
@@ -118,7 +149,7 @@ New here? **[docs/first-skill.md](docs/first-skill.md)** walks you through build
 
 ## Auto-memory
 
-Claude Code auto-loads `~/.claude/projects/<encoded-cwd>/memory/MEMORY.md` at the start of every conversation in this project. The starter ships a spec ([`docs/auto-memory.md`](docs/auto-memory.md)) for what to save (and what NOT to save) across four typed memory categories:
+Claude Code auto-loads `~/.claude/projects/<encoded-cwd>/memory/MEMORY.md` at the start of every conversation in this project. claude-context-os ships a spec ([`docs/auto-memory.md`](docs/auto-memory.md)) for what to save (and what NOT to save) across four typed memory categories:
 
 - **user** — role, expertise, preferences
 - **feedback** — guidance about *how* to work, both corrections and validated approaches
@@ -141,7 +172,7 @@ See [`docs/dream-architecture.md`](docs/dream-architecture.md) for the full desi
 
 Running more than one Claude Code session against the same repo simultaneously will eventually corrupt your tree — silent branch-switches, one session's `git add` landing in another session's commit, files committed to the wrong branch. The fix is `git worktree`: one checkout per session.
 
-The starter ships two hooks that enforce this pattern:
+The repo ships two hooks that enforce this pattern:
 
 - **`worktree-guard.sh`** (`PreToolUse`) — blocks `Edit`/`Write` to a guarded repo's primary checkout when ≥2 Claude sessions are running. Worktrees are still free. Emergency override: `touch .allow-shared-edit` at the repo root.
 - **`branch-hygiene.sh`** (`SessionStart`) — surfaces non-default HEAD on guarded repos so a silent branch-switch is noticed before any edits land.
