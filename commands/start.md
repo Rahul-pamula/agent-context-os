@@ -18,6 +18,10 @@ Run `date +%Y-%m-%d` and store as TODAY. Note the day of week.
 - `sessions/{TODAY}.md` — if it exists, resume today's session; if not, check for the most recent file in `sessions/` for continuity; if `sessions/` is empty, start fresh
 - See `sessions/README.md` for how session files work
 
+### 2b. Check what changed since last session
+
+Run `git log --oneline --since="<last session date>"`. Flag any `state/` or context files modified since your last session — they may hold updates from another parallel session or a manual edit you should read before starting.
+
 ### 3. Pull live data from Google Workspace (if MCP available)
 
 If the `google-workspace` MCP server is connected, pull live context. Fall back to markdown files if not.

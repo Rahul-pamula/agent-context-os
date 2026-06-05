@@ -6,36 +6,57 @@ allowed-tools: Read, Glob, Grep, Bash
 
 # /context — Find Relevant Files by Topic
 
+Find and load the right context files for any topic, even when it spans multiple domains.
+
 ## Instructions
 
-The user will provide a topic keyword or phrase. Find and load relevant context files.
+### 1. Get the topic
+The user will say `/context <topic>` (e.g., `/context auth rewrite`, `/context q3 planning`).
 
-### 1. Search strategy (run in parallel)
+### 2. Search (three strategies, in parallel)
 
-- **Filename match:** `Glob` for files containing the topic keyword in their name
-- **Header match:** `Grep` for `# ` headings containing the topic in `.md` files
-- **Content match:** `Grep` for the topic keyword across all `.md` files
+**Tag match** — grep for the topic in YAML `tags:` frontmatter (the strongest signal — the file was explicitly categorized):
+```bash
+grep -rl "tags:.*<keyword>" --include="*.md" .
+```
 
-### 2. Rank and filter
+**Filename match** — `Glob` for files with the topic keyword in their name.
 
-- Prioritize files in this order: skills > identity/career > state > sessions
-- Exclude `sessions/` files unless the topic is very recent (last 3 days)
-- Exclude `REPO_MAP.md`, `CHANGELOG.md`, and `node_modules/`
+**Header match** — `Grep` for `# `/`## ` headings containing the topic across `.md` files. Skip `sessions/` (unless the topic is from the last 3 days), `node_modules/`, and any vendored docs.
 
-### 3. Load and summarize
+### 3. Rank and present
+Combine, deduplicate, and rank by signal strength:
 
-- Read the top 3-5 most relevant files
-- Give a 1-line summary of what each file contains relative to the topic
-- Ask the user if they want to load additional files or dive deeper into any result
+1. **Tag** matches (highest — explicitly categorized)
+2. **Filename** matches
+3. **Header** matches (lowest — may be incidental)
 
-### Output format
+Present a ranked list with the match type and line count:
 
 ```
-Found 4 files related to "[topic]":
+CONTEXT FILES for "[topic]":
 
-1. **skills/data-analysis/SKILL.md** — Skill for CSV/JSON analysis with visualization
-2. **career/professional-background.md** — Career timeline mentioning [topic]
-3. **state/current.md** — Active priority related to [topic]
+  [tag]  path/to/file.md — [first line or description] ([N] lines)
+  [name] path/to/file.md — [first line or description] ([N] lines)
+  [hdr]  path/to/file.md — [first line or description] ([N] lines)
 
-Loaded files 1-3. Want me to go deeper on any of these?
+Load all? (or specify which by number)
 ```
+
+### 4. Load selected files
+Read the selected files and give a one-line summary of what each contains relative to the topic. If more than 3 are selected, read only the first 30 lines of each and offer to load full content on request.
+
+## Tag Convention
+
+Context files (not skills or commands) can carry a `tags:` line in YAML frontmatter so `/context` can find them by category rather than by incidental keyword:
+
+```yaml
+---
+tags: [auth, security, backend]
+---
+```
+
+Tags are lowercase, short, and descriptive. Group them however fits your work — for example:
+- **Domains:** the areas you work in (`backend`, `marketing`, `research`)
+- **Topics:** recurring subjects (`auth`, `pricing`, `onboarding`)
+- **Types:** the kind of doc (`strategy`, `reference`, `planning`)
