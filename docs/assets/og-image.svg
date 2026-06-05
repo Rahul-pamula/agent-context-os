@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1020"/>
+      <stop offset="100%" stop-color="#11182c"/>
+    </linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1c2740" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#grid)" opacity="0.5"/>
+
+  <!-- left accent bar -->
+  <rect x="0" y="0" width="6" height="640" fill="#7c5cff"/>
+
+  <!-- prompt symbol -->
+  <text x="80" y="148" font-family="JetBrains Mono, Fira Code, Menlo, monospace" font-size="42" fill="#7c5cff">$</text>
+
+  <!-- repo name -->
+  <text x="120" y="148" font-family="JetBrains Mono, Fira Code, Menlo, monospace" font-size="56" font-weight="700" fill="#ffffff">claude-context-os</text>
+
+  <!-- divider -->
+  <line x1="80" y1="200" x2="320" y2="200" stroke="#7c5cff" stroke-width="2"/>
+
+  <!-- tagline -->
+  <text x="80" y="290" font-family="Inter, -apple-system, Segoe UI, sans-serif" font-size="44" font-weight="600" fill="#e6e9f2">An operating system for your Claude context.</text>
+  <text x="80" y="350" font-family="Inter, -apple-system, Segoe UI, sans-serif" font-size="44" font-weight="600" fill="#e6e9f2">Version-controlled, self-curating, always current.</text>
+
+  <!-- sub bullets -->
+  <text x="80" y="438" font-family="Inter, -apple-system, Segoe UI, sans-serif" font-size="24" fill="#9aa3b8">+ Files Claude Code reads directly — and claude.ai reads as knowledge</text>
+  <text x="80" y="476" font-family="Inter, -apple-system, Segoe UI, sans-serif" font-size="24" fill="#9aa3b8">+ Auto-memory that grows, with a /dream curator that keeps it fresh</text>
+  <text x="80" y="514" font-family="Inter, -apple-system, Segoe UI, sans-serif" font-size="24" fill="#9aa3b8">+ A /start &#8594; work &#8594; /end session loop</text>
+
+  <!-- footer -->
+  <text x="80" y="588" font-family="JetBrains Mono, Fira Code, Menlo, monospace" font-size="22" fill="#6e7898">github.com/conorbronsdon/claude-context-os</text>
+
+  <!-- terminal cursor -->
+  <rect x="1170" y="568" width="14" height="26" fill="#7c5cff">
+    <animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite"/>
+  </rect>
+</svg>
