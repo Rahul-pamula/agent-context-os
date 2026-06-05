@@ -11,7 +11,7 @@
 - `/reconcile` — brought up to the stronger generic version: cross-branch `git log --graph` + stash scan, per-file conflict diffing, state-consistency and orphaned-reference checks, an SSOT pass wired to `check-links.sh`, a structured report, and Design Principles.
 - `/start` — adds a "what changed since last session" `git log` scan so updates from a parallel session or manual edit surface before the briefing.
 ### Removed
-- **`REPO_MAP.md` is no longer committed or CI-gated.** It's now gitignored and generated on demand (`scripts/generate-repo-map.sh`) as a local overview for claude.ai uploads. The "REPO_MAP up to date" CI gate was structurally unsatisfiable — the file embeds the HEAD commit hash and a per-file date column that advances on every commit — so it had failed on every run. Mirrors how personal-context handles it. `fetch-depth: 0` and the PR-template checklist item dropped with it.
+- **`REPO_MAP.md` is no longer committed or CI-gated.** It's now gitignored and generated on demand (`scripts/generate-repo-map.sh`) as a local overview for claude.ai uploads. The "REPO_MAP up to date" CI gate was structurally unsatisfiable — the file embeds the HEAD commit hash and a per-file date column that advances on every commit — so it had failed on every run. `fetch-depth: 0` and the PR-template checklist item dropped with it.
 ### Added
 - `docs/assets/og-image.{svg,png}` — social-preview card (1280×640), updated to the `claude-context-os` name, the new "operating system" tagline, and the correct URL. The old preview still showed `claude-context-starter`. Upload the PNG via Settings → Social preview.
 ### Changed
