@@ -52,6 +52,11 @@ for f in "${MD[@]}"; do
     case "$tgt" in
       http://*|https://*|mailto:*|tel:*|//*) continue ;;
     esac
+    # Skip placeholder tokens: a bare word with no path separator and no file
+    # extension (e.g. (LINK), (URL), (TBD)) is a fill-in marker, not a real path.
+    if [[ "$tgt" != */* && "$tgt" != *.* ]]; then
+      continue
+    fi
     # Leading / is GitHub repo-root-relative; everything else is file-relative.
     if [[ "$tgt" == /* ]]; then
       path=".$tgt"
