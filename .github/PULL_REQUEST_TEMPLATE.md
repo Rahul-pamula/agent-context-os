@@ -13,5 +13,4 @@
 ### Repo hygiene
 - [ ] No sensitive data committed (passwords, API keys, tokens)
 - [ ] `CHANGELOG.md` updated
-- [ ] `REPO_MAP.md` regenerated (`bash scripts/generate-repo-map.sh`)
 - [ ] CI passes

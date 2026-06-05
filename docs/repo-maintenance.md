@@ -18,4 +18,4 @@ Run `scripts/validate-skills.sh` before pushing to check skill structure and cat
 
 ## Repo Map
 
-After adding or removing files, run `scripts/generate-repo-map.sh` to regenerate `REPO_MAP.md`.
+`REPO_MAP.md` is a generated, **gitignored** artifact — handy as a single-file overview to paste into a claude.ai project, but it goes stale fast and isn't worth committing or gating in CI (the per-file date column makes it churn on every commit). Run `scripts/generate-repo-map.sh` on demand when you want a fresh local copy; don't commit it.

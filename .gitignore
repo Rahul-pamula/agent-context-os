@@ -20,3 +20,6 @@
 
 # Node (if you ever run scripts)
 node_modules/
+
+# Generated on demand for claude.ai uploads — not committed (goes stale fast)
+REPO_MAP.md
