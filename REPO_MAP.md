@@ -1,6 +1,6 @@
 # Repo Map
 
-Generated: 2026-06-05 | Commit: 7b81d2d (2026-06-05)
+Generated: 2026-06-05 | Commit: 869d2ed (2026-06-05)
 
 ---
 
@@ -19,7 +19,7 @@ Generated: 2026-06-05 | Commit: 7b81d2d (2026-06-05)
 
 | File | Lines | Last Modified | Description |
 |------|-------|---------------|-------------|
-| `CHANGELOG.md` | 131 | 2026-06-05 | Changelog |
+| `CHANGELOG.md` | 133 | 2026-06-05 | Changelog |
 | `CLAUDE.md` | 73 | 2026-05-11 | [Your Name] — Context |
 | `README.md` | 247 | 2026-06-05 | claude-context-os |
 | `ROUTING.md` | 32 | 2026-03-20 | Context Routing |
@@ -48,7 +48,7 @@ Generated: 2026-06-05 | Commit: 7b81d2d (2026-06-05)
 | `commands/context.md` | 41 | 2026-03-08 | /context — Find Relevant Files by Topic |
 | `commands/dream-apply.md` | 116 | 2026-05-11 | /dream-apply — review + apply a curator pass |
 | `commands/dream.md` | 106 | 2026-05-11 | /dream — autonomous memory curator pass |
-| `commands/end.md` | 56 | 2026-03-08 | /end — Close Session |
+| `commands/end.md` | 84 | 2026-03-08 | /end — Close Session |
 | `commands/reconcile.md` | 51 | 2026-03-08 | /reconcile — Drift Detection |
 | `commands/recover.md` | 126 | 2026-03-08 | /recover — Worktree & Branch Cleanup |
 | `commands/setup.md` | 103 | 2026-03-08 | /setup — Interactive Onboarding |

@@ -87,7 +87,7 @@ claude
 | `/setup` | First time | Interactive onboarding — builds all your context files |
 | `/start` | Beginning of session | Loads state, pulls live data, gives you a briefing |
 | `/update` | Mid-session | Quick checkpoint — saves progress without closing |
-| `/end` | End of session | Logs what happened, updates state for next time |
+| `/end` | End of session | Logs what happened, updates state, and proposes auto-memory updates |
 | `/today` | Start of day | Lighter heartbeat — staleness check, calendar, priorities |
 | `/capture` | When inbox has items | Triages raw notes from `inbox/` into the right files |
 | `/context` | Any time | Finds relevant context files by topic keyword |

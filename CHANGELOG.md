@@ -4,9 +4,11 @@
 ### Added
 - `scripts/check-links.sh` — deterministic broken-link checker. Walks every inline link in tracked markdown, skips fenced/inline code and external URLs, and fails on any local target that doesn't resolve. Pure bash + awk + git; catches SSOT drift when a cross-referenced file is renamed or moved. Wired into `.github/workflows/validate.yml`.
 - `docs/first-skill.md` — five-minute hand-held tutorial: copy a command, change three things, run it. Lowers the activation barrier for building your first skill.
+- `/end` step 6 — **Propose auto-memory updates.** `/end` now scans the session for durable, cross-conversation patterns and proposes 0–2 additions to Claude Code's auto-memory (`MEMORY.md`), with a friction-point check ("was there a friction point a memory entry would have prevented?"). Closes the capture→curate loop: the repo shipped the auto-memory spec and `/dream` curation, but nothing in the daily loop wrote to memory.
 ### Changed
-- `.github/workflows/validate.yml` — adds a "Check for broken local links" step.
-- `README.md` — adds a one-sentence summary up top, a "Start small" onboarding nudge, a License section, links the new first-skill tutorial, and documents `check-links.sh` in the Validation section.
+- **Renamed `claude-context-starter` → `claude-context-os`** (old GitHub URLs redirect). Self-references, About, and topics updated to the "os" framing.
+- `.github/workflows/validate.yml` — adds a "Check for broken local links" step; deepens checkout (`fetch-depth: 0`) and ignores the volatile REPO_MAP header so the long-broken "REPO_MAP up to date" gate can pass; bumps `actions/checkout` to v5.
+- `README.md` — centered hero + badge row (stars, MIT, Built-for-Claude-Code, live CI status, X), a "See it work" `/start` demo, a "Start small" nudge, a License section, the first-skill tutorial link, and `check-links.sh` in the Validation section.
 
 ## [0.9.0] — Parallel-session hooks + skill-creator
 ### Added
