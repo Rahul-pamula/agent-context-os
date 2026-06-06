@@ -1,30 +1,36 @@
 ---
-name: update
+command: update
 description: Mid-session checkpoint — save progress without ending the session
-allowed-tools: Read, Write, Edit, Glob, Bash
+x-source: skills-sync/commands/update.md
+x-source-version: 10497e0
 ---
 
-# /update — Mid-Session Checkpoint
+# /update — Quick Checkpoint
 
-Quick state save. Use when you've made progress and want to capture it without ending the session.
+Lightweight save without closing the session. Use when switching tasks or after completing something significant.
 
 ## Instructions
 
-### 1. Get today's date
-Run `date +%Y-%m-%d` and store as TODAY.
+### 1. Scan recent conversation
+Identify in 30 seconds:
+- What was just worked on
+- Any decisions made
+- Any state changes needed
 
 ### 2. Append to session log
-Create or update `sessions/{TODAY}.md` with a timestamped checkpoint:
+Run `date +%Y-%m-%d` for TODAY, `date +%H:%M` for TIME.
+
+Append to `sessions/{TODAY}.md`:
 
 ```markdown
-## Checkpoint — HH:MM
-- [What was done since last checkpoint or session start]
-- [Any decisions or conclusions]
+## Update: {TIME}
+- {what was worked on, 1-3 bullets max}
 ```
 
-### 3. Update state/current.md
-- Refresh "Recent context" with current status
-- Update `**Last Updated:**` to today's date
+Create the file with a header if it doesn't exist yet.
 
-### 4. Continue working
-No need to confirm or summarize — just save and keep going. Acknowledge briefly: "Checkpoint saved."
+### 3. Update state if something changed
+Only touch `state/current.md` if a priority shifted, a thread opened or closed, or a task was completed. Skip otherwise.
+
+### 4. Confirm
+One line: "Checkpointed: {brief description}"

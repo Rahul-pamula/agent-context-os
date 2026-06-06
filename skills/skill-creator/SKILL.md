@@ -1,11 +1,13 @@
 ---
 name: skill-creator
-description: Generate a new skill file and command routing file for this repo from a plain-language description of what the skill should do.
+description: Generate a new Claude Code skill file from a plain-language description. Scaffolds the SKILL.md, command file, and CLAUDE.md additions.
+x-source: skills-sync/skills/skill-creator/SKILL.md
+x-source-version: 10497e0
 ---
 
-# skill-creator — Build New Skills Fast
+# /skill-creator — Build New Skills Fast
 
-Takes a plain-language description of a task and generates a ready-to-ship skill: the SKILL.md, the command routing file, and the CLAUDE.md additions needed to wire it in.
+Takes a plain-language description of a task and generates a ready-to-use Claude Code skill: the SKILL.md instruction file, the command routing file, and the CLAUDE.md additions needed to wire it in.
 
 ## When to Use
 
@@ -13,91 +15,98 @@ Takes a plain-language description of a task and generates a ready-to-ship skill
 - "Build me a slash command for Y"
 - "Add a skill for [recurring task I do]"
 
-## Before You Start
-
-Read:
-
-- `docs/agent-template.md` — canonical file format and pre-ship checklist
-- `CLAUDE.md` — current routing, so the new skill doesn't duplicate an existing one
-- The most relevant existing skill in `writing/skills/` or `projects/*/skills/` — for style reference
-
 ## Instructions
 
 ### 1. Clarify the skill
 
 Ask (or infer from context):
-
-- **Name**: what should the slash command be called? (lowercase, hyphenated)
-- **Trigger**: when should this skill activate? What does the user say or ask?
-- **Input**: what does the skill need to work? (a link, a transcript, a filename, etc.)
-- **Output**: what does it produce? (a draft, a log entry, a summary, a file?)
-- **Tools needed**: Read, Write, Edit, Bash, Glob, WebFetch?
+- **Name**: What should the slash command be called? (lowercase, hyphenated)
+- **Trigger**: When should this skill activate?
+- **Input**: What does the skill need to work? (files, user input, MCP data)
+- **Output**: What does it produce? (files, terminal output, external actions)
+- **Tools needed**: Which Claude Code tools will it use? (Read, Write, Edit, Bash, Glob, Grep, WebFetch, MCP tools)
 
 ### 2. Draft the SKILL.md
 
-Follow the template in `docs/agent-template.md` exactly. Include:
+Create a skill file with this structure:
 
-- YAML frontmatter with `name` and `description` (60+ chars, specific enough that Claude can decide whether the skill is relevant from the description alone)
-- Clear "When to Use" section
-- Step-by-step instructions
-- Output format spec, if the skill produces something
+```markdown
+---
+name: [skill-name]
+description: [One line, 60+ characters. Specific enough that Claude knows when to use it.]
+---
 
-Place it at one of:
+# /[skill-name] — [Short Title]
 
-- `writing/skills/<name>/SKILL.md` — writing/content skills
-- `projects/<project>/skills/<name>/SKILL.md` — project-scoped skills
-- `skills/<name>/SKILL.md` — general/meta skills (like this one)
+[1-2 sentence overview of what this skill does and when to use it.]
+
+## When to Use
+
+- [Trigger condition 1]
+- [Trigger condition 2]
+
+## Instructions
+
+### Step 1: [First action]
+[Clear, specific instructions. Include exact commands, file paths, or tool calls.]
+
+### Step 2: [Next action]
+[Continue with sequential steps.]
+
+### Step N: Output
+[Define the expected output format.]
+
+## Design Principles
+- [Key principle 1]
+- [Key principle 2]
+```
+
+**Quality checklist for the SKILL.md:**
+- [ ] Frontmatter has `name` and `description` (description is 60+ chars)
+- [ ] Instructions are step-by-step, not paragraph prose
+- [ ] Each step names the specific tool or command to use
+- [ ] Output format is defined (not left ambiguous)
+- [ ] Any external state changes require user confirmation
+- [ ] No hardcoded paths, IDs, or credentials — use config files or environment variables
 
 ### 3. Draft the command routing file
 
-Short file in `commands/<name>.md` following the template in `docs/agent-template.md`. Frontmatter: `name`, `description`, `allowed-tools`. Body: one or two lines that load the SKILL.md.
+Create a short file for `.claude/commands/[name].md`:
+
+```markdown
+---
+name: [skill-name]
+description: [Same as SKILL.md description]
+allowed-tools: [List of tools the skill needs]
+---
+
+Load and follow the instructions in `[path/to/SKILL.md]`.
+```
 
 ### 4. Draft the CLAUDE.md additions
 
-Two additions:
+Two additions to propose:
+1. A row in the slash command table (if one exists)
+2. A routing rule in the "When to Load" section (if applicable)
 
-1. A row in the slash command table: `| /<name> | <brief description> |`
-2. A routing rule in the appropriate section of "When to Load Additional Context" (if applicable)
+### 5. Pre-ship checklist
 
-### 5. Pre-Ship Checklist
-
-Before presenting, verify the new skill satisfies all of these:
-
-- [ ] Frontmatter `description` is specific (60+ chars) — vague descriptions degrade routing
-- [ ] MCP calls (if any) have explicit limits — see `docs/mcp-efficiency.md`
-- [ ] Confirmation gate on any action that changes external state — see `docs/safety-contract.md`
-- [ ] Writing skills load `writing/skills/avoid-ai-writing/SKILL.md` when producing external content
-- [ ] Memory writes follow `docs/auto-memory.md` (typed entries, MEMORY.md cap)
-- [ ] Command stub created in `commands/`
-- [ ] CLAUDE.md slash command table updated
-- [ ] CHANGELOG.md entry added under `[Unreleased]`
-- [ ] Runs cleanly via `bash scripts/validate-skills.sh`
+- [ ] Skill file follows the standard structure
+- [ ] Command routing file created
+- [ ] CLAUDE.md updated with new command
+- [ ] No hardcoded credentials, API keys, or personal paths — reference config/env instead
+- [ ] External state changes (file writes, API calls, git operations) require confirmation
+- [ ] Writing/content skills load a writing voice or style guide if available
+- [ ] CHANGELOG updated (if the repo keeps one)
 
 ### 6. Present for review
 
-Show all three artifacts in a single response. Ask: "Want me to commit these, or make any changes first?"
+Show all artifacts. Ask: "Want me to save these, or make any changes first?"
 
-### 7. On approval: commit and update CHANGELOG
+## Tips for Good Skills
 
-Create the files, run `bash scripts/validate-skills.sh`, then update CHANGELOG.md with a new entry listing all added files.
-
-## Output Format
-
-Present each file in a labeled fenced code block:
-
-````
-**skills/<name>/SKILL.md**
-```markdown
-[content]
-```
-
-**commands/<name>.md**
-```markdown
-[content]
-```
-
-**CLAUDE.md additions**
-```markdown
-[the two snippets to add]
-```
-````
+- **Be specific over flexible.** A skill that does one thing well beats one that tries to handle every edge case.
+- **Include the output format.** If the skill produces a report, show exactly what the report looks like.
+- **Gate destructive actions.** Anything that changes external state (git push, API calls, file deletes) should require explicit approval.
+- **Reference, don't duplicate.** If a skill needs data from a file, read the file — don't copy its contents into the skill.
+- **Keep it under 200 lines.** If a skill needs more, it's probably two skills.

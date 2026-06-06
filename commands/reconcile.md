@@ -1,33 +1,55 @@
 ---
 name: reconcile
-description: Scan for multi-session drift and SSOT violations. Run after parallel Claude Code sessions or when something feels off.
-allowed-tools: Read, Glob, Grep, Bash
+description: Tripwire check for multi-session drift. Scans state files, SSOT rules, and recent commits for inconsistencies caused by parallel Claude Code sessions. Run after parallel work, or when something feels off.
+allowed-tools: Read, Bash, Glob, Grep
+x-source: skills-sync/commands/reconcile.md
+x-source-version: 10497e0
 ---
 
 # /reconcile — Multi-Session Drift Check
 
-Running multiple Claude Code sessions in parallel (especially with worktrees) lets files drift out of sync. This scans for inconsistencies and proposes fixes. Read-only by default.
+Scan the repo for inconsistencies introduced by parallel Claude Code sessions (especially with worktrees). Read-only tripwire — it flags problems but doesn't fix them without approval.
 
-## When to use
-- After merging worktree branches back to the default branch
-- When something "feels off" after parallel work
-- After a crash where multiple sessions were open
-- As a periodic sanity check during heavy parallel workflows
+> This is the generic core. A consuming repo with single-source-of-truth rules (e.g. a pipeline file that other files reference) adds those specific cross-checks as its own overlay — see step 4.
 
 ## Instructions
 
-### 1. Scan recent history across all branches
+### 0. Orientation (run FIRST)
+
+Scope the check before reading any files:
 
 ```bash
-git log --all --oneline --since="24 hours ago" --graph
+REPO_ROOT=$(git rev-parse --show-toplevel)
+find "$REPO_ROOT" -name "*.md" -mtime -1 -not -path "*/node_modules/*" | sort   # recently modified
+git -C "$REPO_ROOT" log --oneline -10
+```
+
+Focus the reconcile on files that actually changed recently.
+
+### 1. Pull latest
+
+```bash
+cd "$REPO_ROOT" && git pull --rebase 2>&1 || echo "pull failed — check for conflicts"
+```
+
+If pull fails with conflicts, stop and report them — that's the #1 signal of a parallel-session collision.
+
+### 2. Uncommitted / cross-session changes
+
+```bash
+git status --short
 git stash list
 ```
 
-Look for: multiple branches touching the same files, unmerged branch commits, forgotten stashes, conflicting changes.
+Flag unstaged changes you didn't make ("likely from another session — review before proceeding") and any forgotten stashes.
 
-### 2. Check for file-level conflicts
+### 3. Cross-branch scan + file-level conflicts
 
-For each file modified on more than one branch, diff the versions:
+```bash
+git log --all --oneline --since="24 hours ago" --graph
+```
+
+Look for multiple branches touching the same files and unmerged branch commits. For each file modified on more than one branch, diff the versions:
 
 ```bash
 git diff <default-branch>..<branch> -- <file>
@@ -35,51 +57,51 @@ git diff <default-branch>..<branch> -- <file>
 
 Flag where both branches changed the same lines, one branch deleted what another modified, or `**Last Updated:**` fields diverged.
 
-### 3. Check state-file consistency
-
-- **Duplicate entries** — the same task or decision logged twice from different sessions
-- **Contradictory state** — `state/current.md` priorities vs `state/weekly-priorities.md`; a `TODO.md` task that contradicts `state/blockers.md`; one session marked something done while another added it in-progress
-- **Timestamp drift** — `**Last Updated:**` dates that don't match the most recent actual edit
-- **Orphaned references** — sections pointing at files or items removed in another session
-
-### 4. Check SSOT violations
+### 4. SSOT violations
 
 If the project has single-source-of-truth rules (a fact lives in one file; others reference it):
 
-- Scan for the same fact duplicated across files with different values
-- Confirm cross-references point to files that still exist (`bash scripts/check-links.sh` covers tracked markdown)
+- Scan for the same fact duplicated across files with **different values** (DUPLICATE)
+- Flag a cross-reference that hardcoded a value instead of pointing at the source (STALE COPY)
+- Confirm cross-references resolve to files that still exist — `bash scripts/check-links.sh` covers tracked markdown if present
 
-### 5. Report
+A consuming repo lists its canonical-fact table here in its own overlay; the generic core only checks the *pattern*.
+
+### 5. State-file consistency
+
+Read the state files (e.g. `state/current.md`, `state/weekly-priorities.md`, `state/blockers.md`) and check:
+
+- **Duplication** — an actionable task in `current.md` that should only live in `TODO.md`; the same item logged twice from different sessions
+- **Contradiction** — one file marks something done while another still has it open
+- **Timestamp drift** — `**Last Updated:**` older than the most recent commit touching that file
+- **Orphaned references** — sections pointing at files or items another session removed
+
+### 6. Report
 
 ```
 RECONCILE — [DATE]
 
-BRANCHES CHECKED:
-- [branch — last commit date]
-
-FILE CONFLICTS:
-- [file] — modified on [branch1] and [branch2] — [conflict type]
-
-STATE DRIFT:
-- [issue]
-
-SSOT VIOLATIONS:
-- [duplicated fact] — in [file1] and [file2]
-
-PROPOSED FIXES:
-1. [fix]
-
+GIT: pull [clean/conflicts] · uncommitted [none/list] · branches [N, collisions?]
+SSOT: [PASS / violations]
+STATE: [PASS / issues]
 OVERALL: [CLEAN / N issues found]
 ```
 
-### 6. Apply fixes (with approval only)
+List each issue with a proposed fix. Wait for approval before changing anything.
 
-Present each fix individually and wait for approval. Common fixes: keep the newer version of a conflicting file, remove duplicates (keep the more detailed one), correct timestamps to the actual last-edit date, or resolve an SSOT violation by keeping the canonical source and updating the references.
+### 7. Fix mode (with approval only)
+
+On explicit "fix all" / "clean it up", apply the proposed fixes and commit:
+
+```
+reconcile: fix [N] drift issues from parallel sessions
+```
 
 ## Design Principles
 
-- **Read-only by default.** Report, then wait for approval.
+- **Read-only by default.** Never edit without explicit approval.
 - **Trust recent over old.** When two versions conflict, the more recent edit is usually right.
-- **Preserve intent.** Don't auto-resolve — different sessions may have had different goals.
-- **Fast.** Git commands and file reads only — under 30 seconds.
+- **Fast.** Targeted checks only — under 30 seconds. Don't deep-read every file.
+- **Specific.** Every flag names the file, the line, and the conflict. "Something seems off" is not a flag.
+- **No false alarms.** A cross-reference that correctly points at its source is fine — only flag real value mismatches or duplicated facts.
 - **Complement `/recover`.** Reconcile checks *content* drift; `/recover` handles *structural* worktree and branch cleanup.
