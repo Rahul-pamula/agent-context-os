@@ -1,9 +1,9 @@
 ---
 name: reconcile
-description: Tripwire check for multi-session drift. Scans state files, SSOT rules, and recent commits for inconsistencies caused by parallel Claude Code sessions. Run after parallel work, or when something feels off.
+description: Tripwire check for multi-session drift. NOT read-only — step 1 runs `git pull --rebase` to sync the branch and surface collisions (a failed rebase is the signal), then scans state files, SSOT rules, and recent commits for parallel-session inconsistencies. Run after parallel work, or when something feels off.
 allowed-tools: Read, Bash, Glob, Grep
 x-source: skills-sync/commands/reconcile.md
-x-source-version: 10497e0
+x-source-version: c9b6c33
 ---
 
 # /reconcile — Multi-Session Drift Check
