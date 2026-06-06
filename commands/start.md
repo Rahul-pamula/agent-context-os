@@ -2,6 +2,8 @@
 name: start
 description: Start a session — load state and get a briefing on current priorities
 allowed-tools: Read, Bash, Glob, mcp__google-workspace
+x-source: skills-sync/commands/start.md
+x-source-version: 173c978
 ---
 
 # /start — Begin Session
@@ -14,6 +16,8 @@ Run `date +%Y-%m-%d` and store as TODAY. Note the day of week.
 ### 2. Load context (read in order)
 - `CLAUDE.md` — routing rules and slash commands
 - `state/current.md` — active priorities and open threads
+- `state/decisions.md` — scan the last ~5 entries for recent-decision awareness
+- `state/blockers.md` — what's waiting on external dependencies
 - `state/weekly-priorities.md` — what matters most this week
 - `sessions/{TODAY}.md` — if it exists, resume today's session; if not, check for the most recent file in `sessions/` for continuity; if `sessions/` is empty, start fresh
 - See `sessions/README.md` for how session files work
