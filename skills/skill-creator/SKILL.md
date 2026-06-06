@@ -2,7 +2,7 @@
 name: skill-creator
 description: Generate a new Claude Code skill file from a plain-language description. Scaffolds the SKILL.md, command file, and CLAUDE.md additions.
 x-source: skills-sync/skills/skill-creator/SKILL.md
-x-source-version: 10497e0
+x-source-version: ea93149
 ---
 
 # /skill-creator — Build New Skills Fast
@@ -71,7 +71,7 @@ description: [One line, 60+ characters. Specific enough that Claude knows when t
 
 ### 3. Draft the command routing file
 
-Create a short file for `.claude/commands/[name].md`:
+Create a short file for `commands/[name].md`:
 
 ```markdown
 ---
