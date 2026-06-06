@@ -1,6 +1,6 @@
 # Dream — autonomous memory curator
 
-**Status:** v0.1 substrate. First curator prompt: rot detection.
+**Status:** v0.2. Curators: rot (content), merge + split (structural).
 
 ## Why this exists
 
@@ -11,8 +11,9 @@ Memory accumulates faster than humans review it. The only forcing functions are 
 3. **Contradictions** — two memory rules giving conflicting guidance, both still indexed
 4. **Untapped patterns** — recurring session-log themes that never got promoted to memory
 5. **Adherence drift** — sessions ignoring rules they should have followed
+6. **Shape drift** — files that bundle unrelated concerns, or several files that say the same thing
 
-These are LLM-shaped tasks: pattern detection across 7-30 days of episodic memory, compression into semantic rules, contradiction detection.
+These are LLM-shaped tasks: pattern detection across 7-30 days of episodic memory, compression into semantic rules, contradiction detection, structural consolidation.
 
 The bet: compounding pattern-capture over months beats waiting for the perfect memory product. Curator file shapes (markdown + JSON proposals) stay portable even if the runner gets thrown away.
 
@@ -31,7 +32,7 @@ The bet: compounding pattern-capture over months beats waiting for the perfect m
 │ LAYER 2: Curator pass (prompted)                                │
 │   /dream {curator-name}                                         │
 │   Curator prompts live in scripts/dream/prompts/                │
-│   {rot, pattern, contradiction, untapped, audit}.md             │
+│   {rot, merge, split, ...}.md                                   │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -59,7 +60,7 @@ The bet: compounding pattern-capture over months beats waiting for the perfect m
 2. **Easier prompt iteration.** Curator prompts are markdown files; tweak one, run again, no redeploy.
 3. **Structured-tool access.** `AskUserQuestion` for the apply step gives a real review UI rather than terminal Y/N.
 
-Tradeoff: can't run truly unattended. To schedule, use `/loop` or wire a remote agent via `/schedule` that fires `claude --headless /dream rot`.
+Tradeoff: can't run truly unattended without a headless run. See **Automation** below.
 
 ### Why git on the memory dir
 
@@ -69,7 +70,7 @@ Three load-bearing benefits once a curator runs autonomously:
 2. **Revert path.** A bad accept-all on `/dream-apply` is one `git revert` away.
 3. **Migration insurance.** `cp -r memory/ <new machine>` + `git log` keeps the full history.
 
-**Local-only repo. No remote.** Memory often contains personal or confidential context. If you need backup, snapshot to a private location separately.
+**Local-only repo. No remote.** Memory often contains personal or confidential context. For backup, see **Backup & recovery** below — snapshot to a private location, do not add a hosted remote.
 
 ### Storage layout
 
@@ -86,31 +87,24 @@ Three load-bearing benefits once a curator runs autonomously:
         └── inputs.json     ← reproducibility
 ```
 
-### Proposal schema (v0.1)
+### Proposal schema
 
-Each proposal is one of four actions: `modify`, `archive`, `add`, `flag`.
+Every proposal has `id`, `action`, `reasoning`, `evidence` (array, never empty), `confidence`. The rest varies by curator class:
 
-```json
-{
-  "id": "rot-001",
-  "action": "modify",
-  "target": "project_acme_migration.md",
-  "reasoning": "Memory says 'Acme migration awaiting approval.' state/blockers.md (2026-03-04 update) shows it shipped. Update memory to reflect shipped status.",
-  "evidence": [
-    "state/blockers.md L24: 'Acme migration shipped 2026-03-04'",
-    "sessions/2026-03-05.md: '...Acme migration deployed clean'"
-  ],
-  "current": "<excerpt of memory file>",
-  "proposed": "<rewritten excerpt>",
-  "confidence": "high"
-}
-```
+- **Content curators** (`rot`): `target`, `current_excerpt`, `proposed_excerpt`. Actions: `modify`, `archive`, `add`, `flag`.
+- **`merge`** (structural): `targets[]`, `survivor`, `merged_body`, `index_changes`, `archive_tombstones`, `net_index_lines`.
+- **`split`** (structural): `target`, `result_files[]`, `original_index_line`.
 
 Apply step honors `confidence`: `high` defaults to accept, `medium` shows full diff, `low` requires explicit edit.
 
 ## Curator catalog (build order)
 
-### v0.1: rot (ships with starter)
+Curators fall into two **classes**:
+
+- **Content curators** ask *"is this memory still true?"* — they compare memory against the world (state files, sessions, commits). `rot`, `pattern`, `contradiction`, `audit`.
+- **Structural curators** ask *"is this memory well-shaped?"* — they examine the shape of the memory set itself (detail files + the `MEMORY.md` index) and read no state/session inputs. `merge`, `split`.
+
+### v0.1: rot (content) — shipped
 
 **Question:** "For each project-type memory entry, does it still match the current state of the world?"
 
@@ -120,47 +114,71 @@ Apply step honors `confidence`: `high` defaults to accept, `medium` shows full d
 
 **Why first:** Easiest objective spec. Lowest false-positive cost ("no, this is still true" is cheap to dismiss). Runs against existing data, proves substrate value on day 1.
 
-### v0.2: pattern (next)
+### v0.2: merge + split (structural) — shipped
+
+**Questions:** merge — *"Do 2+ memories cover the same thing and always get recalled together?"* split — *"Has one file accreted 2+ unrelated concerns?"*
+
+**Inputs:** `memory/*.md` (all detail files) + `memory/MEMORY.md` (index) + `memory/ARCHIVE.md`. No state/session inputs.
+
+**Output actions:** `merge` (consolidate `targets` → `survivor`, write ARCHIVE tombstones, collapse index lines), `split` (divide `target` → `result_files`, expand index lines), `flag` (boundary is a judgment call).
+
+**Why second:** `MEMORY.md` drifts over its 100-line / loaded-budget cap; merge is the direct pressure-relief, and split enforces one-fact-per-file. Structural ops touch many files at once, so they lean hard on the git-revert safety net and human review. Guiding principle: **Focus Over Coverage** — never produce vaguer files just to hit a number; merge and split are opposing forces and a good pass leaves the other nothing to undo.
+
+### v0.3: pattern (content, later)
 
 **Question:** "What recurring frictions in the last 14 days of sessions don't have a memory entry yet?"
 
-**Inputs:** `sessions/*.md` (last 14d) + `memory/*.md` (to dedupe).
-
 **Output actions:** `add` (new memory candidate). Required-evidence floor: must appear in 3+ sessions to propose.
 
-### v0.3: contradiction (later)
+### v0.4: contradiction (content, later)
 
 **Question:** "Does memory contain rules that give conflicting guidance for the same situation?"
 
 **Output actions:** `flag` (always — never auto-resolve a contradiction; surface to the user).
 
-### v0.4: untapped (later)
+### v0.5: untapped (content, later)
 
 **Question:** "What recurring themes in session logs have never been raised into memory or a skill?"
 
 **Output actions:** `flag`.
 
-### v0.5: audit (later, possibly never)
+### v0.6: audit (content, later, possibly never)
 
 **Question:** "Did sessions in the last 7 days follow the rules in MEMORY.md?"
 
-**Risk:** Memory rules aren't structured enough to mechanically check adherence. May produce noise. Hold until v0.4 ships.
+**Risk:** Memory rules aren't structured enough to mechanically check adherence. May produce noise. Hold until v0.5 ships.
 
-## What this deliberately doesn't do (v0.1)
+## What this deliberately doesn't do
 
 - **No skill generation.** Skills stay manual via `/skill-creator` (or your own equivalent).
 - **No autonomous apply.** Review gate stays. Maybe never removed for high-stakes scopes.
 - **No vector store / SQLite / FTS.** Plain markdown + JSON. Smallest substrate that works.
-- **No scheduled trigger.** Manual `/dream rot` for v0.1. Schedule via `/loop` once the prompt stabilizes for your workflow.
+
+## Automation (optional)
+
+The curator never auto-applies, so automating the *propose* step is safe; apply stays human-gated.
+
+- **Passive nudge.** A `SessionStart` hook that computes days since the last `.dreams/` artifact and prints a one-line reminder when memory is stale-curated. It surfaces; it never runs a curator (hooks can't invoke Claude).
+- **Active unattended.** Schedule a headless run on your platform's scheduler. Two non-obvious gotchas:
+  1. **Headless can't run slash commands.** `claude -p "/dream rot"` treats the slash command as literal text — print mode is non-interactive. Pass a *plain prompt that points Claude at `commands/dream.md`* (the command file is itself the step-by-step spec).
+  2. **Permission posture.** Run with `--permission-mode dontAsk` plus an `--allowedTools` allowlist that includes the `Bash` tool **wholesale** — the command issues compound shell commands (`TS=$(date ...)`, `git add && git commit`) that prefix-pattern allowlists (`Bash(git:*)`) can't match, so a narrow list makes the run flail on denials. `dontAsk` still denies every non-shell tool. Never use `bypassPermissions` for an unattended loop.
+  - **Collision guard.** Gate the run so it doesn't fire while an interactive session is writing the same memory git (e.g. skip if another Claude process is running). A pass over a few dozen memories can take ~15 minutes.
+
+## Backup & recovery
+
+Two distinct failure modes; only one needs new infra.
+
+1. **Mistaken forgetting** (a bad `merge`/`split`/`archive` drops a fact) — **already covered by memory git.** Every `/dream-apply` commits before it changes anything, and structural ops use `git rm` (not destructive deletion), so absorbed/split-away content stays in history. Recovery is `git revert HEAD` or `git show HEAD~N:<file>`.
+2. **Machine loss** — local git can't help; you need an off-machine copy. Keep the no-remote rule (memory may hold confidential context) and use a `git bundle` instead of a hosted remote: `git bundle create memory-<date>.bundle --all` produces one restorable file (`git clone <bundle> memory`) you copy to private storage. Cadence: periodic, or after a large `/dream-apply`.
 
 ## Risks + mitigations
 
 | Risk | Mitigation |
 |---|---|
 | Curator hallucinates rot that's actually current | Required `evidence` array — every claim cites a state-file line or commit. Apply rejects empty-evidence proposals. |
-| Apply step accept-all destroys good memories | Git on memory dir → revert is one command. Apply shows full diff before each accept. |
+| Apply step accept-all destroys good memories | Git on memory dir → revert is one command. Apply shows full diff before each accept. Structural ops use `git rm`, never destructive delete. |
 | Memory + state files drift apart over time | Curator reads both each pass; rot detector specifically cross-references them. |
-| Confidential memory leaks via accidental `git push` | No remote configured. Pre-commit hook on memory git: refuse if any remote is added. (TODO.) |
+| Confidential memory leaks via accidental `git push` | No remote configured. Optionally a pre-commit hook on memory git that refuses if any remote is added. |
 
 ## Open questions
 
@@ -173,9 +191,10 @@ Apply step honors `confidence`: `high` defaults to accept, `medium` shows full d
 | Path | Role |
 |---|---|
 | `docs/dream-architecture.md` | This file. |
-| `docs/auto-memory.md` | Memory spec the curator operates on. |
 | `scripts/dream/README.md` | How to use, how to add curators. |
-| `scripts/dream/prompts/rot.md` | Rot-detector prompt body. |
+| `scripts/dream/prompts/rot.md` | Rot-detector prompt body (content class). |
+| `scripts/dream/prompts/merge.md` | Merge curator prompt body (structural class). |
+| `scripts/dream/prompts/split.md` | Split curator prompt body (structural class). |
 | `commands/dream.md` | `/dream {curator}` slash command. Default: `rot`. |
 | `commands/dream-apply.md` | `/dream-apply {timestamp}` slash command. |
 | `~/.claude/projects/<encoded-cwd>/memory/.git/` | Local-only repo for memory dir. Run `git init` there on first use. |

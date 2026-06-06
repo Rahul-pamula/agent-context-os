@@ -11,12 +11,16 @@ Substrate for curator passes against `~/.claude/projects/<encoded-cwd>/memory/`.
 /dream-apply {ISO-timestamp}  # walks the proposal, accept/reject/edit per item.
 ```
 
+Two curator **classes**: *content* (compare memory against the world — "is it still true?") and *structural* (examine the shape of the memory set itself — "is it well-shaped?").
+
 Curator catalog (build order):
-- `rot` (v0.1, ships with starter) — flag project memories that no longer match state files / recent commits
-- `pattern` (v0.2, planned) — propose new memories from recurring session-log frictions
-- `contradiction` (v0.3, planned) — flag memory rules giving conflicting guidance
-- `untapped` (v0.4, planned) — surface session-log themes never raised to memory
-- `audit` (v0.5, maybe) — flag sessions that ignored MEMORY.md rules
+- `rot` (content, v0.1, ships with starter) — flag project memories that no longer match state files / recent commits
+- `merge` (structural, v0.2) — consolidate overlapping memories into one entry; collapse redundant index lines (main relief for the MEMORY.md 100-line budget)
+- `split` (structural, v0.2) — divide multi-concern files into focused, single-responsibility ones
+- `pattern` (content, v0.3, planned) — propose new memories from recurring session-log frictions
+- `contradiction` (content, v0.4, planned) — flag memory rules giving conflicting guidance
+- `untapped` (content, v0.5, planned) — surface session-log themes never raised to memory
+- `audit` (content, v0.6, maybe) — flag sessions that ignored MEMORY.md rules
 
 ## First-time setup
 
@@ -43,11 +47,19 @@ No remote. The memory dir often contains personal or confidential context.
 
 ## Adding a new curator
 
-1. Write `prompts/{name}.md` with the curator's role + question + output schema (use `prompts/rot.md` as the template).
+1. Write `prompts/{name}.md` with the curator's role + question + output schema (use `prompts/rot.md` for a content curator, `prompts/merge.md` / `prompts/split.md` for a structural one).
 2. Add the curator name to the `/dream` slash command's accepted list.
 3. Run `/dream {name}`, review the artifact, iterate the prompt.
 4. Update `docs/dream-architecture.md` to mark the curator shipped.
 
+## Automation & backup (optional)
+
+The curator never auto-applies — it only produces a proposal artifact, so automating the *propose* step is safe. The apply step always stays human-gated.
+
+- **Nudge:** a `SessionStart` hook that warns when memory is stale-curated (days since the last `.dreams/` artifact) is the lowest-risk reminder. It surfaces; it never runs a curator.
+- **Unattended (advanced):** schedule a headless run on your platform's scheduler. Two gotchas worth knowing: (1) `claude -p "/dream rot"` does **not** invoke the slash command — print mode treats it as literal text, so pass a plain prompt that points Claude at `commands/dream.md` (the command file is the spec). (2) Run with `--permission-mode dontAsk` and an `--allowedTools` allowlist that includes the `Bash` tool wholesale (the command issues compound shell commands that prefix-pattern allowlists can't match) — never `bypassPermissions` for an unattended loop. Gate the run so it doesn't collide with an interactive session writing the same memory git.
+- **Off-machine backup:** the memory dir is local-only by design (no remote). For machine-loss insurance without a remote, `git bundle create memory.bundle --all` produces a single restorable file (`git clone memory.bundle memory`) you can copy to private storage. Don't push the memory repo to a hosted remote — it usually holds confidential context.
+
 ## Why slash commands, not Python
 
-Curator runs inside the existing Claude Code session — no separate API key, easier prompt iteration, structured-tool access for the apply step. Tradeoff: can't run truly unattended without `claude --headless`. Schedule via `/loop` once a prompt stabilizes for your workflow.
+Curator runs inside the existing Claude Code session — no separate API key, easier prompt iteration, structured-tool access for the apply step.

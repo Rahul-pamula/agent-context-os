@@ -21,7 +21,8 @@ Substrate background: `docs/dream-architecture.md`.
 
 ```
 PROJECT_KEY=$(pwd | sed 's|[:\\/]|-|g')
-DREAMS_ROOT="$HOME/.claude/projects/$PROJECT_KEY/memory/.dreams"
+MEMORY_DIR="$HOME/.claude/projects/$PROJECT_KEY/memory"
+DREAMS_ROOT="$MEMORY_DIR/.dreams"
 ```
 
 If `$ARGUMENTS` is `latest` or empty: pick the most recent subdir by name (ISO timestamps sort lexically). Otherwise treat `$ARGUMENTS` as the ISO timestamp.
@@ -40,36 +41,46 @@ Print the top of REPORT.md (header + counts). Don't dump the whole thing — the
 
 For each `proposals[i]`:
 
-a. Print:
+a. Print a header, then the fields relevant to the action:
    ```
    ─── Proposal {id} ({i+1}/{N}) ───
-   Action: {action}    Target: {target}    Confidence: {confidence}
+   Action: {action}    Confidence: {confidence}
    Reasoning: {reasoning}
    Evidence:
      - {evidence[0]}
      - {evidence[1]}
-
-   Current:
-     {current_excerpt}
-
-   Proposed:
-     {proposed_excerpt}
    ```
+   - **`modify`** (content): `Target: {target}` then `Current:` / `Proposed:` excerpts.
+   - **`archive`**: `Target: {target}` then the one-line archive reason.
+   - **`merge`** (structural): `Absorb: {targets}` → `Survivor: {survivor}` (net index lines: {net_index_lines}), then the `merged_body` and the `index_changes`.
+   - **`split`** (structural): `Target: {target}` → `Into: {result_files[*].name}`, then each child's `purpose` + `index_line` and its `body`.
+   - **`add` / `flag`**: target + proposed content (add) or the flagged concern (flag).
 
 b. Ask via `AskUserQuestion`:
    - Question: "Apply this proposal?"
    - Options: `Accept` / `Reject` / `Edit then accept` / `Skip rest`
    - For `high` confidence: order options Accept-first.
    - For `medium`: order Reject-first (forces reading).
-   - For `flag` (rot ambiguous): order Reject-first; treat Accept as opt-in only.
+   - For `flag`: order Reject-first; treat Accept as opt-in only.
 
 c. On `Accept`: apply the change.
-   - For `modify` action: use Edit tool on `memory/{target}`, replacing `current_excerpt` with `proposed_excerpt`.
-   - For `archive` action: append a row to `memory/ARCHIVE.md` (`| {today} | {target} | {one-line reason from proposal.reasoning} |`), then remove the corresponding line from `memory/MEMORY.md` index, then leave the file in place (don't delete the .md).
-   - For `add` action (pattern curator, v0.2): create new memory file with proposed content, add an index line to `memory/MEMORY.md`.
+   - For `modify` action: use Edit tool on `$MEMORY_DIR/{target}`, replacing `current_excerpt` with `proposed_excerpt`.
+   - For `archive` action: append a row to `$MEMORY_DIR/ARCHIVE.md` (`| {today} | {target} | {one-line reason} |`), then remove the corresponding line from `$MEMORY_DIR/MEMORY.md` index, then leave the file in place (don't delete the .md).
+   - For `add` action (pattern curator): create new memory file with proposed content, add an index line to `$MEMORY_DIR/MEMORY.md`.
+   - For `merge` action (structural):
+     1. Write the survivor: if `survivor` matches an existing file in `targets`, Edit/overwrite it with `merged_body`; if it's a new name, Write `$MEMORY_DIR/{survivor}`.
+     2. For each absorbed file in `targets` that is **not** the survivor: `git rm` it (content now lives in the survivor; the file stays recoverable from memory git history), and append its tombstone line from `archive_tombstones` to `$MEMORY_DIR/ARCHIVE.md`.
+     3. Apply `index_changes` to `$MEMORY_DIR/MEMORY.md`: remove each line in `index_changes.remove`, add `index_changes.add`.
+     4. Redirect dangling `[[wikilinks]]`: for any link the proposal flagged as pointing at an absorbed file, Edit it to point at the survivor. If the proposal didn't enumerate them, grep `$MEMORY_DIR` for the absorbed slugs and fix what you find.
+   - For `split` action (structural):
+     1. For each entry in `result_files`: Write `$MEMORY_DIR/{name}` with its `body`. If a child's `name` equals `target`, overwrite the original in place.
+     2. If `target` is **not** among the `result_files` names, `git rm` it (content redistributed; recoverable from history).
+     3. Apply index changes to `$MEMORY_DIR/MEMORY.md`: remove `original_index_line`, add each child's `index_line`.
    - For `flag` action: write nothing — flags are just surfacing.
 
-d. On `Edit then accept`: open `proposed_excerpt` for inline edit (use `AskUserQuestion` with an "Other" textarea option), then apply the edited version.
+   After any `merge`/`split`/`add`, check `wc -l $MEMORY_DIR/MEMORY.md`. If it now exceeds 100 lines, tell the user and suggest a follow-up `/dream merge` pass.
+
+d. On `Edit then accept`: open the proposed content for inline edit (use `AskUserQuestion` with an "Other" textarea option), then apply the edited version.
 
 e. On `Reject`: skip, log to `applied.json` as `rejected`.
 
@@ -91,7 +102,7 @@ f. On `Skip rest`: break the loop, log remaining as `deferred`.
 ### 6. Commit to memory git
 
 ```
-cd "$HOME/.claude/projects/$PROJECT_KEY/memory"
+cd "$MEMORY_DIR"
 git add -A
 git commit -m "dream-apply($TS): N accepted / M rejected / K deferred"
 ```
@@ -113,4 +124,5 @@ Reverting this pass: cd <memory dir> && git revert HEAD
 - Never push memory git anywhere. Local-only. If a remote has been added, refuse to apply and ask the user to remove it.
 - Never accept a proposal with empty `evidence`. Reject + warn that the curator violated the schema.
 - If applying a `modify` and the `current_excerpt` doesn't match the file (because memory was edited between dream + apply), Edit tool will error. Surface the conflict, ask the user to resolve manually.
+- Structural ops (`merge`/`split`) use `git rm`, never destructive deletion — absorbed/split-away content stays in memory git history, so a bad apply is one `git revert` away.
 - Don't auto-apply anything. Every proposal goes through review.

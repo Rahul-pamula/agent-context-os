@@ -12,11 +12,13 @@ Substrate background: `docs/dream-architecture.md`. Curator prompts: `scripts/dr
 
 ```
 /dream             # default curator: rot
-/dream rot         # explicit
-/dream pattern     # NOT YET BUILT (v0.2)
-/dream contradiction  # NOT YET BUILT (v0.3)
-/dream untapped    # NOT YET BUILT (v0.4)
-/dream audit       # NOT YET BUILT (v0.5)
+/dream rot         # content class: memory vs. world — "is it still true?"
+/dream merge       # structural class: consolidate overlapping memories + collapse index lines
+/dream split       # structural class: divide multi-concern files into focused ones
+/dream pattern     # NOT YET BUILT (v0.3)
+/dream contradiction  # NOT YET BUILT (v0.4)
+/dream untapped    # NOT YET BUILT (v0.5)
+/dream audit       # NOT YET BUILT (v0.6)
 ```
 
 ## Steps
@@ -43,12 +45,20 @@ Read `scripts/dream/prompts/{curator}.md` in full. This is your role + output sc
 
 ### 4. Gather inputs (read-only)
 
-Per the curator's required inputs (rot needs all of these):
+Read the **"Inputs you'll be given"** section of the loaded curator prompt and gather *exactly* those — extra inputs dilute the pass. There are two curator classes with different input needs:
+
+**Content curators** (`rot`; later `pattern` / `contradiction` / `audit`) — compare memory against the world:
 
 - `ls $MEMORY_DIR/*.md` and read each `project_*.md` / `reference_*.md` (skip `env_`, `feedback_`, `user_` unless the curator asks)
 - Read `state/decisions.md`, `state/blockers.md`, `state/current.md`
 - `find sessions/ -name "*.md" -mtime -14` and read each
 - `git log --since="14 days ago" --oneline` for the current repo
+
+**Structural curators** (`merge`, `split`) — examine the *shape of the memory set itself*; NO state/session inputs:
+
+- Read every `$MEMORY_DIR/*.md` detail file
+- Read `$MEMORY_DIR/MEMORY.md` (the index) and `$MEMORY_DIR/ARCHIVE.md`
+- Optionally `git -C "$MEMORY_DIR" log --since="30 days ago" --oneline` (accretion signal)
 
 ### 5. Write `inputs.json` to the dream dir
 
@@ -72,7 +82,13 @@ Following the role + question + classification logic in the loaded prompt, walk 
 
 ### 7. Write `proposals.json` to the dream dir
 
-Schema is defined in the curator prompt. Each proposal must have: `id`, `action`, `target`, `reasoning`, `evidence` (array, never empty), `current_excerpt`, `proposed_excerpt`, `confidence`.
+Schema is defined in the curator prompt and varies by curator class. Every proposal has `id`, `action`, `reasoning`, `evidence` (array, never empty), `confidence`. Beyond that:
+
+- **Content curators** (`rot`): `target`, `current_excerpt`, `proposed_excerpt`.
+- **`merge`**: `targets` (array), `survivor`, `merged_body`, `index_changes` ({remove[], add}), `archive_tombstones`, `net_index_lines`.
+- **`split`**: `target`, `result_files` (array of {name, purpose, index_line, body}), `original_index_line`.
+
+`/dream-apply` branches on `action` to apply each shape.
 
 ### 8. Write `REPORT.md` to the dream dir
 
