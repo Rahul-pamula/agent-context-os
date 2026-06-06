@@ -2,6 +2,8 @@
 name: today
 description: Morning heartbeat — briefing, deadline check, and staleness scan
 allowed-tools: Read, Write, Bash, Glob, mcp__google-workspace
+x-source: skills-sync/commands/today.md
+x-source-version: 173c978
 ---
 
 # /today — Morning Heartbeat
