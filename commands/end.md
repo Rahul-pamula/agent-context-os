@@ -2,6 +2,8 @@
 name: end
 description: End a session — log what happened and update state for next time
 allowed-tools: Read, Write, Edit, Glob, Bash
+x-source: skills-sync/commands/end.md
+x-source-version: 173c978
 ---
 
 # /end — Close Session
