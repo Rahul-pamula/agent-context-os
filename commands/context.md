@@ -2,6 +2,8 @@
 name: context
 description: Find relevant context files by topic. Use when you need to load files for a topic without a slash command, or when a task spans multiple domains.
 allowed-tools: Read, Glob, Grep, Bash
+x-source: skills-sync/commands/context.md
+x-source-version: 173c978
 ---
 
 # /context — Find Relevant Files by Topic
