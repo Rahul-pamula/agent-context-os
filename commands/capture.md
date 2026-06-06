@@ -2,6 +2,8 @@
 name: capture
 description: Triage raw notes from inbox/ into the correct repo locations. Use when you drop unstructured content and need it routed.
 allowed-tools: Read, Write, Edit, Glob, Bash
+x-source: skills-sync/commands/capture.md
+x-source-version: 173c978
 ---
 
 # /capture — Triage Inbox
