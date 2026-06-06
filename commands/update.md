@@ -1,8 +1,9 @@
 ---
-command: update
+name: update
 description: Mid-session checkpoint — save progress without ending the session
+allowed-tools: Read, Write, Edit, Bash
 x-source: skills-sync/commands/update.md
-x-source-version: 10497e0
+x-source-version: ea93149
 ---
 
 # /update — Quick Checkpoint
