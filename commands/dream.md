@@ -2,6 +2,8 @@
 name: dream
 description: Run a curator pass against the memory dir. Produces a proposal artifact for /dream-apply. Default curator: rot.
 allowed-tools: Read, Bash, Write, Glob, Grep
+x-source: skills-sync/commands/dream.md
+x-source-version: 10497e0
 ---
 
 # /dream — autonomous memory curator pass
