@@ -94,6 +94,7 @@ claude
 | `/reconcile` | After parallel work | Detects drift between sessions, SSOT violations |
 | `/recover` | After a crash | Scans orphaned worktrees and stale branches, offers safe cleanup |
 | `/content-shipped` | After publishing | Logs a published piece to `content/log.md` |
+| `/clean-ai-writing` | Before sharing anything | Loads the `avoid-ai-writing` skill and applies it to any content you specify |
 | `/dream` | Weekly-ish | Runs an autonomous curator pass over the memory dir (default: rot detection) |
 | `/dream-apply` | After `/dream` | Walks the proposal artifact, accept/reject/edit per item |
 | `/skill-creator` | Adding new skills | Generates the SKILL.md, command file, and CLAUDE.md additions from a plain-language description |
