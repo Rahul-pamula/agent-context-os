@@ -18,7 +18,7 @@ Most people paste their context into Claude's project instructions and forget ab
 
 This repo flips that. Your context lives in files. Claude Code reads them directly; claude.ai projects read the same files as uploaded knowledge. Update a file once, and every interface you use stays current. Build a skill once — like the `avoid-ai-writing` skill included here — and it works as a slash command in Claude Code and as uploaded context in any claude.ai project.
 
-It also gives Claude a persistent, file-based **auto-memory** that grows over time (typed entries for user/feedback/project/reference) plus a `/dream` curator that runs autonomous passes over the memory dir — rot detection, contradiction surfacing, pattern capture — and produces reviewable proposals before anything writes back. See [`docs/auto-memory.md`](docs/auto-memory.md) and [`docs/dream-architecture.md`](docs/dream-architecture.md).
+It also gives Claude a persistent, file-based **auto-memory** that grows over time (typed entries for user/feedback/project/reference) plus a `/dream` curator that runs autonomous passes over the memory dir — rot detection, contradiction surfacing, pattern capture — and produces reviewable proposals before anything writes back. See [`docs/auto-memory.md`](docs/auto-memory.md) and [`docs/dream-architecture.md`](docs/dream-architecture.md). The design bet is trust infrastructure for agents, applied to your own context: version control for provenance, a curator for memory hygiene, and reviewable proposals so nothing writes back unreviewed.
 
 ---
 
