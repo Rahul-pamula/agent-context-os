@@ -2,6 +2,8 @@
 
 These scripts run automatically during Claude Code sessions. Most are **advisory** — they print warnings but never block. `worktree-guard.sh` is the exception: it blocks edits to a guarded repo's primary checkout when more than one Claude session is running.
 
+The PreToolUse hooks require Python 3 to parse Claude's JSON input. Setup checks for it. The advisory hook emits a visible dependency warning if it is missing; a configured blocking guard fails closed rather than silently allowing an unsafe edit.
+
 ## Files
 
 | Hook | Event | Purpose | Blocks? |
@@ -22,33 +24,38 @@ Running multiple Claude Code sessions against the same repo simultaneously will 
 
 ## Configuration
 
-Hooks are configured in `.claude/settings.local.json`. See the example file in this directory or the [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code/hooks) for details.
+Hooks are enabled for the project by the checked-in `.claude/settings.json`. Personal overrides belong in `.claude/settings.local.json`. See the [Claude Code hooks docs](https://code.claude.com/docs/en/hooks) for details.
 
-### Example settings.local.json
+### Project settings shape
 
 ```json
 {
   "hooks": {
-    "SessionStart": [
-      {
-        "type": "command",
-        "command": "bash .claude/hooks/session-start.sh"
-      },
-      {
-        "type": "command",
-        "command": "bash .claude/hooks/branch-hygiene.sh"
-      }
-    ],
+    "SessionStart": [{
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-start.sh"
+        },
+        {
+          "type": "command",
+          "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/branch-hygiene.sh"
+        }
+      ]
+    }],
     "PreToolUse": [
       {
         "matcher": "Edit|Write",
-        "type": "command",
-        "command": "bash .claude/hooks/ssot-guard.sh \"$CLAUDE_FILE_PATH\""
-      },
-      {
-        "matcher": "Edit|Write",
-        "type": "command",
-        "command": "bash .claude/hooks/worktree-guard.sh"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ssot-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/worktree-guard.sh"
+          }
+        ]
       }
     ]
   }
