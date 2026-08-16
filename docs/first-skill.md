@@ -1,98 +1,112 @@
-# Write your first Claude Code command in 5 minutes
+# Write your first portable skill in 5 minutes
 
-A command is a recurring task exposed as a Claude Code slash command. This starter ships several (`/start`, `/end`, `/capture`, `/find-context`, and more). The fastest way to add one is to copy an existing command and change three things.
+A skill is a reusable instruction file. Provider-neutral procedures live under
+`.agents/skills/`; Codex discovers them there, while this repository gives
+Claude Code thin slash-command adapters where needed. Start with the portable
+procedure and add a host adapter only for host-specific presentation or tool
+permissions.
 
-We'll turn the included `/find-context` command into a new `/standup` — "what did I do yesterday, what's next, what's blocked." Same shape, different job. Swap in whatever recurring task you keep doing by hand; the steps are identical.
+This example builds a read-only standup skill. It reads repository state and returns a three-line briefing; it does not change files or call external services.
 
-> This builds a Claude Code-only command. A portable skill belongs in `.agents/skills/<name>/SKILL.md`, with a thin host adapter only when one is needed. See `projects/README.md` for the shared pattern.
+## 1. Look at a portable skill — 30 sec
 
-## 1. Look at the one you're copying — 30 sec
-
-Open `.claude/commands/find-context.md`. Every command has the same two parts:
+Open `.agents/skills/context-start/SKILL.md`. A portable skill has frontmatter
+followed by a focused procedure:
 
 ```markdown
 ---
-name: find-context
-description: Find relevant context files by topic. Use when you need to load files for a topic without a slash command.
-allowed-tools: Read, Glob, Grep, Bash
+name: context-start
+description: Load this workspace's current state, recent decisions, blockers, priorities, and session continuity, then give a concise briefing. Use only when the user explicitly asks to begin or resume a workspace session.
 ---
 
-# /find-context — Find Relevant Files by Topic
+# Start a workspace session
 
-## Instructions
-...
+<!-- Procedure abridged here; open the source for the complete workflow. -->
+1. Read the minimum relevant repository state.
+2. Summarize the current objective and next action.
+3. Keep the workflow read-only.
 ```
 
-- The block between the `---` lines is the **frontmatter**. Its `description` is what shows up when you type `/` in Claude Code, and it's the trigger Claude uses to decide when the command applies — so make it concrete.
-- Everything below is the **prompt** — plain instructions, usually a short numbered list. That's the whole command.
+- The block between the `---` lines is portable frontmatter. Keep only the
+  skill name and a concrete description of what it does and when to invoke it.
+- Everything below is the procedure. Keep provider-specific paths, grants, and
+  UI behavior out of this file.
 
-## 2. Copy it to a new name — 30 sec
+## 2. Create the new skill — 30 sec
 
-The file name *is* the command name. Copy it:
+The directory name is the skill name:
 
 ```bash
-cp .claude/commands/find-context.md .claude/commands/standup.md
+mkdir -p .agents/skills/standup
 ```
 
-(No terminal handy? Duplicate the file in your editor and rename it.) `standup.md` becomes `/standup`. Lowercase, dashes for spaces.
-
-## 3. Rewrite the frontmatter — 1 min
-
-Open your new `standup.md`. Change `name` to match the file, and rewrite `description` to what this command actually does. Trim `allowed-tools` to only what the job needs:
+Create `.agents/skills/standup/SKILL.md`:
 
 ```markdown
 ---
 name: standup
-description: Daily standup — what I shipped yesterday, what's next, what's blocked. Use at the start of a working day.
-allowed-tools: Read, Glob
+description: Summarize the latest session and current state as a three-line standup when the user explicitly asks for a standup briefing.
 ---
+
+# Standup
+
+1. Read the latest dated file in `sessions/` and `state/current.md`.
+2. Return exactly three labeled lines:
+   - **Shipped** — the most important completed result.
+   - **Next** — the single most important next action.
+   - **Blocked** — the current blocker, or `nothing recorded`.
+3. Do not modify files, infer live external data, or list lower-priority work.
 ```
 
-## 4. Rewrite the steps — 2 min
+Keep project facts in `projects/<project>/context.md` and reference that path from the procedure. Do not duplicate changing project facts inside a reusable skill.
 
-Now the body. Keep the shape — a title and a short numbered list — and put your job in it. Tell Claude what to read, what to decide, and what to hand back:
+## 3. Add optional Codex presentation metadata
+
+Codex discovers repository skills under `.agents/skills/`. If you want explicit UI metadata, add `.agents/skills/standup/agents/openai.yaml` with a reviewed prompt that invokes the exact skill token and disables implicit invocation:
+
+```yaml
+interface:
+  display_name: Standup
+  short_description: Summarize repository state as a focused standup.
+  default_prompt: Use $standup to summarize the latest session and current state.
+policy:
+  allow_implicit_invocation: false
+```
+
+Run it in Codex by explicitly invoking `$standup`.
+
+## 4. Add an optional Claude Code adapter
+
+Claude Code project slash commands live in `.claude/commands/`. A thin adapter points to the portable skill rather than copying its body. Create `.claude/commands/standup.md`:
 
 ```markdown
-# /standup — Daily Standup
+---
+name: standup
+description: "Summarize the latest session and current state as a focused standup"
+allowed-tools: "Read, Glob"
+disable-model-invocation: true
+---
 
-## Instructions
-
-1. Read the most recent file in `sessions/` and `state/current.md`.
-2. Summarize in three lines:
-   - **Shipped** — what got done last session.
-   - **Next** — the one thing that matters most today.
-   - **Blocked** — anything waiting on someone else, or say "nothing."
-3. Keep it to those three lines. Don't list everything — just the top of each.
+Read and follow `.agents/skills/standup/SKILL.md`.
 ```
 
-Two things make a command work:
+Run it in Claude Code with `/standup`. `allowed-tools` is a pre-approval grant, not a restriction, so keep it narrow. The user-only invocation gate prevents a write-capable lifecycle command pattern from being triggered implicitly.
 
-- **Be specific about inputs and outputs.** "Read the most recent file in `sessions/`" beats "check my notes." A clear, specific `description` matters for the same reason — it's the trigger.
-- **Say what *not* to do.** "Don't list everything — just the top of each" keeps it from rambling.
-
-## 5. Run it — 30 sec
-
-In Claude Code, type `/` and you'll see `standup` in the list. Run it:
-
-```
-/standup
-```
-
-If it doesn't show up yet, start a fresh session so Claude Code picks up the new file.
-
-## 6. Validate and commit
-
-Run the checks, then commit so your command gets a history like everything else here:
+## 5. Validate and inspect
 
 ```bash
 bash scripts/validate-all.sh
-git add .claude/commands/standup.md && git commit -m "Add /standup command"
+git diff -- .agents/skills/standup .claude/commands/standup.md
 ```
 
-## 7. Make it a habit
+Test each host you claim. A portable file layout does not prove that another agent has equivalent discovery, invocation, permission, or tool behavior.
 
-One command, run daily for a week, beats ten you set up once and forget. When `/standup` feels automatic, copy it again for the next thing you keep doing by hand. When a command outgrows a single file — it needs its own context, or you want it in claude.ai too — promote it to a skill with `/skill-creator`, which scaffolds the `SKILL.md`, the command file, and the `CLAUDE.md` row for you.
+## 6. Add project routing only when needed
 
----
+If the workflow is project-specific, add a concise route to `ROUTING.md`, for example:
+
+```markdown
+| Standup, current status, or next action | Read `state/current.md`, then use `$standup` |
+```
 
 Want it to reach your calendar, email, or Drive? Review the data and side-effect boundaries under **Optional integrations** in the [README](../README.md) before connecting a tool.

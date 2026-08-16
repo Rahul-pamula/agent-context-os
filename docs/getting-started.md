@@ -69,6 +69,8 @@ Read the [migration guide](migration-guide.md) first. Create one reviewed migrat
 
 Avoid bulk ingestion. A small set of current facts and proven workflows is more useful than years of unfiltered history.
 
+Gemini artifacts remain useful migration sources, but consumer Gemini CLI requests transitioned to Antigravity CLI in June 2026. Continuing enterprise/API-key Gemini CLI and Antigravity are separate targets; this repository does not claim that Antigravity shares Gemini skill discovery, hooks, permissions, or lifecycle behavior. See the [Gemini migration boundary](gemini-migration.md).
+
 ## Review the first result
 
 Check the files that setup proposes or changes:
@@ -103,7 +105,7 @@ The lifecycle writes shared continuity to `state/` and `sessions/`. Claude Code 
 
 ## Add capabilities later
 
-Core setup requires no external integration. When you have a concrete need, open the [integration catalog](../references/integrations.md) and check:
+Core setup requires no external integration. When you have a concrete need, start with the [integration chooser](integrations-guide.md), then open the selected [catalog entry](../references/integrations.md) and check:
 
 - which agents the integration supports;
 - what it reads and writes;

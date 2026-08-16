@@ -2,17 +2,19 @@
 
 The goal is behavioral parity, not a byte-for-byte copy of Gemini configuration or chat history. Start with the few workflows that are both hardened and worth repeating.
 
+**Current host boundary:** consumer Gemini CLI stopped serving free and Google AI Pro/Ultra requests on June 18, 2026 and transitioned to Antigravity CLI. Standard/Enterprise and paid API-key Gemini CLI use remains supported. This guide can recover useful Gemini artifacts and supports portable-skill discovery for continuing Gemini CLI, but it does not claim that Antigravity has the same skill paths, permissions, hooks, or lifecycle. Google says initial parity is not 1:1; see the [official transition announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/).
+
 ## Fast path
 
 1. Run `/migrate-gemini` to inventory instructions, commands, skills, hooks, and MCP configuration.
-2. Use Claude's native `claude import gemini --dry-run` when the installed CLI supports it.
+2. As an alternative, explicitly invoke Claude Code's interactive `/import gemini --dry-run` when the installed version/provider supports it. A custom skill cannot invoke that slash command for you.
 3. Define a parity case for each selected workflow before applying changes.
 4. Run `/mine-gemini-workflows` only when session evidence is needed to reconstruct the workflow.
 5. Migrate one workflow, validate it, and review the diff before moving to the next.
 
 ## Portable core, thin adapters
 
-Reusable provider-neutral instructions belong in `.agents/skills/<name>/SKILL.md`, which Gemini CLI and Codex can discover. Claude-specific slash-command adapters live in `.claude/commands/` and can load the same portable skill. Hooks, tool names, MCP servers, and permission rules stay in provider-specific adapters.
+Reusable provider-neutral instructions belong in `.agents/skills/<name>/SKILL.md`, which Codex and continuing enterprise/API-key Gemini CLI can discover. Claude-specific slash-command adapters live in `.claude/commands/` and can load the same portable skill. Antigravity discovery has not been validated here. Hooks, tool names, MCP servers, and permission rules stay in provider-specific adapters.
 
 This keeps the workflow logic in one place without pretending each agent runtime has the same execution model.
 

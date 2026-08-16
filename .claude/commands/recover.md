@@ -1,16 +1,17 @@
 ---
 name: recover
-description: Scan for orphaned worktrees and stale branches after crashes or abandoned agent sessions. Read-only scan; offers safe, approval-gated cleanup.
-allowed-tools: Read, Glob, Grep, Bash
-x-source: skills-sync/skills/recover/SKILL.md
-x-source-version: 7ae9852
+description: "Scan orphaned worktrees and stale branches, then offer explicit approval-gated cleanup."
+allowed-tools: "Read, Glob, Grep, Bash"
+disable-model-invocation: true
+x-source: "skills-sync/skills/recover/SKILL.md"
+x-source-version: "7ae9852"
 ---
 
 # /recover — Worktree & Branch Cleanup
 
 Scan for orphaned worktrees, stale branches, and partial work left behind by crashed or abandoned agent sessions. Read-only by default — reports findings and waits for approval before any cleanup.
 
-**Invocation:** deliberately model-invocable — scanning is read-only. Every cleanup action is gated on explicit user approval.
+**Invocation:** explicitly user-invoked. Scanning is read-only, but the workflow can lead to destructive cleanup; every cleanup action remains separately gated on explicit user approval.
 
 ## Configuration
 

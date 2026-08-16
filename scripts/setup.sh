@@ -80,6 +80,19 @@ echo "  Context OS: setup"
 echo "  ─────────────────────────"
 echo ""
 
+# Privacy comes before personalization. This warning is unconditional because
+# an existing non-template remote may also be public or broadly shared.
+echo "  This workspace can contain identity, project, state, and session data."
+echo "  A remote is optional. Keep it local-only or use a private remote by default. Before committing"
+echo "  or pushing, verify the repository's visibility and intended audience."
+echo "  Deleting a file later does not erase sensitive data from git history."
+echo "  Setup never pushes; every commit and push requires separate review."
+echo ""
+if ! prompt_yn "  Continue after reviewing this storage and audience boundary?" "n"; then
+  echo "  → Setup stopped before collecting or writing personal context"
+  exit 0
+fi
+
 # ── 1. Your name ────────────────────────────────────────────────────────────
 
 read -rp "  Name to place in CLAUDE.md (or press Enter to skip): " USER_NAME
@@ -107,12 +120,17 @@ CURRENT_REMOTE=$(git remote get-url origin 2>/dev/null || echo "")
 
 if echo "$CURRENT_REMOTE" | grep -q "claude-context-os"; then
   echo "  Your git remote still points to the template repo."
-  echo "  You'll want your own repo so you can push your context."
+  echo "  A replacement remote is optional; the privacy boundary above still applies."
   echo ""
   read -rp "  Your repo URL (or press Enter to skip): " NEW_REMOTE
   if [ -n "$NEW_REMOTE" ]; then
-    git remote set-url origin "$NEW_REMOTE"
-    echo "  → Remote updated to $NEW_REMOTE"
+    echo "  Proposed remote: $NEW_REMOTE"
+    if prompt_yn "  Have you verified its visibility and intended audience?" "n"; then
+      git remote set-url origin "$NEW_REMOTE"
+      echo "  → Remote updated to $NEW_REMOTE (nothing was pushed)"
+    else
+      echo "  → Remote unchanged"
+    fi
   else
     echo "  → Skipped. Run 'git remote set-url origin <your-repo>' later."
   fi
@@ -180,7 +198,8 @@ if command -v claude &>/dev/null; then
   echo "    Found: claude"
   CLAUDE_FOUND=true
 else
-  echo "    Missing: claude — install with: npm install -g @anthropic-ai/claude-code"
+  echo "    Missing: claude — see https://code.claude.com/docs/en/installation"
+  echo "             Native install is recommended; npm is an advanced Node.js alternative."
 fi
 
 CODEX_FOUND=false
@@ -264,10 +283,14 @@ fi
 
 case "$SELECTED_AGENT" in
   claude)
+    echo "  Claude Code auto-memory is enabled by default and may write machine-local memory."
+    echo "  Inspect it with /memory; to opt out, set autoMemoryEnabled: false in"
+    echo "  .claude/settings.local.json. Setup does not change that host setting."
+    echo ""
     printf '  1. cd %q && claude\n' "$REPO_ROOT"
     echo "  2. Type: /setup"
     echo "     Claude will interview you and build your context files."
-    echo "     (~10 minutes, fully conversational)"
+    echo "     Import and integration choices remain separate, review-gated steps."
     echo ""
     if [ "$CLAUDE_FOUND" = true ] && prompt_yn "  Launch Claude Code now?" "y"; then
       cd "$REPO_ROOT"
@@ -278,7 +301,7 @@ case "$SELECTED_AGENT" in
     printf '  1. cd %q && codex\n' "$REPO_ROOT"
     echo '  2. Type: $context-setup'
     echo "     Codex will interview you and build your context files."
-    echo "     See docs/codex-onboarding.md for the session loop and limitations."
+    echo "     See docs/getting-started.md for migration, integrations, and host limits."
     echo ""
     if [ "$CODEX_FOUND" = true ] && prompt_yn "  Launch Codex now?" "y"; then
       cd "$REPO_ROOT"
@@ -289,6 +312,7 @@ case "$SELECTED_AGENT" in
     printf '  Claude Code: cd %q && claude, then run /setup\n' "$REPO_ROOT"
     printf '  Codex:       cd %q && codex, then run $context-setup\n' "$REPO_ROOT"
     echo "  claude.ai:   open SETUP-PROMPTS.md and paste the prompts there"
+    echo "  Guide:       docs/getting-started.md"
     echo ""
     ;;
 esac

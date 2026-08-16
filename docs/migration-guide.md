@@ -80,11 +80,11 @@ Create a packet in the relevant conversation when possible. Google's [Gemini App
 
 Use `$migrate-gemini` to inventory selected instructions, commands, skills, hooks, and MCP configuration. Use `$mine-gemini-workflows` only when selected session evidence is needed to reconstruct a repeated workflow. Both paths start metadata-first, exclude private reasoning, and require review before writing.
 
-See [gemini-migration.md](gemini-migration.md) for parity checks and privacy boundaries.
+Consumer Gemini CLI requests transitioned to Antigravity CLI in June 2026, while continuing enterprise/API-key Gemini CLI remains a separate path. Treat Gemini files as migration sources; do not infer Antigravity discovery, hook, permission, or lifecycle parity. See [gemini-migration.md](gemini-migration.md) for the current host boundary, parity checks, and privacy rules.
 
 ### Codex `/import`
 
-Codex can preview supported instructions and configuration from another agent environment through `/import`. Treat the result as staging material, not canonical context. Review each proposed file, separate durable facts from host configuration, map approved context through the table below, and avoid importing material that this repository already provides natively.
+Codex CLI `/import` supports Claude Code and Cursor sources, including selected setup, project files, and at most 50 recent chats from the last 30 days. It runs before a task in a local interactive CLI and is unavailable inside a running task, a remote session, or the local app-server daemon. Treat its result as bounded staging material, not an account-wide importer or canonical context. Review each proposed file, separate durable facts from host configuration, map approved context through the table below, and avoid importing material that this repository already provides natively.
 
 See the official [Codex import guide](https://developers.openai.com/codex/import) and the repository's [Codex onboarding boundary](codex-onboarding.md#optional-import).
 

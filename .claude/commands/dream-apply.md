@@ -1,9 +1,10 @@
 ---
 name: dream-apply
-description: Walk a dream proposal artifact, review each item, apply accepted ones to memory and commit.
-allowed-tools: Read, Write, Edit, Bash, AskUserQuestion
-x-source: skills-sync/commands/dream-apply.md
-x-source-version: 8ede26c
+description: "Validate a dream artifact, review each proposal, and apply only individually accepted changes."
+allowed-tools: "Read, Write, Edit, Bash, AskUserQuestion"
+disable-model-invocation: true
+x-source: "skills-sync/commands/dream-apply.md"
+x-source-version: "8ede26c"
 ---
 
 # /dream-apply — review + apply a curator pass
@@ -21,19 +22,21 @@ Substrate background: `docs/dream-architecture.md`.
 
 ### 1. Resolve the dream dir
 
-```
-PROJECT_KEY=$(pwd | sed 's|[:\\/]|-|g')
-MEMORY_DIR="$HOME/.claude/projects/$PROJECT_KEY/memory"
-DREAMS_ROOT="$MEMORY_DIR/.dreams"
+Run the executable validator before reading or applying any artifact:
+
+```sh
+python3 scripts/dream/validate-memory.py artifact "${ARGUMENTS:-latest}"
 ```
 
-If `$ARGUMENTS` is `latest` or empty: pick the most recent subdir by name (ISO timestamps sort lexically). Otherwise treat `$ARGUMENTS` as the ISO timestamp.
+Parse the returned JSON. Set `MEMORY_DIR` from `memory_dir`, `TS` from `timestamp`, and the dream dir from `dream_dir`. The helper rejects malformed timestamps, path traversal, absolute or control-character arguments, symlinked artifact components, missing `proposals.json`/`REPORT.md`, malformed or colliding proposal schemas, unknown/roadmap actions, empty evidence, unsafe control-file targets, and any proposal filename outside the validated memory root. It also requires the memory repository to be clean before review; stop so any host auto-memory change can be reviewed or snapshotted separately.
 
-If the dir doesn't exist, list available dreams and stop.
+Do not create or guess a memory directory when a check fails. Stop and direct the user to `docs/auto-memory.md`.
+
+If `$ARGUMENTS` is `latest` or empty, the helper resolves the most recent valid dream artifact by name. Do not reimplement timestamp/path selection in prose.
 
 ### 2. Load the proposal artifact
 
-Read `$DREAMS_ROOT/$TS/proposals.json` and `$DREAMS_ROOT/$TS/REPORT.md`. If either is missing, stop with an error.
+Read the validated `$dream_dir/proposals.json` and `$dream_dir/REPORT.md`. If either becomes missing or changes after validation, rerun the helper and stop on any error.
 
 ### 3. Show the report header
 
@@ -68,11 +71,14 @@ b. Ask via `AskUserQuestion`:
 c. On `Accept`: apply the change.
    - For `modify` action: use Edit tool on `$MEMORY_DIR/{target}`, replacing `current_excerpt` with `proposed_excerpt`.
    - For `archive` action, all five steps — an archive that stops early leaves the file reading as live:
-     1. **Check it isn't already archived.** `test -f "$MEMORY_DIR/archive/{target}"`, and `grep -F "](archive/{target})" "$MEMORY_DIR/ARCHIVE.md"`. A hit on either means it is already retired — stop and report.
+     1. **Classify fresh, resumable, or complete with the executable guard:** run `python3 scripts/dream/validate-memory.py archive-state "{target}" --today "{today}"` and parse its JSON.
+        - `complete` means destination present + root absent + exactly one matching row and stamp: stop as already retired.
+        - `resume` means root present + exactly one row. Reuse `archive_date`; append no row.
+        - `fresh` means root present + no row. Use today's `archive_date`; append one row.
+        - Root/destination collisions, missing targets, duplicate rows or stamps, and mismatched stamp dates fail closed for manual review.
         **Do not grep `ARCHIVE.md` for the bare filename.** Merge tombstones name the *surviving* file and split tombstones name the *children*; those files are live, so a bare-name grep refuses legitimate archives.
-        Separately, if `$MEMORY_DIR/{target}` still exists **and** already carries an `^archived:` stamp, that is a half-finished archive from a crashed earlier run — finish steps 4-5 rather than starting over, and do not write a second tombstone row.
-     2. Append a row to `$MEMORY_DIR/ARCHIVE.md`: `| {today} | [{target}](archive/{target}) | {one-line reason} |`.
-     3. **Stamp the file**: insert `archived: {today}` as the last line of its frontmatter block. This is what stops a future session reading it as a live memory.
+     2. Append a row only when `append_row` is true: `| {archive_date} | [{target}](archive/{target}) | {one-line reason} |`.
+     3. **Stamp the file only when `insert_stamp` is true**: insert `archived: {archive_date}` as the last line of its frontmatter block. If false, retain the one matching stamp. Never insert a second key. This is what stops a future session reading it as a live memory.
      4. **Move it.** `git mv` does **not** create the destination, and `$MEMORY_DIR` is its own git repo — so run both, from inside it:
         ```sh
         mkdir -p "$MEMORY_DIR/archive"
@@ -109,7 +115,11 @@ e. On `Reject`: skip, log to `applied.json` as `rejected`.
 
 f. On `Skip rest`: break the loop, log remaining as `deferred`.
 
+Maintain an exact, deduplicated list of every memory-relative path this accepted set actually changes: each edited/created/removed detail file, archive destination, `MEMORY.md`, `ARCHIVE.md`, every link-bearing file edited, and `.dreams/$TS/applied.json`. Never add a path merely because a proposal mentioned it.
+
 ### 5. Write `applied.json` to the dream dir
+
+Write this file only at the already validated `$dream_dir/applied.json`; do not reconstruct its path from user input.
 
 ```json
 {
@@ -124,11 +134,37 @@ f. On `Skip rest`: break the loop, log remaining as `deferred`.
 
 ### 6. Commit to memory git
 
+Pass every path in that reviewed list to the executable allowlist check as a repeated `--allow` argument and capture its `change_digest`. The helper disables rename detection so both sides of a move must be named. Then stage only those same paths and require the staged blobs to match the reviewed digest:
+
 ```
-cd "$MEMORY_DIR"
-git add -A
-git commit -m "dream-apply($TS): N accepted / M rejected / K deferred"
+python3 scripts/dream/validate-memory.py changes \
+  --allow ".dreams/$TS/applied.json" \
+  --allow "<each other exact changed memory-relative path>"
+# Parse change_digest from that JSON as REVIEWED_DIGEST.
+git -C "$MEMORY_DIR" add -A -- \
+  ".dreams/$TS/applied.json" \
+  "<each other exact changed memory-relative path>"
+python3 scripts/dream/validate-memory.py changes \
+  --staged \
+  --expect-digest "$REVIEWED_DIGEST" \
+  --allow ".dreams/$TS/applied.json" \
+  --allow "<each other exact changed memory-relative path>"
+git -C "$MEMORY_DIR" diff --quiet
+git -C "$MEMORY_DIR" diff --cached --check
+# Parse tree_sha as REVIEWED_TREE, base_head as BASE_HEAD, and the attached local branch as HEAD_REF. Detached HEAD is rejected.
+git -C "$MEMORY_DIR" diff "$BASE_HEAD" "$REVIEWED_TREE" --
+# Show that immutable diff and ask for separate explicit final commit approval.
+python3 scripts/dream/validate-memory.py commit \
+  --tree "$REVIEWED_TREE" \
+  --base-head "$BASE_HEAD" \
+  --head-ref "$HEAD_REF" \
+  --expect-digest "$REVIEWED_DIGEST" \
+  --allow ".dreams/$TS/applied.json" \
+  --allow "<each other exact changed memory-relative path>" \
+  --message "dream-apply($TS): N accepted / M rejected / K deferred"
 ```
+
+The second helper hashes the index rather than trusting path names, refuses unstaged changes or detached HEAD, and captures an immutable Git tree plus the exact local branch identity. The user reviews that tree's exact diff—not a mutable working copy. The commit helper revalidates its paths, modes, bytes, base HEAD, branch identity, current index, unignored untracked set, every reviewed deletion's continued absence (even when ignored), and digest, then creates and advances only the reviewed ref to a commit containing that exact tree. A later index write cannot enter that commit. If a rename omits its source, content or mode differs, an unrelated tracked, staged, or unignored untracked path appears, a deleted path reappears, or HEAD/ref/index/worktree moves, stop without committing and show a newly captured immutable diff for renewed approval. Never replace the exact path list with bare `git add -A` or the tree-bound helper with porcelain `git commit`.
 
 If no proposals were accepted, still commit `applied.json` so the audit trail is complete.
 

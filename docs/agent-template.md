@@ -54,8 +54,10 @@ allowed-tools: "Read"
 disable-model-invocation: true
 ---
 
-Load `[path/to/SKILL.md]` and follow its instructions.
+Read and follow `.agents/skills/[skill-name]/SKILL.md`.
 ```
+
+The example is deliberately read-only and user-invoked. Add a write, shell, or external tool only after documenting its exact effect and approval point; never paste a broad convenience grant into a new command.
 
 ---
 

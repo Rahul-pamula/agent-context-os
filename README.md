@@ -87,7 +87,7 @@ Do not import an entire chat archive into active context. Use the [migration gui
 4. map approved facts, decisions, projects, and workflows into canonical files; and
 5. validate the repository before committing.
 
-The guide covers ChatGPT, Claude, Gemini Apps, Gemini CLI, and a generic path for other systems. Gemini CLI also has privacy-first `$migrate-gemini` and `$mine-gemini-workflows` skills for selected configuration and session evidence.
+The guide covers ChatGPT, Claude, Gemini Apps, Gemini CLI, and a generic path for other systems. Gemini CLI also has privacy-first `$migrate-gemini` and `$mine-gemini-workflows` skills for selected configuration and session evidence. Consumer Gemini CLI requests transitioned to Antigravity CLI in June 2026; continuing enterprise/API-key Gemini CLI and Antigravity are separate targets, and this repository does not claim Antigravity lifecycle or permission parity.
 
 ## Host support
 
@@ -95,7 +95,7 @@ The guide covers ChatGPT, Claude, Gemini Apps, Gemini CLI, and a generic path fo
 |---|---|
 | Claude Code | Full experience: shared lifecycle, slash-command adapters, hooks, optional live reads, and Claude-only auto-memory curation |
 | Codex | First-class shared lifecycle and repository skills; no claim of Claude hook or auto-memory parity |
-| Gemini CLI | Agent Skills-compatible workflows plus reviewed Gemini migration tooling; no complete workspace adapter |
+| Gemini CLI / Antigravity CLI | Migration tooling plus portable-skill discovery for continuing enterprise/API-key Gemini CLI; no complete workspace adapter, and no Antigravity discovery or permission parity is claimed |
 | claude.ai | Manual consumer of selected knowledge files; no repository writes, hooks, or slash-command parity |
 | Other agents | Can use the Markdown state and portable skills only when their file and Agent Skills support is compatible |
 
@@ -115,6 +115,8 @@ The shared layer is intentionally plain files. Provider-specific tool names, hoo
 ## Optional integrations
 
 The [optional integrations catalog](references/integrations.md) is generated from [`integrations/catalog.json`](integrations/catalog.json). Each entry declares supported hosts, credentials, reads, writes, publish or destructive capabilities, confirmation gates, evidence, a health check, and uninstall behavior.
+
+Start with the task-based [integration chooser](docs/integrations-guide.md), add at most one new trust boundary at a time, then read the selected generated entry in full.
 
 The current catalog includes portable skill collections and creator tools, plus reviewed paths for Tolaria MCP, Obsidian CLI, Beads for Gemini CLI, Granola MCP, Google Workspace CLI, Notion MCP, and Substack MCP. `listed` and `experimental` entries are leads, not endorsements. Setup never installs, authenticates, or activates them.
 
@@ -143,7 +145,7 @@ Each fact should have one canonical home. `ROUTING.md` points an agent to the ri
 
 ## Skills and memory
 
-A skill is a Markdown workflow for a task you repeat. Provider-neutral skills belong in `.agents/skills/<name>/SKILL.md`. Claude Code can add a thin adapter under `.claude/commands/`; Codex discovers the repository skill directly. [Build a first Claude Code command](docs/first-skill.md) after the core loop is working, or follow [the portable skill structure](projects/README.md) for a shared workflow.
+A skill is a Markdown workflow for a task you repeat. Provider-neutral skills belong in `.agents/skills/<name>/SKILL.md`. Claude Code can add a thin adapter under `.claude/commands/`; Codex discovers the repository skill directly. [Build a first portable skill](docs/first-skill.md) after the core loop is working, or follow [the portable skill structure](projects/README.md) for a shared workflow.
 
 Claude Code auto-memory is a separate, host-specific layer. The repository includes a typed [auto-memory specification](docs/auto-memory.md) and the [`/dream` curator](docs/dream-architecture.md), which creates proposals before anything writes back. Shared continuity still belongs in `state/` and `sessions/` so another supported agent can use it.
 
@@ -171,8 +173,10 @@ CI runs the same aggregate validator. It checks structure, adapter mappings, lin
 | Import useful context from another system | [Migration guide](docs/migration-guide.md) |
 | Use the repository in Codex | [Codex onboarding](docs/codex-onboarding.md) |
 | Keep claude.ai projects aligned | [Claude projects sync](docs/claude-projects-sync.md) |
-| Choose an optional add-on | [Integration catalog](references/integrations.md) |
+| See every command and portable skill | [Commands and skills](docs/commands-and-skills.md) |
+| Choose an optional add-on | [Integration chooser](docs/integrations-guide.md) and [catalog](references/integrations.md) |
 | Understand product language and boundaries | [Positioning](docs/positioning.md) |
+| Maintain workspace context and memory | [Workspace maintenance](docs/maintenance.md) |
 | Maintain the repository | [Repository maintenance](docs/repo-maintenance.md) |
 
 ## Contributing

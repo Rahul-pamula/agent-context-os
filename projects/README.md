@@ -2,19 +2,21 @@
 
 This directory holds context for recurring personal or professional projects. The pattern is one folder per project, with focused files that supported agents load when a route calls for them.
 
-## Why this structure works
+## Project files
 
 Product memory differs across hosts and can be stale or unavailable. Repository files are the shared, reviewable layer. The more specific and current your project files are, the better an agent can perform on project-specific tasks.
 
-## How to build a project section
-
-### Step 1: Create a folder
-
-```
-projects/your-project-name/
+```text
+projects/<project-name>/
+├── context.md   # purpose, audience, constraints, durable decisions
+└── strategy.md  # success, current focus, explicit non-goals
 ```
 
-Name it something short and clear. This becomes how you refer to it in ROUTING.md.
+Keep these files current and concise. Out-of-date context is worse than missing context. Add a route in `ROUTING.md` so an agent knows when to read them:
+
+```markdown
+| Questions about My Project | Read `projects/my-project/context.md` and `strategy.md` |
+```
 
 ### Step 2: Add a context file
 
@@ -41,11 +43,7 @@ Skills are instruction files an agent loads to perform a specific task consisten
 .agents/skills/your-project-name-task-name/SKILL.md
 ```
 
-Each skill file should contain:
-- A frontmatter block (see fields below)
-- Step-by-step instructions for the task
-- Output format
-- Examples or calibration notes
+## Reusable workflows
 
 **Portable frontmatter:**
 
@@ -77,12 +75,7 @@ Before starting, read `projects/my-project/context.md` and the related
 `writing/skills/avoid-ai-writing/SKILL.md` instructions.
 ```
 
-### Step 5: Wire it into ROUTING.md and optional host adapters
-
-Add a line to `ROUTING.md` under "Project tasks":
-```
-- [Project name] work → read `projects/your-project-name/context.md`
-```
+### Step 5: Wire it into `ROUTING.md` and optional host adapters
 
 If you want an optional Claude Code slash command:
 ```
@@ -90,9 +83,7 @@ If you want an optional Claude Code slash command:
 ```
 ...in the slash commands table in `CLAUDE.md`, and a thin corresponding adapter in `.claude/commands/your-command.md`. Keep tool grants and Claude-only behavior in that adapter, not in `.agents/skills/`.
 
----
-
-## Example
+## Worked example
 
 See `example-musician/` for a worked example of a musician promotion workspace. It covers:
 - Artist context and strategy files

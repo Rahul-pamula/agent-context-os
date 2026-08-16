@@ -1,12 +1,13 @@
 ---
 name: dream
-description: Run a curator pass against the memory dir. Produces a proposal artifact for /dream-apply. Default curator: rot.
-allowed-tools: Read, Bash, Write, Glob, Grep
-x-source: skills-sync/commands/dream.md
-x-source-version: 8ede26c
+description: "Run a curator pass against the validated memory directory and produce a proposal artifact."
+allowed-tools: "Read, Bash, Write, Glob, Grep"
+disable-model-invocation: true
+x-source: "skills-sync/commands/dream.md"
+x-source-version: "8ede26c"
 ---
 
-# /dream — autonomous memory curator pass
+# /dream — on-demand memory curator pass
 
 Substrate background: `docs/dream-architecture.md`. Curator prompts: `scripts/dream/prompts/`.
 
@@ -30,17 +31,25 @@ Substrate background: `docs/dream-architecture.md`. Curator prompts: `scripts/dr
 
 If `$ARGUMENTS` is empty or `rot`, proceed with rot. If anything else, check whether `scripts/dream/prompts/{name}.md` exists. If not, list available curators and stop.
 
-### 2. Resolve the memory dir + generate ISO timestamp
+### 2. Resolve and validate the explicit memory dir
 
-```
-PROJECT_KEY=$(pwd | sed 's|[:\\/]|-|g')
-MEMORY_DIR="$HOME/.claude/projects/$PROJECT_KEY/memory"
-TS=$(date -u +%Y-%m-%dT%H-%M-%SZ)
-DREAM_DIR="$MEMORY_DIR/.dreams/$TS"
-mkdir -p "$DREAM_DIR"
+Run the executable validator before reading or writing memory state:
+
+```sh
+python3 scripts/dream/validate-memory.py resolve
 ```
 
-If `$MEMORY_DIR/.git` doesn't exist, stop and tell the user to run the first-time setup from `scripts/dream/README.md`.
+Parse the returned JSON. Set `MEMORY_DIR` from `memory_dir` and treat `repository_identity` as the stable binding for this repository. The helper verifies `.context-os/memory-directory`, rejects non-canonical or symlinked paths, requires `MEMORY.md` and `.context-os-repository`, binds the marker to Git's resolved common directory identity (safe across linked worktrees), requires the memory dir to be its own git repo, refuses any memory remote, and requires tracked, staged, and untracked memory state to be clean before the pass. If host auto-memory left changes, stop so the user can review or snapshot them separately.
+
+Only after that succeeds, generate `TS` in exact `YYYY-MM-DDTHH-MM-SSZ` form and preflight the target artifact path:
+
+```sh
+python3 scripts/dream/validate-memory.py artifact "$TS" --for-create
+```
+
+Create only the validated `$MEMORY_DIR/.dreams/$TS` path returned by the helper, then continue.
+
+Do not create or guess a path when a check fails. Stop and direct the user to `docs/auto-memory.md` or the first-time local-git setup in `scripts/dream/README.md`.
 
 ### 3. Load the curator prompt
 
@@ -93,10 +102,10 @@ Following the role + question + classification logic in the loaded prompt, walk 
 
 Schema is defined in the curator prompt and varies by curator class. Every proposal has `id`, `action`, `reasoning`, `evidence` (array, never empty), `confidence`. Beyond that:
 
-- **Content curators** (`rot`): `target`, `current_excerpt`, `proposed_excerpt`.
+- **Content curators** (`rot`): `modify` uses `target`, `current_excerpt`, and `proposed_excerpt`; `archive` uses `target` and `archive_reason`; `flag` uses `target` and `concern`.
 - **`merge`**: `targets` (array), `survivor`, `merged_body`, `index_changes` ({remove[], add}), `archive_tombstones`, `net_index_lines`.
 - **`split`**: `target`, `result_files` (array of {name, purpose, index_line, body}), `original_index_line`.
-- **`lint`**: content-curator shape (`target`, `current_excerpt`, `proposed_excerpt`) plus a `check` field naming which of its ten checks fired.
+- **`lint`**: `modify` uses the content-curator shape plus `check`; `flag` uses `target`, `concern`, and may include a non-authoritative `proposed_excerpt`, plus `check`.
 
 `/dream-apply` branches on `action` to apply each shape.
 
@@ -104,13 +113,27 @@ Schema is defined in the curator prompt and varies by curator class. Every propo
 
 Human-readable summary per the curator prompt's format. Top: dream-pass header + counts. Then findings grouped by confidence. Then skipped items. Footer: `Run /dream-apply {ISO} to review and apply.`
 
+Now validate the complete new artifact and its exact three-file change set:
+
+```sh
+python3 scripts/dream/validate-memory.py artifact "$TS" --for-commit
+```
+
+If validation fails, do not stage or commit the artifact. Fix the schema/path issue or stop and surface the validator error. This check rejects unrelated tracked, staged, or untracked memory changes.
+
 ### 9. Commit the artifact to memory git
 
+```sh
+git -C "$MEMORY_DIR" add -- \
+  ".dreams/$TS/inputs.json" \
+  ".dreams/$TS/proposals.json" \
+  ".dreams/$TS/REPORT.md"
+python3 scripts/dream/validate-memory.py artifact "$TS" --for-commit
+git -C "$MEMORY_DIR" diff --quiet
+git -C "$MEMORY_DIR" commit -m "dream($TS): {curator} — N proposals (H high / M med / L flag)"
 ```
-cd "$MEMORY_DIR"
-git add ".dreams/$TS/"
-git commit -m "dream($TS): {curator} — N proposals (H high / M med / L flag)"
-```
+
+The second validator call and unstaged-diff check are the concurrent-change guard. If either fails, stop with the reviewed artifact staged; never broaden the add command.
 
 ### 10. Surface the result
 
