@@ -1,9 +1,68 @@
+import importlib.util
 import json
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+# Shell out to the interpreter running these tests, never a bare "python3".
+#
+# On Windows "python3" resolves to the Microsoft Store App Execution Alias — a
+# stub that prints "Python was not found; run without arguments to install from
+# the Microsoft Store" and exits WITHOUT running Python. Every test that shells
+# out then reads empty stdout and dies on json.loads(""), which surfaces as
+# "Expecting value: line 1 column 1 (char 0)" and looks like a helper bug rather
+# than a missing interpreter. That took out 34 of 89 tests.
+#
+# sys.executable is also correct on POSIX and in a venv, where a bare "python3"
+# can be a DIFFERENT interpreter than the one running the suite.
+PYTHON = sys.executable
+
+
+def _symlinks_available() -> bool:
+    """Can this process actually create a symlink?
+
+    Probed, not inferred from the OS name: Windows CAN create symlinks when the
+    account holds SeCreateSymbolicLinkPrivilege (Developer Mode, or elevated).
+    Gating on `os.name == "nt"` would permanently skip these on machines that are
+    perfectly capable of running them, and these are security tests -- the cost of
+    an unnecessary skip is a real hole in coverage.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp)
+        (base / "target").write_text("probe", encoding="utf-8")
+        try:
+            (base / "link").symlink_to(base / "target")
+        except (OSError, NotImplementedError):
+            return False
+        return True
+
+
+def _git_tracks_file_mode() -> bool:
+    """Does Git record the executable bit on this filesystem?
+
+    Git for Windows sets core.fileMode=false because NTFS has no exec bit to read,
+    so a chmod is invisible and a test asserting "the mode change is detected" can
+    never pass there. Probed against a scratch repo so the answer reflects the
+    filesystem actually under test, not a guess.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            subprocess.run(["git", "init", "-q"], cwd=tmp, check=True,
+                           capture_output=True)
+            value = subprocess.run(["git", "config", "core.fileMode"], cwd=tmp,
+                                   capture_output=True, text=True).stdout.strip()
+        except (OSError, subprocess.CalledProcessError):
+            return False
+        return value != "false"
+
+
+SYMLINKS_AVAILABLE = _symlinks_available()
+GIT_TRACKS_FILE_MODE = _git_tracks_file_mode()
+
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,7 +87,15 @@ def run(command: list[str], cwd: Path, *, check: bool = True) -> subprocess.Comp
 class DreamMemoryPathTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        # .resolve() matters: on Windows the temp root can come back as an 8.3
+        # SHORT NAME (C:\Users\RUNNER~1\... on GitHub's runners). The fixture
+        # records this path in .context-os/memory-directory, and the helper
+        # rightly rejects a non-canonical binding -- so an unresolved tempdir
+        # fails most of the suite with "must be canonical with no '..' or
+        # symlinks", blaming the binding rather than the fixture. It reproduces
+        # only where the account name exceeds 8 characters, which is why a local
+        # Windows run can pass while CI does not.
+        self.root = Path(self.tmp.name).resolve()
         self.repo = self.root / "repo"
         self.memory = self.root / "memory"
         self.repo.mkdir()
@@ -36,9 +103,11 @@ class DreamMemoryPathTests(unittest.TestCase):
         run(["git", "init", "-q"], self.repo)
         run(["git", "config", "user.name", "Dream Test"], self.repo)
         run(["git", "config", "user.email", "dream@example.invalid"], self.repo)
+        self.pin_line_endings(self.repo)
         run(["git", "init", "-q"], self.memory)
         run(["git", "config", "user.name", "Dream Memory"], self.memory)
         run(["git", "config", "user.email", "dream-memory@example.invalid"], self.memory)
+        self.pin_line_endings(self.memory)
         (self.repo / ".context-os").mkdir()
         (self.repo / ".context-os" / "memory-directory").write_text(
             f"{self.memory}\n", encoding="utf-8"
@@ -61,6 +130,76 @@ class DreamMemoryPathTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
+    @staticmethod
+    def pin_line_endings(repo: Path) -> None:
+        """Stop the host's Git config from rewriting bytes these tests hash.
+
+        Git for Windows sets core.autocrlf=true at SYSTEM level, so a fixture repo
+        inherits it even though nothing here asks for it. The suite then compares a
+        digest of worktree bytes against the staged blob: Python's write_text()
+        emits CRLF on Windows, autocrlf normalizes it back to LF on `git add`, the
+        two digests differ, and the failure reads "staged bytes do not match the
+        reviewed change digest" -- i.e. exactly like the tamper-detection working
+        as designed, which is the worst possible disguise for an environment bug.
+
+        Pinned per-repo rather than relying on a global, so the suite is
+        deterministic regardless of how the developer's Git is configured.
+        """
+        run(["git", "config", "core.autocrlf", "false"], repo)
+        run(["git", "config", "core.eol", "lf"], repo)
+
+    @staticmethod
+    def msys(path: Path) -> str:
+        """Spell a native Windows path the way Git Bash would (drive letter to /c/... form)."""
+        drive, rest = str(path).split(":", 1)
+        return f"/{drive.lower()}{rest.replace(chr(92), '/')}"
+
+    @unittest.skipUnless(os.name == "nt", "the binding is already native on POSIX")
+    def test_msys_spelled_binding_is_accepted(self) -> None:
+        (self.repo / ".context-os" / "memory-directory").write_text(
+            self.msys(self.memory) + "\n", encoding="utf-8"
+        )
+        resolved = self.helper("resolve")
+        self.assertEqual(resolved.returncode, 0, resolved.stderr)
+        self.assertEqual(json.loads(resolved.stdout)["memory_dir"], str(self.memory))
+
+    @unittest.skipUnless(os.name == "nt", "the marker is already native on POSIX")
+    def test_msys_spelled_marker_is_accepted(self) -> None:
+        identity = run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], self.repo
+        ).stdout.strip()
+        (self.memory / ".context-os-repository").write_text(
+            self.msys(Path(identity).resolve()) + "\n", encoding="utf-8"
+        )
+        # resolve also demands a clean memory repo, so commit the rewritten marker
+        # or this asserts on the wrong failure.
+        run(["git", "add", "-A"], self.memory)
+        run(["git", "commit", "-qm", "msys marker"], self.memory)
+        resolved = self.helper("resolve")
+        self.assertEqual(resolved.returncode, 0, resolved.stderr)
+
+    @unittest.skipUnless(os.name == "nt", "Windows-only spelling")
+    def test_a_wrong_marker_is_still_rejected_when_msys_spelled(self) -> None:
+        """Translating the spelling must not become a way to smuggle a
+        mismatched identity past the check."""
+        (self.memory / ".context-os-repository").write_text(
+            "/c/definitely/not/this/repo/.git\n", encoding="utf-8"
+        )
+        self.assertIn("marker", self.assert_rejects("resolve"))
+
+    @unittest.skipUnless(os.name == "nt", "Windows-only spelling")
+    def test_a_noncanonical_msys_path_is_still_rejected(self) -> None:
+        """Translating the spelling must not translate away the '..' check.
+
+        Uses <memory>/../memory, which RESOLVES to a real directory -- so it gets
+        past the existence gate and has to be caught by the canonical check
+        itself, rather than incidentally failing because the path is missing.
+        """
+        (self.repo / ".context-os" / "memory-directory").write_text(
+            self.msys(self.memory) + "/../" + self.memory.name + "\n", encoding="utf-8"
+        )
+        self.assertIn("canonical", self.assert_rejects("resolve"))
+
     def helper(self, *args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
         normalized = list(args)
         if (
@@ -70,7 +209,7 @@ class DreamMemoryPathTests(unittest.TestCase):
             and "--for-commit" not in normalized
         ):
             normalized.append("--for-commit")
-        return run(["python3", str(HELPER), *normalized], cwd or self.repo, check=False)
+        return run([PYTHON, str(HELPER), *normalized], cwd or self.repo, check=False)
 
     def write_archive(self, *rows: str) -> None:
         (self.memory / "ARCHIVE.md").write_text(
@@ -148,7 +287,7 @@ class DreamMemoryPathTests(unittest.TestCase):
         run(["git", "commit", "-qm", "dream artifact"], self.memory)
         clean_apply = run(
             [
-                "python3",
+                PYTHON,
                 str(HELPER),
                 "artifact",
                 "2026-08-15T10-19-00Z",
@@ -163,10 +302,12 @@ class DreamMemoryPathTests(unittest.TestCase):
         self.assertIn("timestamp", self.assert_rejects("artifact", "2026-08-15T10-19-00Z\nx"))
         self.assertIn("timestamp", self.assert_rejects("artifact", "2026-99-99T99-99-99Z"))
 
+    @unittest.skipUnless(SYMLINKS_AVAILABLE, "needs symlink privilege (Windows: Developer Mode)")
     def test_artifact_rejects_symlinked_components(self) -> None:
         (self.memory / ".dreams").symlink_to(self.root)
         self.assertIn("symlink", self.assert_rejects("artifact", "2026-08-15T10-19-00Z"))
 
+    @unittest.skipUnless(SYMLINKS_AVAILABLE, "needs symlink privilege (Windows: Developer Mode)")
     def test_proposals_reject_path_escape_absolute_and_symlink_targets(self) -> None:
         proposal = self.valid_modify()
         proposal["target"] = "../outside.md"
@@ -710,6 +851,7 @@ class DreamMemoryPathTests(unittest.TestCase):
         self.assertEqual(staged.returncode, 0, staged.stderr)
         self.assertEqual(json.loads(staged.stdout)["change_digest"], digest)
 
+    @unittest.skipUnless(GIT_TRACKS_FILE_MODE, "git core.fileMode is false; no exec bit on this filesystem")
     def test_staged_digest_rejects_unreviewed_mode_change(self) -> None:
         target = self.memory / "project_alpha.md"
         target.write_text("reviewed replacement\n", encoding="utf-8")
@@ -1194,3 +1336,38 @@ class DreamMemoryPathTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+WINDOWS = os.name == "nt"
+
+
+class NativePathTests(unittest.TestCase):
+    """docs/auto-memory.md builds both recorded paths in bash, so on Windows they
+    arrive MSYS-spelled (/c/Users/...). These cover the translation AND, more
+    importantly, that translating a path does not let a bad one through."""
+
+    def setUp(self) -> None:
+        spec = importlib.util.spec_from_file_location("validate_memory", HELPER)
+        self.vm = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.vm)
+
+    @unittest.skipUnless(WINDOWS, "MSYS spellings only need translating on Windows")
+    def test_translates_msys_and_cygwin_drive_forms(self) -> None:
+        self.assertEqual(self.vm.native_path("/c/Users/me/memory"), r"C:\Users\me\memory")
+        self.assertEqual(self.vm.native_path("/cygdrive/c/Users/me/memory"), r"C:\Users\me\memory")
+        self.assertEqual(self.vm.native_path("/D/data"), r"D:\data")
+
+    @unittest.skipUnless(WINDOWS, "Windows-only spelling")
+    def test_leaves_native_windows_paths_untouched(self) -> None:
+        for raw in (r"C:\Users\me\memory", "C:/Users/me/memory"):
+            self.assertEqual(self.vm.native_path(raw), raw)
+
+    @unittest.skipIf(WINDOWS, "on POSIX /c/... is a real path, not a drive")
+    def test_is_a_no_op_on_posix(self) -> None:
+        for raw in ("/c/Users/me/memory", "/cygdrive/c/x", "/home/me/memory"):
+            self.assertEqual(self.vm.native_path(raw), raw)
+
+    def test_does_not_invent_a_path_for_junk(self) -> None:
+        """Untranslatable input must come back unchanged so the caller's own
+        checks reject it, rather than being guessed into something plausible."""
+        self.assertEqual(self.vm.native_path("relative/not/absolute"), "relative/not/absolute")

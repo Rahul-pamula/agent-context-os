@@ -120,6 +120,44 @@ def repository_identity(repo: Path) -> str:
     return str(resolved)
 
 
+def same_directory(recorded: str, identity: str) -> bool:
+    """Do two recorded paths name the same directory?
+
+    Compared as paths rather than as strings, because the marker file and this
+    check are written by different tools that spell the same directory
+    differently:
+
+      git rev-parse   C:/Users/me/repo/.git      (forward slashes, even on Windows)
+      Python resolve  C:\\Users\\me\\repo\\.git     (backslashes)
+      docs/auto-memory.md's `realpath` under Git Bash → /c/Users/me/repo/.git
+
+    All three name one directory. On POSIX they are byte-identical, which is why
+    a literal `!=` held up everywhere CI runs and failed only on Windows -- where
+    it rejected every correctly-configured binding, taking out 31 tests and, more
+    importantly, the feature itself for any Windows user who followed the setup
+    doc exactly.
+
+    This does NOT loosen the check. It still demands the same directory; it just
+    stops treating a separator convention as a different repository. Comparison is
+    on fully resolved paths, so `..`, symlinks, and 8.3 short names all normalize
+    before the equality, and a marker naming any other directory is still
+    rejected. Unresolvable input (a path that does not exist, e.g. the classic
+    stale marker pointing at a deleted checkout) fails closed.
+    """
+    if recorded == identity:
+        return True
+    try:
+        return (
+            Path(native_path(recorded)).resolve(strict=True)
+            == Path(native_path(identity)).resolve(strict=True)
+        )
+    except OSError:
+        # Nonexistent, malformed, or not addressable on this platform -- e.g. the
+        # MSYS-style /c/... form under a native Python. Fail closed: an identity
+        # we cannot resolve is not an identity we can vouch for.
+        return False
+
+
 def head_identity(memory_dir: Path) -> str:
     completed = subprocess.run(
         ["git", "symbolic-ref", "-q", "HEAD"],
@@ -168,9 +206,52 @@ def require_regular_file(path: Path, label: str) -> None:
         raise ValidationError(f"{label} must be a regular file: {path}")
 
 
+MSYS_DRIVE = re.compile(r"^/(?:cygdrive/)?([A-Za-z])/(.*)$")
+
+
+def native_path(raw: str) -> str:
+    """Rewrite a Unix-shell path into the form this interpreter can address.
+
+    docs/auto-memory.md builds both recorded paths in bash. On Windows that bash
+    is Git Bash, whose absolute paths are MSYS-style — `/c/Users/me/memory`, or
+    `/cygdrive/c/...` under Cygwin. Native Python reads those as drive-less and
+    rejects them at the `is_absolute()` gate, so the documented setup produced a
+    binding the validator refused: "must be absolute". Same directory, different
+    shell's spelling.
+
+    This is a spelling change only, applied before validation, never instead of
+    it. The translated path still has to be absolute, non-symlinked, canonical,
+    existing, and a directory — and for the marker, still has to name the same
+    repository. Nothing here can turn a rejected path into an accepted one; it
+    can only let a correctly-spelled-for-bash path reach the checks at all.
+
+    No-op on POSIX, where `/c/anything` is a real path and must stay one.
+    """
+    if os.name != "nt" or not raw.startswith("/"):
+        return raw
+    match = MSYS_DRIVE.match(raw)
+    if match:
+        drive, rest = match.groups()
+        return str(Path(f"{drive.upper()}:/{rest}"))
+    # A POSIX-absolute path with no drive letter (/tmp/..., /usr/...) is a mount
+    # only the shell knows about. cygpath ships with Git for Windows and is the
+    # authority on those; if it is missing or fails, hand back the original so
+    # the caller's own checks reject it rather than guessing a translation.
+    try:
+        converted = subprocess.run(
+            ["cygpath", "-w", raw], capture_output=True, text=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError):
+        return raw
+    if converted.returncode != 0:
+        return raw
+    return converted.stdout.strip() or raw
+
+
 def require_canonical_directory(raw: str, label: str) -> Path:
     if CONTROL.search(raw):
         raise ValidationError(f"{label} contains a control character")
+    raw = native_path(raw)
     path = Path(raw)
     if not path.is_absolute():
         raise ValidationError(f"{label} must be absolute")
@@ -230,7 +311,7 @@ def validate_memory_binding(repo: Path, *, require_clean: bool = False) -> dict[
 
     marker = memory_dir / ".context-os-repository"
     marker_value = read_single_line(marker, "memory repository marker")
-    if marker_value != identity:
+    if not same_directory(marker_value, identity):
         raise ValidationError(
             "memory repository marker does not match this repository identity"
         )
