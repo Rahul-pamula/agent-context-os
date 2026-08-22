@@ -2,7 +2,7 @@
 
 # Context OS
 
-A Git-backed context and workflow layer for Claude Code and Codex.
+A Git-backed context and workflow layer for agents like Claude Code, Codex, and Hermes.
 
 [![GitHub stars](https://img.shields.io/github/stars/conorbronsdon/agent-context-os?style=social)](https://github.com/conorbronsdon/agent-context-os/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
