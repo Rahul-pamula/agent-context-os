@@ -101,6 +101,11 @@ grep -Fq 'autoMemoryEnabled: false' .claude/commands/setup.md \
   || fail "Claude setup adapter omits the auto-memory opt-out"
 
 portability_tmp=$(mktemp -d)
+# Native git on Windows cannot cd to MSYS-style /tmp paths; resolve to a
+# native path when cygpath is available. No-op on Linux.
+if command -v cygpath >/dev/null 2>&1; then
+  portability_tmp=$(cygpath -m "$portability_tmp")
+fi
 trap 'rm -rf "$portability_tmp"' EXIT
 invalid_metadata="$portability_tmp/invalid-openai.yaml"
 cp .agents/skills/context-start/agents/openai.yaml "$invalid_metadata"
@@ -171,7 +176,7 @@ if python3 tests/validate-openai-metadata.py --command "$duplicate_gate" dream >
 fi
 
 help_output=$(bash scripts/setup.sh --help)
-grep -Fq -- '--agent auto|claude|codex|none' <<<"$help_output" || fail "setup help does not describe agent selection"
+grep -Fq -- '--agent auto|claude|codex|hermes|cursor|openclaw|none' <<<"$help_output" || fail "setup help does not describe agent selection"
 if bash scripts/setup.sh --agent invalid >/dev/null 2>&1; then
   fail "setup accepted an invalid agent"
 fi
@@ -200,7 +205,11 @@ setup_git_dir=$(git -C "$setup_fixture" rev-parse --absolute-git-dir)
 test ! -e "$setup_git_dir/hooks/pre-commit" || fail "setup installed a hook without approval"
 git -C "$setup_fixture" diff --summary | grep -Fq 'mode change' && fail "setup changed tracked script modes"
 git -C "$setup_fixture" status --short | grep -Fq '?? unrelated-user-work.txt' || fail "setup altered unrelated user work"
-printf -v quoted_fixture '%q' "$setup_fixture"
+# setup.sh prints REPO_ROOT from bash pwd, which on MSYS is the POSIX form
+# (/c/...) even when the fixture path is native (C:/...). Quote the same
+# form the script will print so the expectation matches on every host.
+fixture_pwd=$(cd "$setup_fixture" && pwd)
+printf -v quoted_fixture '%q' "$fixture_pwd"
 grep -Fq "cd $quoted_fixture && codex" <<<"$setup_output" || fail "setup did not shell-quote a spaced launch path"
 
 before_second_run=$(git -C "$setup_fixture" status --porcelain=v1 && git -C "$setup_fixture" diff --binary)
@@ -235,14 +244,14 @@ git -C "$no_remote_fixture" diff --quiet || fail "no-remote default-no path wrot
 
 memory_notice_fixture="$portability_tmp/claude-memory-notice"
 make_setup_fixture "$memory_notice_fixture"
-memory_notice_output=$(printf 'y\n\nn\nn\nn\n' | (cd "$memory_notice_fixture" && PATH=/usr/bin:/bin bash scripts/setup.sh --agent claude))
+memory_notice_output=$(printf 'y\n\nn\nn\nn\n' | (cd "$memory_notice_fixture" && PATH="$(dirname "$(command -v python3)"):/usr/bin:/bin" bash scripts/setup.sh --agent claude))
 grep -Fq 'auto-memory is enabled by default' <<<"$memory_notice_output" || fail "local Claude onboarding omitted auto-memory default"
 grep -Fq 'Inspect it with /memory' <<<"$memory_notice_output" || fail "local Claude onboarding omitted /memory inspection"
 grep -Fq 'autoMemoryEnabled: false' <<<"$memory_notice_output" || fail "local Claude onboarding omitted opt-out setting"
 
 template_fixture="$portability_tmp/template-remote"
 make_setup_fixture "$template_fixture"
-git -C "$template_fixture" remote set-url origin https://github.com/conorbronsdon/claude-context-os.git
+git -C "$template_fixture" remote set-url origin https://github.com/conorbronsdon/agent-context-os.git
 template_output=$(printf 'y\n\n\n\nn\nn\nn\n' | (cd "$template_fixture" && bash scripts/setup.sh --agent none))
 grep -Fq 'Your git remote still points to the template repo' <<<"$template_output" || fail "template remote replacement path was not offered"
 warning_line=$(grep -n 'This workspace can contain identity' scripts/setup.sh | cut -d: -f1)
