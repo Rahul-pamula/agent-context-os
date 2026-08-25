@@ -8,6 +8,7 @@ source "$ROOT/scripts/python-env.sh"
 
 bash scripts/validate-skills.sh
 bash scripts/check-links.sh
+bash scripts/check-doc-reachability.sh
 bash tests/test-portability.sh
 bash tests/test-hooks.sh
 

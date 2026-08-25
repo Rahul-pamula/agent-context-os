@@ -2,12 +2,12 @@
 
 ## [Unreleased]
 
-### Changed
-- **Repository renamed `claude-context-os` → `agent-context-os`.** Self-references updated across the README (badges, clone commands, UTM), docs, setup remote check, test fixtures, and the og-image SVG; old GitHub URLs redirect automatically. Re-render and re-upload `docs/assets/og-image.png` via Settings → Social preview.
-- Added first-class Hermes Agent support: an AGENTS.md Hermes section (Hermes loads `AGENTS.md` as project rules), a memory-mapping guide (`docs/memory-across-agents.md`) covering native Hermes memory and its Curator versus repository state and `/dream`, a hooks-equivalents note, and a new [memory across agents](docs/memory-across-agents.md) README row in host support.
-- `scripts/setup.sh` now detects and offers to launch Claude Code, Codex, Hermes, Cursor CLI, or OpenClaw (`--agent auto|claude|codex|hermes|cursor|openclaw|none`), with per-host next steps.
-
 ### Added
+- `CONTRIBUTING.md` — prerequisites, the validator as the one gate, which files are generated, how to add a catalog entry, skill/adapter structure, and the enforced size limits.
+- `SECURITY.md` — private reporting path, what is in and out of scope, and the design boundaries most likely to be misread (validation is not a publication guarantee; `verified` is a metadata claim; nothing here sandboxes an agent).
+- Issue templates for integration proposals and bug reports, plus contact links routing security reports away from public issues.
+- `scripts/check-doc-reachability.sh` — fails when a tracked doc exists that nothing outside `CHANGELOG.md` points to. `check-links.sh` catches a link whose target is gone; this catches a target nothing links to. Wired into `validate-all.sh`.
+- A CI job running the Python suite on 3.10, the true minimum. The floor was previously unexercised: the Linux job used the runner default and the Windows job pinned 3.13. Its first run established that the minimum is 3.10 rather than the 3.9 the source reads like — `contextos/kernel.py` calls `Path.write_text(newline=...)`, which is 3.10+.
 - Reviewed optional entries for the official GitHub, Linear, and Readwise MCP servers, including read-only starting profiles and explicit sensitive-read, remote-write, publish, overwrite, deletion, OAuth, and destructive confirmation gates.
 - Source-neutral onboarding and migration docs for ChatGPT, Claude, Gemini, and other assistants, with a reviewed migration-packet format and optional import handling in `$context-setup`.
 - Context OS positioning, launch-copy drafts, a task-based getting-started guide, and a generated cross-agent social preview.
@@ -20,12 +20,15 @@
 - First-class Codex onboarding with a root `AGENTS.md`, four explicit-invocation lifecycle skills under `.agents/skills/`, generated skill UI metadata, `--agent codex` setup support, portability tests, and a host-boundary guide.
 
 ### Fixed
+- `docs/optimizing-context.md` and `docs/mcp-efficiency.md` were unreachable — nothing outside the changelog linked them. Both are now in the README documentation table. `docs/launch-copy.md` is linked from `docs/positioning.md`.
+- `docs/maintenance.md` and `docs/repo-maintenance.md` gave two overlapping descriptions of the same session and weekly cadence. Each now states its scope and links the other; the workspace cadence lives in `maintenance.md`, repository conventions in `repo-maintenance.md`.
+- `tests/test_dream_paths.py` and `tests/test_mine_gemini_workflows.py` now carry `from __future__ import annotations`, matching the seven other Python files that already do.
 - Workspace readiness now has one definition. `start`, `doctor`, and the session-start hook share a single predicate keyed on `state/current.md`; previously the hook and `start` could report opposite verdicts for the same workspace. `weekly-priorities.md` and `blockers.md` freshness is still reported, under a separate `state-freshness` check, but no longer gates readiness — leaving them empty is a valid steady state, not an unfinished setup.
-- Future-dated `state/current.md` timestamps no longer satisfy the shared readiness predicate, and the native Windows Codex hooks now honor the same `CONTEXTOS_PYTHON` override and Python 3.9 floor as POSIX hooks.
+- Future-dated `state/current.md` timestamps no longer satisfy the shared readiness predicate, and the native Windows Codex hooks now honor the same `CONTEXTOS_PYTHON` override and Python 3.10 floor as POSIX hooks.
 - Calendar-invalid or unreadable state timestamps now report `unknown` instead of crashing `start`, `doctor`, or advisory session hooks; Claude's configured SessionStart adapter now uses the shared readiness predicate too.
 - `setup` now stamps `**Last Updated:**` on the state files that `start` and `doctor` read, so a completed setup reports as initialized without depending on the agent to hand-write the line.
 - `start`'s `next_action` names the command to run instead of referring to "the explicit setup workflow" abstractly.
-- `CONTEXTOS_PYTHON` is honored exactly: an override that does not resolve to a working interpreter now fails loudly instead of silently falling back to a different one. The interpreter floor is Python 3.9, matching the kernel's use of `str.removeprefix`, instead of any Python 3.
+- `CONTEXTOS_PYTHON` is honored exactly: an override that does not resolve to a working interpreter now fails loudly instead of silently falling back to a different one. The interpreter floor is Python 3.10, matching the kernel's use of `Path.write_text(newline=...)`, instead of any Python 3.
 - `scripts/setup.sh` no longer relies on GNU-only `sed -i`; literal-name replacement and sample-route cleanup now use the documented Python 3 dependency.
 - Replaced the deprecated Notion npm-server instructions with Notion's hosted OAuth MCP path for Claude Code and Codex.
 - Aligned manual claude.ai setup prompts with portable skill paths and approval-gated local setup instead of claiming slash-command or commit parity.
@@ -44,7 +47,10 @@
 - `.claude/commands/dream-apply.md` — the moved file's own outbound links were never repointed, so every archived file's references silently broke on the move.
 
 ### Changed
-- The public product name is Context OS; the existing `claude-context-os` repository slug remains for link continuity.
+- **Repository renamed `claude-context-os` → `agent-context-os`.** Self-references updated across the README (badges, clone commands, UTM), docs, setup remote check, test fixtures, and the og-image SVG; old GitHub URLs redirect automatically. Re-render and re-upload `docs/assets/og-image.png` via Settings → Social preview.
+- Added first-class Hermes Agent support: an AGENTS.md Hermes section (Hermes loads `AGENTS.md` as project rules), a memory-mapping guide (`docs/memory-across-agents.md`) covering native Hermes memory and its Curator versus repository state and `/dream`, a hooks-equivalents note, and a new [memory across agents](docs/memory-across-agents.md) README row in host support.
+- `scripts/setup.sh` now detects and offers to launch Claude Code, Codex, Hermes, Cursor CLI, or OpenClaw (`--agent auto|claude|codex|hermes|cursor|openclaw|none`), with per-host next steps.
+- The public product name and repository slug are now `agent-context-os`; historical `claude-context-os` URLs continue to redirect.
 - The README now follows the complete user journey: privacy-aware setup, selective import, honest host support, opt-in integrations, maintenance, and a task-based documentation map.
 - Repository maintenance now includes session, weekly, monthly, archive, privacy, browser-sync, and integration-review routines, all using `scripts/validate-all.sh`.
 - Project, command tutorial, browser-project sync, and context-optimization docs now distinguish portable files from host-specific behavior and remove unsupported token-ratio claims.

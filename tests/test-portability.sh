@@ -160,8 +160,12 @@ if CONTEXTOS_PYTHON="$portability_tmp/no-such-python" "$resolved_bash" -c \
   fail "unresolvable CONTEXTOS_PYTHON silently fell back to another interpreter"
 fi
 
-# The kernel uses str.removeprefix, so a Python 3 older than 3.9 must be rejected
-# rather than accepted and left to fail later.
+# The kernel uses Path.write_text(newline=...), so Python older than 3.10 must be
+# rejected rather than accepted and left to fail later.
+grep -Fq 'sys.version_info >= (3, 10)' scripts/python-env.sh \
+  || fail "POSIX resolver does not enforce the Python 3.10 floor"
+grep -Fq 'sys.version_info >= (3, 10)' scripts/context-os-hook.ps1 \
+  || fail "PowerShell resolver does not enforce the Python 3.10 floor"
 old_python_bin="$portability_tmp/old-python-bin"
 mkdir -p "$old_python_bin"
 printf '#!%s\nif [ "$1" = "-c" ]; then exit 1; fi\nexit 1\n' "$resolved_bash" > "$old_python_bin/python3"
