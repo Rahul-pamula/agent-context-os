@@ -269,6 +269,10 @@ grep -Fq -- '--agent auto|claude|codex|hermes|cursor|openclaw|none' <<<"$help_ou
 if bash scripts/setup.sh --agent invalid >/dev/null 2>&1; then
   fail "setup accepted an invalid agent"
 fi
+setup_write_count=$(grep -Fc 'path.write_text(' scripts/setup.sh)
+setup_lf_count=$(grep -Fc 'newline="\n",' scripts/setup.sh)
+test "$setup_write_count" -eq "$setup_lf_count" \
+  || fail "every setup Python rewrite must explicitly preserve LF line endings"
 
 make_setup_fixture() {
   local destination="$1"
@@ -277,10 +281,35 @@ make_setup_fixture() {
   git -C "$destination" init -q
   git -C "$destination" config user.name "Portability Test"
   git -C "$destination" config user.email "portability@example.invalid"
-  git -C "$destination" -c core.autocrlf=false add -A
+  git -C "$destination" config core.autocrlf false
+  git -C "$destination" add -A
   git -C "$destination" commit -qm baseline
   git -C "$destination" remote add origin https://example.invalid/context.git
 }
+
+# Both inline Python rewrites must preserve an LF checkout on Windows. Without
+# newline="\n", TextIO converts every line to CRLF and turns the reviewed setup
+# diff into a whole-file rewrite under core.autocrlf=false.
+line_endings_fixture="$portability_tmp/lf-preservation"
+make_setup_fixture "$line_endings_fixture"
+"$CONTEXTOS_PYTHON_CMD" - "$line_endings_fixture/CLAUDE.md" "$line_endings_fixture/ROUTING.md" <<'PY'
+from pathlib import Path
+import sys
+
+for raw_path in sys.argv[1:]:
+    path = Path(raw_path)
+    path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
+PY
+git -C "$line_endings_fixture" add CLAUDE.md ROUTING.md
+git -C "$line_endings_fixture" commit --amend --no-edit -q
+printf 'y\nAda\ny\nn\nn\nn\n' | (cd "$line_endings_fixture" && bash scripts/setup.sh --agent none) >/dev/null
+test "$(git -C "$line_endings_fixture" diff --numstat -- CLAUDE.md)" = $'1\t1\tCLAUDE.md' \
+  || fail "setup name replacement rewrote more than one CLAUDE.md line"
+git -C "$line_endings_fixture" diff --quiet -- ROUTING.md \
+  || fail "setup sample-route cleanup rewrote ROUTING.md despite no matching route"
+if LC_ALL=C grep -q $'\r' "$line_endings_fixture/CLAUDE.md" "$line_endings_fixture/ROUTING.md"; then
+  fail "setup rewrites converted an LF checkout to CRLF"
+fi
 
 setup_fixture="$portability_tmp/repo with spaces"
 make_setup_fixture "$setup_fixture"
