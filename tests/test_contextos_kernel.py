@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -16,6 +17,7 @@ from contextos.kernel import (
     hook_report,
     install_runtime,
     read_json,
+    runtime_manifest,
     canonical_json,
     sha256_text,
     start_report,
@@ -34,6 +36,7 @@ class KernelTest(unittest.TestCase):
         (self.root / "sessions").mkdir()
         (self.root / "runtimes").mkdir()
         (self.root / "AGENTS.md").write_text("# Test workspace\n", encoding="utf-8")
+        (self.root / "CLAUDE.md").write_text("# Test workspace\n", encoding="utf-8")
         (self.root / "TODO.md").write_text("# Tasks\n", encoding="utf-8")
         (self.root / "state" / "current.md").write_text(
             "# Current State\n\n**Last Updated:** 2026-08-20\n\n## Active priorities\n\n- Old\n",
@@ -55,6 +58,8 @@ class KernelTest(unittest.TestCase):
         for runtime in ("claude", "codex", "hermes"):
             source = ROOT / "runtimes" / f"{runtime}.json"
             (self.root / "runtimes" / f"{runtime}.json").write_bytes(source.read_bytes())
+        for directory in (".agents", ".claude", "adapters", "docs", "tests"):
+            shutil.copytree(ROOT / directory, self.root / directory)
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -417,7 +422,7 @@ class KernelTest(unittest.TestCase):
         self.assertIn(report["status"], {"pass", "warn"})
         self.assertFalse(any(item["status"] == "fail" for item in report["checks"]))
         manifest = json.loads((self.root / "runtimes/hermes.json").read_text())
-        manifest["capabilities"]["mcp"] = "advisory"
+        manifest["support_summary"] += " (updated)"
         (self.root / "runtimes/hermes.json").write_text(json.dumps(manifest), encoding="utf-8")
         drift = doctor(self.root, "hermes")
         drift_check = next(item for item in drift["checks"] if item["name"] == "runtime-manifest-drift")
@@ -432,11 +437,68 @@ class KernelTest(unittest.TestCase):
         self.assertFalse(any(item["status"] == "fail" for item in report["checks"]))
         self.assertTrue(any(item["name"] == "file:custom-state/current.md" for item in report["checks"]))
 
+    def test_bare_doctor_validates_all_manifests_during_setup(self) -> None:
+        manifest = json.loads((self.root / "runtimes/claude.json").read_text(encoding="utf-8"))
+        manifest["unknown"] = True
+        (self.root / "runtimes/claude.json").write_text(json.dumps(manifest), encoding="utf-8")
+        report = doctor(self.root)
+        check = next(item for item in report["checks"] if item["name"] == "manifest:claude")
+        self.assertEqual("fail", check["status"])
+
+    def test_bare_doctor_fails_when_registry_is_empty(self) -> None:
+        shutil.rmtree(self.root / "runtimes")
+        report = doctor(self.root)
+        check = next(item for item in report["checks"] if item["name"] == "manifest-registry")
+        self.assertEqual("fail", check["status"])
+
+    def test_doctor_handles_runtime_without_a_cli_surface(self) -> None:
+        path = self.root / "runtimes/hermes.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        cloud = manifest["surfaces"].pop("cli")
+        cloud["kind"] = "cloud"
+        review = json.loads(json.dumps(cloud))
+        review["kind"] = "review"
+        manifest["surfaces"] = {"cloud": cloud, "review": review}
+        manifest["evidence"]["tested_versions"] = [
+            {"surface": "cloud", "version": "fixture"},
+            {"surface": "review", "version": "fixture"},
+        ]
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        with mock.patch(
+            "contextos.kernel.shutil.which",
+            side_effect=lambda command: "git-path" if command == "git" else None,
+        ):
+            report = doctor(self.root, "hermes")
+        self.assertFalse(any(item["status"] == "fail" for item in report["checks"]), report)
+        self.assertTrue(
+            any(item["name"].startswith("runtime:hermes:cloud:") for item in report["checks"])
+        )
+
+    def test_doctor_never_executes_descriptor_probe_commands(self) -> None:
+        with mock.patch("contextos.kernel.shutil.which", return_value="resolved-command"), mock.patch(
+            "contextos.kernel.subprocess.run",
+            side_effect=AssertionError("descriptor probe executed a process"),
+        ) as run:
+            report = doctor(self.root, "hermes")
+        run.assert_not_called()
+        self.assertTrue(
+            any(item["name"] == "runtime:hermes:cli:version" for item in report["checks"])
+        )
+
     def test_runtime_manifest_is_required_for_receipt_claim(self) -> None:
         proposal_path, proposal = self._propose("update", {"progress": ["One"]})
         os.remove(self.root / "runtimes/codex.json")
         with self.assertRaisesRegex(ContextOSError, "missing runtime manifest"):
             self._apply(proposal_path, proposal)
+
+    def test_apply_does_not_require_maintainer_docs_or_tests(self) -> None:
+        proposal_path, proposal = self._propose("update", {"progress": ["One"]})
+        for directory in ("docs", "tests", ".agents"):
+            shutil.rmtree(self.root / directory)
+        receipt_path, _ = self._apply(proposal_path, proposal)
+        self.assertTrue(receipt_path.is_file())
+        with self.assertRaisesRegex(ContextOSError, "path does not exist"):
+            runtime_manifest(self.root, "codex")
 
     def test_hook_must_fire_and_must_not_fire_controls(self) -> None:
         must_fire = hook_report(

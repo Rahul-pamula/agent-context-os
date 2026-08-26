@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+- Runtime descriptors move from schema v1 to the discoverable, incompatible
+  schema v2 with surface-specific capabilities, resolution-only probes,
+  instruction and skill precedence, typed evidence, generated JSON Schema and
+  README support claims, plus strict maintainer and conformance checks.
+
 ### Added
 - A reviewed Pandoc catalog entry with a bounded non-PDF profile, explicit network and sensitive-read boundaries, PDF-engine execution guidance, and overwrite confirmation.
 - A reviewed MarkItDown MCP catalog entry covering its local-file and network read boundary, unauthenticated localhost transport, sandboxing guidance, and pinned v0.1.7 evidence.

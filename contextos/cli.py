@@ -16,6 +16,9 @@ from .kernel import (
     install_runtime,
     parse_now,
     read_json,
+    render_hook_payload,
+    runtime_manifest,
+    runtime_surface,
     start_report,
 )
 
@@ -37,17 +40,20 @@ def parser() -> argparse.ArgumentParser:
     apply = commands.add_parser("apply", help="Apply one exact host-confirmed proposal")
     apply.add_argument("proposal", type=Path)
     apply.add_argument("--confirm", required=True, help="Exact proposal digest printed by propose")
-    apply.add_argument("--runtime", choices=("claude", "codex", "hermes", "generic"), required=True)
+    apply.add_argument("--runtime", metavar="RUNTIME", required=True)
 
     install = commands.add_parser("install", help="Record the selected runtime and print host setup steps")
-    install.add_argument("--runtime", choices=("claude", "codex", "hermes"), required=True)
+    install.add_argument("--runtime", metavar="RUNTIME", required=True)
 
     diagnose = commands.add_parser("doctor", help="Check kernel, state, manifests, locks, and runtime")
-    diagnose.add_argument("--runtime", choices=("claude", "codex", "hermes"))
+    diagnose_selection = diagnose.add_mutually_exclusive_group()
+    diagnose_selection.add_argument("--runtime", metavar="RUNTIME")
+    diagnose_selection.add_argument("--all", action="store_true", help="Validate every shipped runtime descriptor")
 
     hook = commands.add_parser("hook", help="Run a normalized read-only lifecycle hook check")
     hook.add_argument("event", choices=("session-start", "pre-write"))
-    hook.add_argument("--runtime", choices=("claude", "codex", "hermes"), required=True)
+    hook.add_argument("--runtime", metavar="RUNTIME", required=True)
+    hook.add_argument("--surface", metavar="SURFACE")
     return result
 
 
@@ -57,6 +63,7 @@ def emit(value: object) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    hook_output: str | None = None
     try:
         root = discover_root(args.root)
         if args.command == "start":
@@ -77,22 +84,36 @@ def main(argv: list[str] | None = None) -> int:
             path, manifest = install_runtime(root, args.runtime)
             emit({"runtime_file": path.relative_to(root).as_posix(), **manifest})
         elif args.command == "doctor":
-            report = doctor(root, args.runtime)
+            report = doctor(root, args.runtime, all_runtimes=args.all)
             emit(report)
             return 1 if report["status"] == "fail" else 0
         elif args.command == "hook":
+            hook_manifest = runtime_manifest(root, args.runtime, check_paths=False)
+            surface_outputs = {
+                surface.get("hook_output")
+                for surface in hook_manifest["surfaces"].values()
+            }
+            if len(surface_outputs) == 1:
+                hook_output = next(iter(surface_outputs))
+            hook_output = runtime_surface(hook_manifest, args.surface).get("hook_output")
             raw = sys.stdin.read().strip()
             payload = json.loads(raw) if raw else {}
             if not isinstance(payload, dict):
                 raise ContextOSError("hook input must be a JSON object")
             report = hook_report(root, args.event, payload)
             messages = [item["message"] for item in report["findings"]]
-            if args.runtime in {"claude", "codex"}:
-                if messages:
-                    emit({"systemMessage": "\n".join(messages)})
-            else:
-                emit({"action": "allow", "message": "\n".join(messages)})
+            rendered = render_hook_payload(hook_output, messages)
+            if rendered is not None:
+                emit(rendered)
         return 0
     except (ContextOSError, json.JSONDecodeError, OSError, UnicodeError) as exc:
+        if getattr(args, "command", None) == "hook":
+            message = f"Context OS advisory hook could not run: {exc}"
+            # If no validated descriptor established a host protocol, silence
+            # is safer than emitting another runtime's incompatible envelope.
+            rendered = render_hook_payload(hook_output, [message])
+            if rendered is not None:
+                emit(rendered)
+            return 0
         print(f"context-os: {exc}", file=sys.stderr)
         return 2
