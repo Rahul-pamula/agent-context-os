@@ -68,6 +68,10 @@
                     "policy": "managed"
                 },
                 {
+                    "path": "bundles/schema.json",
+                    "policy": "managed"
+                },
+                {
                     "path": "content/log.md",
                     "policy": "seed"
                 },
@@ -85,6 +89,10 @@
                 },
                 {
                     "path": "contextos/component_schema.py",
+                    "policy": "managed"
+                },
+                {
+                    "path": "contextos/bundle_schema.py",
                     "policy": "managed"
                 },
                 {
@@ -121,6 +129,10 @@
                 },
                 {
                     "path": "docs/component-model.md",
+                    "policy": "managed"
+                },
+                {
+                    "path": "docs/bundle-locks.md",
                     "policy": "managed"
                 },
                 {
@@ -268,6 +280,10 @@
                     "policy": "development"
                 },
                 {
+                    "path": "scripts/bundle-locks.py",
+                    "policy": "development"
+                },
+                {
                     "path": "scripts/contextos.sh",
                     "policy": "managed"
                 },
@@ -369,6 +385,10 @@
                 },
                 {
                     "path": "tests/test_component_manifests.py",
+                    "policy": "development"
+                },
+                {
+                    "path": "tests/test_bundle_lock.py",
                     "policy": "development"
                 },
                 {

@@ -183,6 +183,7 @@ adapters/cursor/           Experimental Cursor IDE and CLI adapter
 adapters/devin/            Experimental Devin session and Review adapter
 runtimes/                  Machine-readable capability manifests
 components/                Component ownership and dependency manifest
+bundles/                   Generated detached bundle-lock schema
 workspace/                 Schema and inactive canonical config example
 integrations/              Machine-checked opt-in integration catalog
 references/                Generated catalog and integration setup notes
@@ -246,6 +247,7 @@ behavior of an installed agent version or an external service.
 | Keep claude.ai projects aligned | [Claude projects sync](docs/claude-projects-sync.md) |
 | See every command and portable skill | [Commands and skills](docs/commands-and-skills.md) |
 | Understand component ownership and future clean composition | [Component model](docs/component-model.md) |
+| Verify an offline bundle or inspect a structural plan | [Bundle locks and plans](docs/bundle-locks.md) |
 | Choose an optional add-on | [Integration chooser](docs/integrations-guide.md) and [catalog](references/integrations.md) |
 | Understand product language and boundaries | [Positioning](docs/positioning.md) |
 | Keep context files small and cheap to load | [Optimizing context files](docs/optimizing-context.md) |

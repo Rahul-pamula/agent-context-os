@@ -37,7 +37,7 @@ Run it locally rather than discovering a failure in CI. It takes about a minute.
 
 ## Generated files — do not hand-edit
 
-Five artifacts are produced by scripts. Editing them directly means your change is
+Seven artifacts are produced by scripts. Editing them directly means your change is
 silently reverted on the next regeneration.
 
 | File | Source of truth | Regenerate with |
@@ -47,6 +47,7 @@ silently reverted on the next regeneration.
 | `runtimes/schema.json` | `contextos/runtime_schema.py` | `scripts/runtime-manifests.py generate` |
 | README registered-host table | validated `runtimes/*.json` descriptors | `scripts/runtime-manifests.py generate` |
 | `components/schema.json` | `contextos/component_schema.py` | `scripts/component-manifests.py generate` |
+| `bundles/schema.json` | `contextos/bundle_schema.py` | `scripts/bundle-locks.py generate` |
 | `workspace/schema.json` | `contextos/workspace_schema.py` | `scripts/workspace-config.py generate` |
 
 ## Adding a runtime descriptor

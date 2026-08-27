@@ -6,6 +6,12 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .bundle_schema import (
+    BundleError,
+    create_bundle_lock,
+    create_structural_plan,
+    verify_bundle,
+)
 from .kernel import (
     ContextOSError,
     agent_list_report,
@@ -148,11 +154,122 @@ def parser() -> argparse.ArgumentParser:
     hook.add_argument("event", choices=("session-start", "pre-write"))
     hook.add_argument("--runtime", metavar="RUNTIME", required=True)
     hook.add_argument("--surface", metavar="SURFACE")
+
+    bundle = commands.add_parser(
+        "bundle", help="Generate, verify, or plan from immutable offline bundles"
+    )
+    bundle_commands = bundle.add_subparsers(dest="bundle_command", required=True)
+    generate_bundle = bundle_commands.add_parser(
+        "generate", help="Print a detached lock for one explicit local source"
+    )
+    generate_bundle.add_argument("--source", type=Path, required=True)
+    generate_bundle.add_argument("--name", required=True)
+    generate_bundle.add_argument("--bundle-version", required=True)
+    check_bundle = bundle_commands.add_parser(
+        "check", help="Verify a caller-pinned lock against local source bytes"
+    )
+    check_bundle.add_argument("--lock", type=Path, required=True)
+    check_bundle.add_argument("--source", type=Path, required=True)
+    check_bundle.add_argument("--expect-sha256", required=True)
+    check_bundle.add_argument(
+        "--source-mode", choices=("git-index", "directory"), default="directory"
+    )
+    plan_bundle = bundle_commands.add_parser(
+        "plan", help="Print a deterministic read-only structural plan"
+    )
+    plan_bundle.add_argument("--lock", type=Path, required=True)
+    plan_bundle.add_argument("--source", type=Path, required=True)
+    plan_bundle.add_argument("--expect-sha256", required=True)
+    plan_bundle.add_argument(
+        "--source-mode", choices=("git-index", "directory"), default="directory"
+    )
+    plan_bundle.add_argument("--target", type=Path, required=True)
+    plan_bundle.add_argument("--workspace-config", type=Path, required=True)
+    plan_bundle.add_argument("--expect-config-sha256", required=True)
+    plan_bundle.add_argument("--components", required=True)
+    plan_bundle.add_argument("--current-lock", type=Path)
+    plan_bundle.add_argument("--current-source", type=Path)
+    plan_bundle.add_argument("--expect-current-sha256")
+    plan_bundle.add_argument(
+        "--current-source-mode", choices=("git-index", "directory"),
+        default="directory",
+    )
+    plan_bundle.add_argument("--current-components")
     return result
 
 
 def emit(value: object) -> None:
     print(json.dumps(value, indent=2, ensure_ascii=False))
+
+
+def component_selection(raw: str, field: str) -> list[str]:
+    values = [item.strip() for item in raw.split(",")]
+    if not values or any(not item for item in values):
+        raise BundleError(f"{field}: must be a comma-separated component list")
+    return values
+
+
+def _bundle_main(args: argparse.Namespace) -> int:
+    if args.bundle_command == "generate":
+        lock = create_bundle_lock(
+            args.source,
+            name=args.name,
+            version=args.bundle_version,
+            source_mode="git-index",
+        )
+        print(json.dumps(lock, indent=2, ensure_ascii=False))
+        return 0
+    candidate = verify_bundle(
+        args.lock, args.source, expected_sha256=args.expect_sha256,
+        source_mode=args.source_mode,
+    )
+    if args.bundle_command == "check":
+        emit({
+            "schema_version": candidate.lock["schema_version"],
+            "bundle": {"name": candidate.name, "version": candidate.version},
+            "bundle_sha256": candidate.digest,
+            "files": len(candidate.records),
+            "source_mode": candidate.source_mode,
+            "executable_modes_verified": candidate.mode_verified,
+            "writes": False,
+        })
+        return 0
+    current_values = (
+        args.current_lock,
+        args.current_source,
+        args.expect_current_sha256,
+        args.current_components,
+    )
+    if any(value is not None for value in current_values) and not all(
+        value is not None for value in current_values
+    ):
+        raise BundleError(
+            "current_bundle: --current-lock, --current-source, "
+            "--expect-current-sha256, and --current-components are all required together"
+        )
+    current = None
+    current_components: list[str] = []
+    if args.current_lock is not None:
+        current = verify_bundle(
+            args.current_lock,
+            args.current_source,
+            expected_sha256=args.expect_current_sha256,
+            source_mode=args.current_source_mode,
+        )
+        current_components = component_selection(
+            args.current_components, "current_components"
+        )
+    plan = create_structural_plan(
+        target_root=args.target,
+        workspace_config_path=args.workspace_config,
+        expected_config_sha256=args.expect_config_sha256,
+        candidate=candidate,
+        desired_components=component_selection(args.components, "components"),
+        current=current,
+        current_components=current_components,
+    )
+    emit({**plan, "writes": False})
+    return 0
 
 
 def selected_workspace_agents(args: argparse.Namespace, root: Path) -> list[str]:
@@ -228,6 +345,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     hook_output: str | None = None
     try:
+        if args.command == "bundle":
+            return _bundle_main(args)
         root = discover_root(args.root)
         if args.command == "start":
             emit(start_report(root, parse_now(args.now)))
@@ -332,6 +451,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except (
         ContextOSError,
+        BundleError,
         WorkspaceConfigError,
         json.JSONDecodeError,
         OSError,
