@@ -69,15 +69,23 @@ class DevinDescriptorTest(unittest.TestCase):
         self.assertEqual({"AGENTS.md", ".agents/skills"}, paths)
 
     def test_unsupported_host_features_are_not_claimed(self) -> None:
-        for surface_name, surface in DESCRIPTOR["surfaces"].items():
-            with self.subTest(surface=surface_name):
-                self.assertEqual("unsupported", surface["capabilities"]["project_hooks"])
-                self.assertEqual(
-                    "unsupported", surface["capabilities"]["blocking_pre_tool_hook"]
-                )
-                self.assertEqual("unsupported", surface["capabilities"]["native_memory"])
-                self.assertEqual("unsupported", surface["capabilities"]["skill_allowlists"])
-                self.assertIsNone(surface["hook_output"])
+        session = DESCRIPTOR["surfaces"]["session"]
+        self.assertEqual(
+            {
+                "agent_skills": "native",
+                "explicit_invocation": "advisory",
+                "project_hooks": "unsupported",
+                "blocking_pre_tool_hook": "unsupported",
+                "mcp": "unsupported",
+                "native_memory": "unsupported",
+                "proposal_apply": "adapter",
+                "skill_allowlists": "unsupported",
+                "execution_authorization": "unsupported",
+            },
+            session["capabilities"],
+        )
+        for surface in DESCRIPTOR["surfaces"].values():
+            self.assertIsNone(surface["hook_output"])
 
     def test_guide_preserves_repo_account_and_data_transfer_boundaries(self) -> None:
         guide = " ".join(GUIDE_PATH.read_text(encoding="utf-8").split())
@@ -93,13 +101,13 @@ class DevinDescriptorTest(unittest.TestCase):
             "local git access for the Review CLI does not prove Devin account access",
             "documentation or local registration alone must never turn them green",
             "Review needs its own fixtures",
+            "does not authenticate who supplied the confirmation",
+            "do not run lifecycle skills in unattended sessions",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, guide)
 
     def test_adapter_does_not_ship_fake_devin_configuration(self) -> None:
-        if os.environ.get("CONTEXTOS_VALIDATION_PROFILE") == "workspace":
-            self.skipTest("workspace-owned future host configuration is outside maintainer inventory")
         for path in (".devin", "devin.yaml", "devin.yml", "blueprint.yaml"):
             with self.subTest(path=path):
                 self.assertFalse((ROOT / path).exists())

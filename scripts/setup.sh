@@ -458,6 +458,7 @@ PY
   if [ "${#SETUP_MANAGED_RUNTIMES[@]}" -gt 0 ]; then
     setup_managed_csv=$(IFS=,; echo "${SETUP_MANAGED_RUNTIMES[*]}")
     echo "  Tracked managed-account intent; remote onboarding remains unverified: $setup_managed_csv"
+    echo "  Complete each managed host's account checks in its adapter guide."
   fi
 elif [ -n "$REQUESTED_REGISTERED_AGENTS" ]; then
   LAUNCH_SELECTION="none"

@@ -62,7 +62,7 @@ this is guidance, not a host-enforced gate. The `$context-setup`, `$context-star
 - Invoke `/setup`, `/start`, `/update`, and `/end` explicitly.
 - Keep Hermes `MEMORY.md` and `USER.md` separate from repository state. See
   `docs/memory-across-agents.md`.
-- Hermes hooks are optional defense in depth; kernel enforcement does not depend on them.
+- `.claude/hooks/` does not run in Hermes; its hooks are optional defense in depth.
 
 ## OpenClaw
 
@@ -90,11 +90,11 @@ this is guidance, not a host-enforced gate. The `$context-setup`, `$context-star
 
 - Cloud sessions use `@skills:context-setup`, `@skills:context-start`,
   `@skills:context-update`, and `@skills:context-end`; automatic skill discovery
-  remains possible, while exact-digest approval still gates repository writes.
+  remains possible. Digests prevent proposal substitution, not automated approval.
 - Review sends code externally and is not a lifecycle host. Account state is not
   locally configured or verified; see `adapters/devin/README.md`.
 
 ## Validation
 
 Run `bash scripts/validate-all.sh --workspace` for workspace changes. Product
-contributors and CI run the strict form after product changes.
+contributors and CI run it without `--workspace` after product changes.

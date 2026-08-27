@@ -14,14 +14,17 @@ Devin cloud sessions document repository-root `AGENTS.md` and Agent Skills under
 `.agents/skills/`. Start a session for this repository and invoke
 `@skills:context-setup`, `@skills:context-start`, `@skills:context-update`, or
 `@skills:context-end`. The namespaced forms avoid implying that Devin owns the
-short command vocabulary. The lifecycle kernel still requires an exact-digest
-proposal and approval before apply.
+short command vocabulary. The lifecycle kernel binds apply to the exact proposal
+digest, preventing proposal substitution. It does not authenticate who supplied
+the confirmation or prove that a human reviewed the diff.
 
 Devin skills default to automatic model invocation unless their frontmatter
 sets `triggers: ["user"]`. The portable Context OS skills do not currently ship
 that Devin-specific field, so explicit invocation is guidance rather than a
 native enforcement claim. An instruction to ask first is not the same as a
-host permission boundary.
+host permission boundary. This adapter also has no execution-authorization or
+blocking-hook control that can prove human approval: do not run lifecycle skills
+in unattended sessions, and verify every diff outside the agent before apply.
 
 ## Account-managed boundary
 
