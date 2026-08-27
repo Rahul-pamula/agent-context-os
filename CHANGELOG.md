@@ -60,11 +60,11 @@
 - First-class Codex onboarding with a root `AGENTS.md`, four explicit-invocation lifecycle skills under `.agents/skills/`, generated skill UI metadata, `--agent codex` setup support, portability tests, and a host-boundary guide.
 
 ### Fixed
-- `doctor` now distinguishes recoverable transaction journals from inert
-  `.building`/`.discard` cleanup artifacts, preserving recovery advice only for
-  the former and giving path-specific, shared-inode-safe manual cleanup guidance
-  for the latter. Unsupported atomic deletion no longer implies an unchanged
-  retry will self-heal.
+- `doctor` now distinguishes proposal-ID transaction recovery candidates from
+  inert `.building`/`.discard` cleanup artifacts, preserving inspect-and-recover
+  advice only for the former and giving path-specific, shared-inode-safe manual
+  cleanup guidance for the latter. Unsupported atomic deletion no longer implies
+  an unchanged retry will self-heal.
 - Best-effort transaction cleanup now continues across removable siblings after
   retaining a blocked artifact, while strict recovery still surfaces the exact
   cleanup failure. Windows cleanup no longer widens even single-link read-only

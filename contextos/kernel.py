@@ -2001,9 +2001,9 @@ def _unlink_readonly_artifact(path: Path) -> None:
             f"{path} ({artifact_kind}, link count {metadata.st_nlink}); "
             "the artifact was retained. Automatic retry cannot remove it while "
             "atomic deletion remains unsupported. Do not change shared-inode "
-            "attributes; resolve filesystem support before retrying. Before any "
-            "manual removal, retain the path unless doctor explicitly classifies "
-            "it as an inert transaction artifact"
+            "attributes; resolve filesystem support before retrying. Retain the "
+            "artifact unless doctor explicitly classifies its containing "
+            "namespace as inert before any manual removal"
         ) from exc
 
 
@@ -4591,7 +4591,7 @@ def doctor(
             "transaction-journals",
             "warn" if pending_journals else "pass",
             (
-                f"{len(pending_journals)} recoverable pending journal(s): "
+                f"{len(pending_journals)} pending recovery candidate(s): "
                 f"{artifact_paths(pending_journals)}; confirm no "
                 "apply process is active, remove a stale apply.lock if present, "
                 "then rerun the approved proposal apply to inspect and recover. "

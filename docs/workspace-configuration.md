@@ -152,12 +152,13 @@ journal namespaces contain no recoverable workspace state; their cleanup is
 best-effort and a retained artifact there does not block unrelated applies or a
 new journal with the same proposal ID. A colliding retained namespace is left
 intact and the new build or retirement uses a collision-free numbered sibling.
-`doctor` reports recoverable journals separately from those inert namespaces:
-pending journals must be recovered rather than deleted, while an inert path may
-be removed manually after confirming no apply is active and using a method that
-does not change shared-inode attributes. Symlinks, non-directories, and names
-outside both contracts are a third invalid category that blocks apply until each
-reported path is inspected and corrected or removed.
+`doctor` reports proposal-ID recovery candidates separately from those inert
+namespaces. A candidate's manifest is validated only when apply inspects it, so
+the candidate must be recovered or diagnosed rather than deleted. An inert path
+may be removed manually after confirming no apply is active and using a method
+that does not change shared-inode attributes. Symlinks, non-directories, and
+names outside both contracts are a third invalid category that blocks apply
+until each reported path is inspected and corrected or removed.
 
 ## Agent activation lifecycle
 

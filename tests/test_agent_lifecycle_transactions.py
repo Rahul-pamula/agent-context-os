@@ -1342,7 +1342,7 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
             if check["name"] == "transaction-journals"
         )
         self.assertEqual("warn", journal_check["status"])
-        self.assertIn("recoverable pending journal", journal_check["detail"])
+        self.assertIn("pending recovery candidate", journal_check["detail"])
         retired_check = next(
             check
             for check in doctor(self.root)["checks"]
@@ -1411,7 +1411,7 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         self.assertIn('".context-os/journals/.DS_Store"', invalid["detail"])
         self.assertIn('".context-os/journals/.gitkeep"', invalid["detail"])
         self.assertIn("apply rejects", invalid["detail"])
-        self.assertNotIn("recoverable", invalid["detail"])
+        self.assertNotIn("recovery candidate", invalid["detail"])
         self.assertNotIn("rerun the approved proposal", invalid["detail"])
 
     def test_doctor_bounds_retired_paths_with_repeatable_batch_advice(self) -> None:
@@ -1751,7 +1751,7 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
             _unlink_readonly_artifact(artifact)
 
         self.assertIn("Automatic retry cannot remove it", str(raised.exception))
-        self.assertIn("doctor explicitly classifies", str(raised.exception))
+        self.assertIn("containing namespace as inert", str(raised.exception))
         self.assertNotIn("later cleanup attempt", str(raised.exception))
         self.assertEqual(b"retained\n", artifact.read_bytes())
 
