@@ -147,33 +147,6 @@ def parse_now(raw: str | None) -> datetime:
     return parsed
 
 
-def discover_root(start: Path | None = None) -> Path:
-    candidate = (start or Path.cwd()).resolve()
-    for path in (candidate, *candidate.parents):
-        if (path / "AGENTS.md").is_file() and (
-            (path / "state").is_dir() or (path / "workspace.yaml").is_file()
-        ):
-            return path
-    raise ContextOSError("could not find a Context OS root (AGENTS.md plus state/ or workspace.yaml)")
-
-
-def _reject_config_aliases(root: Path, canonical_name: str) -> None:
-    identity = workspace_portable_identity(canonical_name)
-    try:
-        matches = [
-            path.name
-            for path in root.iterdir()
-            if workspace_portable_identity(path.name) == identity
-        ]
-    except OSError as exc:
-        raise ContextOSError(f"cannot inspect workspace root {root}: {exc}") from exc
-    if matches and matches != [canonical_name]:
-        raise ContextOSError(
-            f"portable configuration filename collision for {canonical_name!r}: "
-            + ", ".join(sorted(matches))
-        )
-
-
 def _is_link_like(path: Path) -> bool:
     """Recognize symlinks and Windows reparse points without following them."""
     try:
@@ -188,6 +161,133 @@ def _is_link_like(path: Path) -> bool:
         getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", -2),
     }
     return stat.S_ISLNK(metadata.st_mode) or reparse_tag in link_tags
+
+
+def _config_filename_identity(value: str) -> str:
+    # Windows aliases trailing spaces and periods even when a POSIX checkout can
+    # contain them, so discovery must reject those names portably.
+    return workspace_portable_identity(value).rstrip(" .")
+
+
+def discover_root(start: Path | None = None) -> Path:
+    raw_start = (start or Path.cwd()).absolute()
+    if _config_filename_identity(raw_start.name) == _config_filename_identity(
+        "contextos.workspace.json"
+    ):
+        # Treat a marker passed directly as a marker in its lexical parent. Do
+        # not resolve it first: it may be a dangling link or Windows junction.
+        if not raw_start.exists() and not _is_link_like(raw_start):
+            raise ContextOSError(f"root discovery start path does not exist: {raw_start}")
+        candidate = raw_start.parent
+    else:
+        if not raw_start.exists():
+            raise ContextOSError(f"root discovery start path does not exist: {raw_start}")
+        if raw_start.is_file():
+            candidate = raw_start.parent
+        elif raw_start.is_dir():
+            candidate = raw_start
+        else:
+            raise ContextOSError(
+                f"root discovery start path is not a directory or file: {raw_start}"
+            )
+
+    # A link may be an ordinary internal repository path. Reject it only when
+    # resolving the start would escape the nearest lexical repository boundary.
+    # Do not treat `.git` reached through the link itself as lexical ownership;
+    # that preserves common `~/current -> repo` entrypoints.
+    lexical_boundary: Path | None = None
+    for lexical in (candidate, *candidate.parents):
+        if _is_link_like(lexical):
+            continue
+        git_marker = lexical / ".git"
+        if git_marker.exists() or _is_link_like(git_marker):
+            lexical_boundary = lexical
+            break
+    resolved_candidate = candidate.resolve()
+    if lexical_boundary is not None:
+        try:
+            resolved_candidate.relative_to(lexical_boundary.resolve())
+        except ValueError as exc:
+            raise ContextOSError(
+                "root discovery start path must not escape repository boundary "
+                f"{lexical_boundary}: {candidate}"
+            ) from exc
+    candidate = resolved_candidate
+
+    for index, path in enumerate((candidate, *candidate.parents)):
+        # The tracked JSON marker is authoritative at the nearest candidate.
+        marker = path / "contextos.workspace.json"
+        marker_present = marker.exists() or _is_link_like(marker)
+        legacy_present = (path / "AGENTS.md").is_file() and (
+            (path / "state").is_dir() or (path / "workspace.yaml").is_file()
+        )
+        git_marker = path / ".git"
+        boundary_present = git_marker.exists() or _is_link_like(git_marker)
+
+        # Directory enumeration is needed only where a marker/root is actually
+        # plausible, plus the explicit start directory for alias-only controls.
+        # Intermediate traverse-only directories and unrelated outer ancestors
+        # remain compatible with legacy discovery.
+        if index == 0 or marker_present or legacy_present or boundary_present:
+            _reject_config_aliases(path, "contextos.workspace.json")
+
+        if marker_present:
+            if _is_link_like(marker):
+                raise ContextOSError(
+                    "invalid tracked workspace configuration: "
+                    "contextos.workspace.json must not be a symlink or reparse point"
+                )
+            if not marker.is_file():
+                raise ContextOSError(
+                    "invalid tracked workspace configuration: "
+                    "contextos.workspace.json must be a regular file"
+                )
+            try:
+                load_workspace_config(
+                    marker,
+                    root=path,
+                    known_runtime_ids=runtime_ids(path),
+                )
+            except WorkspaceConfigError as exc:
+                raise ContextOSError(
+                    f"invalid tracked workspace configuration: {exc}"
+                ) from exc
+            return path
+
+        # Preserve the original legacy compound marker for existing clones.
+        if legacy_present:
+            return path
+
+        # A nested repository without its own Context OS marker must not be
+        # captured by an outer repository. Check the candidate before stopping
+        # so a marker at a worktree or submodule root still wins.
+        if boundary_present:
+            raise ContextOSError(
+                "could not find a Context OS root before repository boundary: "
+                f"{path}"
+            )
+
+    raise ContextOSError(
+        "could not find a Context OS root "
+        "(contextos.workspace.json, or legacy AGENTS.md plus state/ or workspace.yaml)"
+    )
+
+
+def _reject_config_aliases(root: Path, canonical_name: str) -> None:
+    identity = _config_filename_identity(canonical_name)
+    try:
+        matches = [
+            path.name
+            for path in root.iterdir()
+            if _config_filename_identity(path.name) == identity
+        ]
+    except OSError as exc:
+        raise ContextOSError(f"cannot inspect workspace root {root}: {exc}") from exc
+    if matches and matches != [canonical_name]:
+        raise ContextOSError(
+            f"portable configuration filename collision for {canonical_name!r}: "
+            + ", ".join(sorted(matches))
+        )
 
 
 def _legacy_repo_path(root: Path, raw: str, field: str) -> Path:
@@ -238,11 +338,22 @@ def resolve_workspace(root: Path) -> WorkspaceResolution:
         if not canonical:
             notices.append({
                 "code": "workspace-json-noncanonical",
-                "message": "contextos.workspace.json is valid but not canonically rendered",
+                "message": (
+                    "contextos.workspace.json is valid but not canonically rendered; "
+                    "preview the same-agent repair with bash scripts/contextos.sh "
+                    f"workspace migrate --agents {','.join(config['agents']) or 'none'}, "
+                    "then create its reviewed proposal with bash scripts/contextos.sh "
+                    f"workspace propose-migration --agents "
+                    f"{','.join(config['agents']) or 'none'}"
+                ),
             })
         if legacy_path.exists() or legacy_path.is_symlink():
             conflicts: list[str] = []
-            legacy_detail = "legacy workspace.yaml is shadowed by contextos.workspace.json"
+            legacy_detail = (
+                "legacy workspace.yaml is shadowed by contextos.workspace.json; "
+                "retire it through bash scripts/contextos.sh workspace "
+                f"propose-migration --agents {','.join(config['agents']) or 'none'}"
+            )
             if legacy_path.is_symlink():
                 legacy_detail += "; legacy file must not be a symlink"
             else:
@@ -284,8 +395,11 @@ def resolve_workspace(root: Path) -> WorkspaceResolution:
         notices.append({
             "code": "legacy-workspace",
             "message": (
-                "workspace.yaml remains readable but is deprecated; preview migration "
-                "with context-os workspace migrate"
+                "workspace.yaml remains readable but is deprecated; choose the intended "
+                "agent set and preview migration with bash scripts/contextos.sh workspace "
+                "migrate --agents <comma-separated-runtime-ids|none>, then create its "
+                "reviewed proposal with bash scripts/contextos.sh workspace "
+                "propose-migration --agents <the-same-selection>"
             ),
         })
     else:

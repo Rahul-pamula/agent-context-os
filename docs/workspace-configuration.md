@@ -173,6 +173,24 @@ the multi-select setup work is completed separately. Its semantics are fixed:
 - Cursor and OpenClaw remain launch/read compatibility names until registered
   runtime descriptors exist, so they cannot be stored in `agents` yet.
 
-Root discovery still requires the existing `AGENTS.md` plus `state/` or
-`workspace.yaml` markers during this phase. Making JSON a standalone root marker
-is a separate compatibility step.
+## Root discovery
+
+`contextos.workspace.json` is the provider-neutral root marker. A valid tracked
+configuration is sufficient even for a minimal core-only workspace with no
+`AGENTS.md`, runtime adapter, or materialized state paths. Discovery validates
+the nearest JSON marker before accepting it; malformed, aliased, symlinked, or
+non-file markers fail at that directory instead of falling through to an outer
+workspace.
+
+Existing clones remain discoverable through the legacy compound marker:
+`AGENTS.md` plus either a `state/` directory or `workspace.yaml`. Discovery
+chooses the nearest recognized root. After evaluating a directory, it stops at
+an exact `.git` file, directory, or symlink, so an unconfigured nested repository
+cannot accidentally inherit an outer repository's Context OS state. Pass an
+explicit `--root` only when deliberately operating on an outer workspace. A
+discovery start may be a real directory, regular file, or link-like entrypoint.
+Internal links and entrypoints such as `current -> repo` remain compatible when
+their resolved start stays inside the nearest lexical `.git` boundary. A link
+that escapes that boundary fails before an outer workspace can be selected;
+symlinked system ancestors above the boundary and non-Git legacy paths remain
+compatible.
