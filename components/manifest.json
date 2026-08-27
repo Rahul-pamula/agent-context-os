@@ -7,6 +7,7 @@
     "extensible_roots": [
         ".agents/skills",
         ".claude/commands",
+        ".cursor",
         "content",
         "identity",
         "inbox",

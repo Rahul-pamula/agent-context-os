@@ -84,6 +84,8 @@ remain supported.
   `/context-end` explicitly; Cursor CLI reserves `/update` for self-updates.
 - Keep `.cursor/rules` non-overlapping with this file because Cursor does not
   document their conflict order. IDE and CLI permissions remain separate.
+- Cursor CLI also reads the removable root `CLAUDE.md` when present. Treat its
+  short lifecycle commands as Claude adapters, not Cursor invocations.
 - This experimental adapter ships no Cursor hook or native-memory bridge. See
   `adapters/cursor/README.md` for authorization and conformance boundaries.
 

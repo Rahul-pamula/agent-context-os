@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Changed
+- Workspace validation treats `.cursor/` as user-extensible while strict
+  maintainer validation still requires ownership for every shipped path.
 - `doctor` is set-aware when tracked workspace configuration exists. It reports
   support, component materialization, customization limits, local availability,
   onboarding, descriptor drift, declared conformance, and evidence freshness

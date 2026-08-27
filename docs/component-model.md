@@ -21,9 +21,11 @@ Every currently tracked file has exactly one component owner and one policy:
 - `development`: repository maintenance, tests, CI, or contribution files.
   These prove or build the product but are not runtime workspace outputs.
 
-The roots `.agents/skills/`, `.claude/commands/`, `content/`, `identity/`,
-`inbox/`, `projects/`, `references/`, `sessions/`, `state/`, and `writing/` are
-extensible. The legacy root configuration file `workspace.yaml` is an exact
+The roots `.agents/skills/`, `.claude/commands/`, `.cursor/`, `content/`,
+`identity/`, `inbox/`, `projects/`, `references/`, `sessions/`, `state/`, and
+`writing/` are extensible. This lets a configured Cursor workspace track its
+own rules, permissions, skills, hooks, or MCP settings without weakening the
+strict maintainer inventory. The legacy root configuration file `workspace.yaml` is an exact
 extensible path rather than a directory root. The canonical tracked
 `contextos.workspace.json` created by reviewed setup transactions is the other
 exact extensible path.

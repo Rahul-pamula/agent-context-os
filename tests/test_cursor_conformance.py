@@ -77,6 +77,8 @@ class CursorDescriptorTest(unittest.TestCase):
         self.assertNotIn("--force", install_text)
 
     def test_adapter_does_not_ship_unverified_cursor_configuration(self) -> None:
+        if os.environ.get("CONTEXTOS_VALIDATION_PROFILE") == "workspace":
+            self.skipTest("workspace-owned .cursor configuration is permitted")
         for path in (
             ".cursor/rules",
             ".cursor/hooks.json",
@@ -110,6 +112,10 @@ class CursorDescriptorTest(unittest.TestCase):
             "exact-version conformance for both surfaces",
             "aggregate availability status reflects only",
             "exact-version and required-flag smoke test",
+            "Cursor CLI also reads a root `CLAUDE.md`",
+            "removable seed",
+            "Project-owned `.cursor/` configuration is permitted",
+            "portable skill frontmatter does not currently enforce",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, normalized)

@@ -52,8 +52,17 @@ this adapter documents only the namespaced commands. Cursor does not document
 whether its built-in `/update` or the discovered `update` skill wins. Do not use
 the short aliases in Cursor, and do not duplicate these names in another Cursor
 skill root. `disable-model-invocation: true` can make a Cursor skill
-explicit-only; the checked-in lifecycle skills already require explicit use by
-contract.
+explicit-only. The repository contract instructs explicit lifecycle use, but
+the portable skill frontmatter does not currently enforce that Cursor-specific
+setting; model-initiated selection is another promotion-gate control.
+
+Cursor CLI also reads a root `CLAUDE.md`, when present, alongside `AGENTS.md`
+and `.cursor/rules`. This template ships `CLAUDE.md` as a removable seed, so the
+runtime descriptor cannot declare it as a required repository source. Its
+Claude command table includes the short lifecycle names; Cursor users should
+still use only the namespaced `context-*` skills. Cursor also scans compatible
+`.claude/skills/` and `.codex/skills/` roots. No lifecycle skill is shipped in
+those roots today, but same-name additions create another unresolved collision.
 
 ## Authorization boundaries
 
@@ -103,10 +112,14 @@ The current opt-in CLI control is an exact-version and required-flag smoke test,
 not installed lifecycle conformance. It runs from a disposable directory and
 does not authenticate, trust a workspace, call a model, or exercise writes.
 
+Project-owned `.cursor/` configuration is permitted by workspace validation.
+Strict maintainer validation still requires every template-owned path to have
+an explicit component owner.
+
 First-class promotion requires exact-version conformance for both surfaces,
 including root and nested instruction discovery, `.cursor/rules` conflict
 controls, short-alias versus built-in resolution, explicit skill invocation,
-interactive must-fire and must-not-fire approval controls, headless
-no-`--force` and `--force` behavior, deny precedence, MCP scope, native-state
-isolation, and either a tested Cursor-specific hook adapter or a continuing
-explicit no-hook claim.
+implicit-invocation controls, interactive must-fire and must-not-fire approval
+controls, headless no-`--force` and `--force` behavior, deny precedence, MCP
+scope, native-state isolation, and either a tested Cursor-specific hook adapter
+or a continuing explicit no-hook claim.
