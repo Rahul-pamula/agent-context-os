@@ -2097,6 +2097,31 @@ def _transaction_slot(ordinal: int, relative: str) -> str:
     return f"{ordinal:04d}-{sha256_text(identity)[:16]}"
 
 
+def _available_transaction_namespace(
+    root: Path,
+    preferred: Path,
+    *,
+    suffix: str,
+) -> Path:
+    """Choose a non-existing sibling without reusing retained garbage."""
+    if not suffix or not preferred.name.endswith(suffix):
+        raise ContextOSError(
+            f"invalid transaction namespace suffix for {preferred}: {suffix!r}"
+        )
+    _guard_local_artifact_path(root, preferred)
+    if not preferred.exists() and not preferred.is_symlink():
+        return preferred
+    stem = preferred.name[: -len(suffix)]
+    for ordinal in range(1, 10_000):
+        candidate = preferred.with_name(f"{stem}.{ordinal}{suffix}")
+        _guard_local_artifact_path(root, candidate)
+        if not candidate.exists() and not candidate.is_symlink():
+            return candidate
+    raise ContextOSError(
+        f"cannot allocate a collision-free transaction namespace beside {preferred}"
+    )
+
+
 def _create_agent_journal(
     root: Path,
     document: dict[str, Any],
@@ -2111,7 +2136,16 @@ def _create_agent_journal(
     building = journal.with_name(f".{journal.name}.building")
     _guard_local_artifact_path(root, building)
     if building.exists() or building.is_symlink():
-        raise ContextOSError(f"agent transaction journal build already exists: {building}")
+        if building.is_symlink() or not building.is_dir():
+            raise ContextOSError(
+                f"invalid agent transaction journal build path: {building}"
+            )
+        _rmtree_readonly_artifacts(building, ignore_errors=True)
+    building = _available_transaction_namespace(
+        root,
+        building,
+        suffix=".building",
+    )
     workflow = document["workflow"]
     entries: list[dict[str, Any]] = []
     for index, change in enumerate(document["changes"]):
@@ -2695,7 +2729,12 @@ def _discard_agent_journal(root: Path, journal: Path) -> None:
     if disposable.exists():
         if disposable.is_symlink() or not disposable.is_dir():
             raise ContextOSError(f"invalid disposable journal path: {disposable}")
-        _rmtree_readonly_artifacts(disposable)
+        _rmtree_readonly_artifacts(disposable, ignore_errors=True)
+    disposable = _available_transaction_namespace(
+        root,
+        disposable,
+        suffix=".discard",
+    )
     journal.rename(disposable)
     _fsync_directory(journal.parent)
     _rmtree_readonly_artifacts(

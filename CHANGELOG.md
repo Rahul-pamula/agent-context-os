@@ -66,8 +66,9 @@
   files when atomic deletion is unavailable; it fails closed and reports the
   observed artifact kind and link count for a later retry. Retained garbage in
   incomplete or retired journal namespaces no longer blocks unrelated applies,
-  and dual-failure diagnostics distinguish incomplete transaction recovery from
-  incomplete target rollback.
+  same-ID journal retries use collision-free retired namespaces, and dual-failure
+  diagnostics distinguish incomplete transaction recovery from incomplete target
+  rollback.
 - Windows transaction cleanup now removes read-only hard-link names with
   `FileDispositionInfoEx` instead of temporarily widening the shared inode's
   mode, closing the process-death window that could wedge recovery or silently

@@ -20,6 +20,7 @@ from unittest import mock
 from contextos.cli import main as cli_main
 from contextos.kernel import (
     ContextOSError,
+    _available_transaction_namespace,
     _agent_change,
     _create_agent_journal,
     _discard_agent_journal,
@@ -1273,6 +1274,23 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         self.assertFalse(building.exists())
         self.assertTrue((self.root / "contextos.workspace.json").exists())
 
+    def test_transaction_namespace_skips_every_retained_collision(self) -> None:
+        journals = self.root / ".context-os/journals"
+        preferred = journals / ".proposal.discard"
+        first_alternate = journals / ".proposal.1.discard"
+        preferred.mkdir(parents=True)
+        first_alternate.mkdir()
+
+        selected = _available_transaction_namespace(
+            self.root,
+            preferred,
+            suffix=".discard",
+        )
+
+        self.assertEqual(journals / ".proposal.2.discard", selected)
+        self.assertTrue(preferred.is_dir())
+        self.assertTrue(first_alternate.is_dir())
+
     def test_proposal_json_rejects_duplicates_constants_and_boolean_version(self) -> None:
         path, proposal = self.propose()
         raw = path.read_text(encoding="utf-8")
@@ -1512,19 +1530,29 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         self.assertFalse(retained.stat().st_mode & 0o200)
 
     @unittest.skipUnless(os.name == "nt", "Windows read-only cleanup")
-    def test_retained_discard_artifact_does_not_block_unrelated_apply(self) -> None:
-        discard = self.root / ".context-os/journals/.stale.discard"
+    def test_retained_same_id_discard_does_not_block_later_applies(self) -> None:
+        path, proposal = self.propose()
+        discard = (
+            self.root
+            / ".context-os/journals"
+            / f".{proposal['proposal_id']}.discard"
+        )
+        building = discard.with_name(f".{proposal['proposal_id']}.building")
         retained = discard / "aaa-retained"
+        retained_build = building / "aaa-retained"
         removable = discard / "bbb-removable"
         discard.mkdir(parents=True)
+        building.mkdir()
         retained.write_bytes(b"retain me\n")
+        retained_build.write_bytes(b"retain build too\n")
         removable.write_bytes(b"remove me\n")
         os.chmod(retained, 0o444)
-        path, proposal = self.propose()
+        os.chmod(retained_build, 0o444)
         original_chmod = os.chmod
+        protected = {retained.resolve(), retained_build.resolve()}
 
         def reject_retained_chmod(candidate, mode, *args, **kwargs):
-            if Path(candidate).resolve() == retained.resolve():
+            if Path(candidate).resolve() in protected:
                 raise AssertionError("blocked file cleanup must not chmod")
             return original_chmod(candidate, mode, *args, **kwargs)
 
@@ -1536,12 +1564,28 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
             side_effect=reject_retained_chmod,
         ):
             receipt, _ = self.apply(path, proposal)
+            next_path, next_proposal = create_agent_activation_proposal(
+                self.root,
+                "codex",
+                True,
+                NOW,
+            )
+            self.assertIsNotNone(next_path)
+            self.assertIsNotNone(next_proposal)
+            next_receipt, _ = self.apply(next_path, next_proposal)
 
         self.assertTrue(receipt.exists())
         self.assertTrue((self.root / "contextos.workspace.json").exists())
         self.assertTrue(retained.exists())
+        self.assertTrue(retained_build.exists())
         self.assertFalse(removable.exists())
         self.assertFalse(retained.stat().st_mode & 0o200)
+        self.assertFalse(retained_build.stat().st_mode & 0o200)
+        self.assertTrue(next_receipt.exists())
+        self.assertEqual(
+            ["claude", "codex"],
+            read_json(self.root / "contextos.workspace.json")["agents"],
+        )
 
     def test_strict_recursive_cleanup_reraises_contextos_error(self) -> None:
         tree = self.root / ".context-os/staging/strict-tree"

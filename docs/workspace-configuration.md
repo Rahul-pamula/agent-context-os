@@ -148,7 +148,9 @@ that observation. Cleanup may temporarily add write permission to a directory,
 which Windows does not permit to be hard-linked, and restores the original mode
 if the directory operation fails. Incomplete `.building` and retired `.discard`
 journal namespaces contain no recoverable workspace state; their cleanup is
-best-effort and a retained artifact there does not block unrelated applies.
+best-effort and a retained artifact there does not block unrelated applies or a
+new journal with the same proposal ID. A colliding retained namespace is left
+intact and the new build or retirement uses a collision-free numbered sibling.
 
 ## Agent activation lifecycle
 
