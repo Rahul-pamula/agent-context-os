@@ -157,6 +157,7 @@ contextos/                 Deterministic lifecycle kernel
 .codex/hooks.json          Codex lifecycle advisory adapter
 adapters/hermes/           Hermes installation and optional hook adapter
 runtimes/                  Machine-readable capability manifests
+components/                Component ownership and dependency manifest
 integrations/              Machine-checked opt-in integration catalog
 references/                Generated catalog and integration setup notes
 scripts/                   Setup, validation, migration, and maintenance tools
@@ -179,13 +180,19 @@ Claude Code auto-memory is a separate, host-specific layer. The repository inclu
 - Use one git worktree per concurrent agent session.
 - Follow [`docs/safety-contract.md`](docs/safety-contract.md) before external writes, destructive actions, or permission changes.
 
-Run the full local check after changing instructions, skills, scripts, adapters, or generated references:
+Run the full local check after changing instructions, skills, scripts, adapters,
+generated references, or tracked personal context:
 
 ```bash
-bash scripts/validate-all.sh
+bash scripts/validate-all.sh --workspace
 ```
 
-CI runs the same aggregate validator. It checks structure, adapter mappings, links, shell syntax, hook behavior, JSON, tests, and generated integration documentation. It cannot prove the behavior of an installed agent version or an external service.
+The workspace mode permits new tracked files only below the component catalog's
+declared extensible roots. CI and product contributors run the strict form
+without `--workspace`, so every tracked template file still requires an owner.
+Both forms check structure, adapter mappings, links, shell syntax, hook behavior,
+JSON, tests, and generated integration documentation. They cannot prove the
+behavior of an installed agent version or an external service.
 
 ## Documentation
 
@@ -197,6 +204,7 @@ CI runs the same aggregate validator. It checks structure, adapter mappings, lin
 | Use the repository in Hermes Agent | [Memory across agents](docs/memory-across-agents.md) and the Hermes section of [AGENTS.md](AGENTS.md) |
 | Keep claude.ai projects aligned | [Claude projects sync](docs/claude-projects-sync.md) |
 | See every command and portable skill | [Commands and skills](docs/commands-and-skills.md) |
+| Understand component ownership and future clean composition | [Component model](docs/component-model.md) |
 | Choose an optional add-on | [Integration chooser](docs/integrations-guide.md) and [catalog](references/integrations.md) |
 | Understand product language and boundaries | [Positioning](docs/positioning.md) |
 | Keep context files small and cheap to load | [Optimizing context files](docs/optimizing-context.md) |
