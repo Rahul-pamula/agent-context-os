@@ -31,7 +31,9 @@ from contextos.kernel import (
     _transaction_slot,
     _unlink_readonly_artifact,
     apply_proposal,
+    agent_list_report,
     canonical_json,
+    create_agent_activation_proposal,
     create_proposal,
     create_workspace_migration_proposal,
     create_workspace_setup_proposal,
@@ -204,6 +206,7 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         self.assertIsNotNone(path)
         self.assertIsNotNone(proposal)
         assert path is not None and proposal is not None
+        self.assertEqual("workspace-setup", proposal["operation"])
         self.assertEqual(["contextos.workspace.json"], [
             change["path"] for change in proposal["changes"]
         ])
@@ -273,6 +276,242 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         self.assertIn("deprecated", " ".join(report["notices"]))
         self.assertEqual(["claude"], report["authorization"]["after_agents"])
         self.assertFalse((self.root / "contextos.workspace.json").exists())
+
+    def test_agent_enable_disable_are_exact_idempotent_config_only_changes(self) -> None:
+        protected_before = {
+            relative: (self.root / relative).read_bytes()
+            for relative in ("AGENTS.md", "TODO.md", "components/manifest.json")
+        }
+        path, proposal = self.propose(("claude",))
+        self.apply(path, proposal)
+        local_sentinels = {
+            ".context-os/hosts.json": b'{"schema_version":1,"hosts":{}}\n',
+            ".context-os/native-memory.txt": b"machine-local bytes\r\n",
+        }
+        for relative, content in local_sentinels.items():
+            target = self.root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+            protected_before[relative] = content
+
+        path, proposal = create_agent_activation_proposal(
+            self.root, "codex", True, NOW.replace(second=1)
+        )
+        self.assertIsNotNone(path)
+        self.assertIsNotNone(proposal)
+        assert path is not None and proposal is not None
+        self.assertEqual("agent-enable", proposal["operation"])
+        self.assertEqual(
+            ["contextos.workspace.json"],
+            [change["path"] for change in proposal["changes"]],
+        )
+        self.assertEqual(["claude"], proposal["authorization"]["before_agents"])
+        self.assertEqual(
+            ["claude", "codex"], proposal["authorization"]["after_agents"]
+        )
+        self.apply(path, proposal)
+        self.assertEqual(
+            (None, None),
+            create_agent_activation_proposal(
+                self.root, "codex", True, NOW.replace(second=2)
+            ),
+        )
+
+        path, proposal = create_agent_activation_proposal(
+            self.root, "claude", False, NOW.replace(second=3)
+        )
+        self.assertIsNotNone(path)
+        self.assertIsNotNone(proposal)
+        assert path is not None and proposal is not None
+        self.assertEqual("agent-disable", proposal["operation"])
+        self.assertEqual(
+            ["claude", "codex"], proposal["authorization"]["before_agents"]
+        )
+        self.assertEqual(["codex"], proposal["authorization"]["after_agents"])
+        self.apply(path, proposal)
+        self.assertEqual(
+            (None, None),
+            create_agent_activation_proposal(
+                self.root, "claude", False, NOW.replace(second=4)
+            ),
+        )
+
+        path, proposal = create_agent_activation_proposal(
+            self.root, "codex", False, NOW.replace(second=5)
+        )
+        assert path is not None and proposal is not None
+        self.assertEqual([], proposal["authorization"]["after_agents"])
+        self.apply(path, proposal)
+        configured = json.loads(
+            (self.root / "contextos.workspace.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual([], configured["agents"])
+        for relative, before in protected_before.items():
+            self.assertEqual(before, (self.root / relative).read_bytes(), relative)
+
+    def test_crafted_disable_cannot_remove_more_than_one_runtime(self) -> None:
+        path, proposal = self.propose(("claude", "codex"))
+        self.apply(path, proposal)
+        path, proposal = create_agent_activation_proposal(
+            self.root, "claude", False, NOW.replace(second=1)
+        )
+        assert path is not None and proposal is not None
+        after_config = json.loads(proposal["changes"][0]["after_text"])
+        after_config["agents"] = []
+        after_text = json.dumps(after_config, indent=2) + "\n"
+        proposal["changes"][0] = _agent_change(
+            self.root,
+            "agent-disable",
+            "contextos.workspace.json",
+            action="write",
+            after_text=after_text,
+        )
+        self.resign(path, proposal)
+
+        with self.assertRaisesRegex(ContextOSError, "remove exactly one"):
+            self.apply(path, proposal)
+
+    def test_crafted_activation_cannot_rewrite_workspace_paths(self) -> None:
+        path, proposal = self.propose(("claude",))
+        self.apply(path, proposal)
+        path, proposal = create_agent_activation_proposal(
+            self.root, "codex", True, NOW.replace(second=1)
+        )
+        assert path is not None and proposal is not None
+        after_config = json.loads(proposal["changes"][0]["after_text"])
+        after_config["paths"]["state_dir"] = "redirected-state"
+        after_text = json.dumps(after_config, indent=2) + "\n"
+        proposal["changes"][0] = _agent_change(
+            self.root,
+            "agent-enable",
+            "contextos.workspace.json",
+            action="write",
+            after_text=after_text,
+        )
+        self.resign(path, proposal)
+
+        with self.assertRaisesRegex(ContextOSError, "may change only agents"):
+            self.apply(path, proposal)
+
+    def test_crafted_migration_cannot_bypass_disable_or_setup_semantics(self) -> None:
+        path, proposal = self.propose(("claude",))
+        self.apply(path, proposal)
+        path, proposal = create_workspace_setup_proposal(
+            self.root, ("codex",), NOW.replace(second=1)
+        )
+        assert path is not None and proposal is not None
+        proposal["operation"] = "workspace-migrate"
+        self.resign(path, proposal)
+
+        with self.assertRaisesRegex(ContextOSError, "cannot change tracked configuration"):
+            self.apply(path, proposal)
+
+    def test_activation_committed_journal_recovers_with_its_exact_operation(self) -> None:
+        path, proposal = self.propose(("claude",))
+        self.apply(path, proposal)
+        path, proposal = create_agent_activation_proposal(
+            self.root, "codex", True, NOW.replace(second=1)
+        )
+        assert path is not None and proposal is not None
+        journal = self.root / ".context-os/journals" / proposal["proposal_id"]
+        with mock.patch(
+            "contextos.kernel._discard_agent_journal",
+            side_effect=OSError("retain committed activation journal"),
+        ):
+            receipt, _ = self.apply(path, proposal)
+        self.assertTrue(receipt.exists())
+        self.assertTrue(journal.exists())
+
+        with self.assertRaisesRegex(ContextOSError, "existing receipt"):
+            self.apply(path, proposal)
+        self.assertFalse(journal.exists())
+
+    def test_agent_activation_rejects_unknown_unconfigured_and_stale_state(self) -> None:
+        with self.assertRaisesRegex(ContextOSError, "missing runtime manifest"):
+            create_agent_activation_proposal(self.root, "missing", True, NOW)
+        with self.assertRaisesRegex(ContextOSError, "requires contextos.workspace.json"):
+            create_agent_activation_proposal(self.root, "claude", True, NOW)
+
+        path, proposal = self.propose(("claude",))
+        self.apply(path, proposal)
+        path, proposal = create_agent_activation_proposal(
+            self.root, "codex", True, NOW.replace(second=1)
+        )
+        assert path is not None and proposal is not None
+        config_path = self.root / "contextos.workspace.json"
+        current = json.loads(config_path.read_text(encoding="utf-8"))
+        current["agents"] = ["claude", "hermes"]
+        config_path.write_text(
+            json.dumps(current, indent=2) + "\n", encoding="utf-8", newline="\n"
+        )
+        with self.assertRaisesRegex(ContextOSError, "stale"):
+            self.apply(path, proposal)
+
+    def test_agent_list_and_cli_alias_report_activation_without_writes(self) -> None:
+        path, proposal = self.propose(("claude",))
+        self.apply(path, proposal)
+        report = agent_list_report(self.root)
+        statuses = {item["id"]: item for item in report["agents"]}
+        self.assertTrue(statuses["claude"]["enabled"])
+        self.assertFalse(statuses["codex"]["enabled"])
+        self.assertFalse(statuses["claude"]["locally_registered"])
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(
+                0,
+                cli_main([
+                    "--root", str(self.root), "agent", "add",
+                    "--runtime", "codex", "--now", NOW.replace(second=1).isoformat(),
+                ]),
+            )
+        proposal_report = json.loads(output.getvalue())
+        self.assertEqual("agent-enable", proposal_report["operation"])
+        self.assertIn("alias", " ".join(proposal_report["notices"]))
+        configured = json.loads(
+            (self.root / "contextos.workspace.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(["claude"], configured["agents"])
+
+        local = self.root / ".context-os"
+        (local / "runtime.json").write_text(
+            json.dumps({
+                "schema_version": 1,
+                "runtime": "codex",
+                "installed_at": "2026-08-20T12:00:00+00:00",
+                "source_manifest_sha256": "a" * 64,
+            }),
+            encoding="utf-8",
+        )
+        legacy_report = agent_list_report(self.root)
+        legacy_statuses = {item["id"]: item for item in legacy_report["agents"]}
+        self.assertTrue(legacy_statuses["codex"]["locally_registered"])
+        self.assertEqual("codex", legacy_report["legacy_local_runtime"])
+
+    def test_activation_recovery_rejects_legacy_path_under_enable_operation(self) -> None:
+        path, proposal = self.propose()
+        backups = {
+            safe_repo_path(self.root, item["path"]): (
+                safe_repo_path(self.root, item["path"]).read_bytes()
+                if safe_repo_path(self.root, item["path"]).exists()
+                else None
+            )
+            for item in proposal["changes"]
+        }
+        modes = {
+            target: target.stat().st_mode & 0o7777 if target.exists() else None
+            for target in backups
+        }
+        receipt = self.root / ".context-os/receipts" / f"{proposal['proposal_id']}.json"
+        journal = _create_agent_journal(self.root, proposal, backups, modes, receipt)
+        manifest = read_json(journal / "journal.json")
+        manifest["operation"] = "agent-enable"
+        (journal / "journal.json").write_text(
+            json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+        )
+
+        with self.assertRaisesRegex(ContextOSError, "path is not recoverable"):
+            _recover_pending_agent_journals(self.root)
 
     def test_exact_digest_tamper_and_unowned_path_fail_before_writes(self) -> None:
         path, proposal = self.propose()
