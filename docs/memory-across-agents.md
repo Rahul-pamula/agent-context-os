@@ -34,9 +34,21 @@ repository proposal. Do not run multiple writers against one Hermes home, and
 do not duplicate the same fact in native memory and repository state without a
 declared canonical home.
 
+## OpenClaw
+
+OpenClaw's workspace is private memory, not a sandbox. Keep its `SOUL.md`,
+`USER.md`, `MEMORY.md`, and `memory/` directory in a private workspace outside
+this repository. Run OpenClaw from the repository directory so it receives the
+root `AGENTS.md`, but do not make the repository itself the OpenClaw workspace.
+
+The experimental adapter copies lifecycle skills into that private workspace.
+It does not synchronize native memory into Context OS. Promote a durable fact
+across runtimes only through the same reviewed repository proposal used by the
+other hosts.
+
 ## Proposal/apply boundary
 
-All three runtimes use the same repository transaction:
+All registered runtimes use the same repository transaction:
 
 1. reviewed structured input;
 2. exact proposed diffs and digest;

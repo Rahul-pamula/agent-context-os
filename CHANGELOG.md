@@ -14,6 +14,11 @@
   README support claims, plus strict maintainer and conformance checks.
 
 ### Added
+- Experimental OpenClaw onboarding with a machine-readable runtime descriptor,
+  separate private-workspace boundary, copied lifecycle skills, explicit
+  `/skill` invocations, honest no-hook claims, and opt-in installed-version
+  conformance for discovery, precedence, allowlists, diagnostics, and memory
+  isolation against `OpenClaw 2026.7.1-2 (0790d9f)`.
 - Transactional `agent list`, `agent add`/`enable`, and configuration-only
   `agent disable` commands with idempotent exact-set proposals and no adapter,
   host-state, credential, integration, binary, or context-file mutation.
@@ -60,6 +65,10 @@
 - First-class Codex onboarding with a root `AGENTS.md`, four explicit-invocation lifecycle skills under `.agents/skills/`, generated skill UI metadata, `--agent codex` setup support, portability tests, and a host-boundary guide.
 
 ### Fixed
+- Skill validation now prunes ignored Context OS state and dependency
+  `node_modules` trees while retaining strict checks for repository skill
+  directories, so installed-runtime conformance cannot poison the contributor
+  validation gate.
 - `doctor` now distinguishes proposal-ID transaction recovery candidates from
   inert `.building`/`.discard` cleanup artifacts, preserving inspect-and-recover
   advice only for the former and giving path-specific, shared-inode-safe manual

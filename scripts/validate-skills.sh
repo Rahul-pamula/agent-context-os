@@ -36,7 +36,7 @@ check_frontmatter() {
 # ── Check 1: All skill directories have a SKILL.md ──────────────────────────
 
 SKILL_DIRS=$(find . \
-  -path './.git' -prune -o \
+  \( -path './.git' -o -path './.context-os' -o -name node_modules \) -prune -o \
   -type d -name 'skills' -print | \
   xargs -I{} find {} -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
 
@@ -50,7 +50,9 @@ done
 
 while IFS= read -r -d '' skill; do
   check_frontmatter "$skill" 60
-done < <(find . -path './.git' -prune -o -name 'SKILL.md' -print0)
+done < <(find . \
+  \( -path './.git' -o -path './.context-os' -o -name node_modules \) -prune -o \
+  -name 'SKILL.md' -print0)
 
 # ── Check 3: All command .md files have valid frontmatter ───────────────────
 

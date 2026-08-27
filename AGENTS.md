@@ -47,6 +47,7 @@ remain supported.
 - `.claude/` contains Claude Code commands, hooks, settings, and memory adapters.
 - `.codex/hooks.json` maps Codex events to the same read-only policy checks.
 - `adapters/hermes/` documents optional Hermes hooks and skill installation.
+- `adapters/openclaw/` documents experimental skills-first OpenClaw support.
 - Runtime manifests under `runtimes/` declare support instead of implying parity.
 - Kernel proposal/apply is the enforcement boundary on every host; hooks are
   defense in depth and host-local memory is never shared automatically.
@@ -62,6 +63,17 @@ remain supported.
   `docs/memory-across-agents.md`.
 - `.claude/hooks/` does not run under Hermes. The optional Hermes adapter maps
   supported events to portable checks; kernel enforcement does not depend on it.
+
+## OpenClaw
+
+- Keep OpenClaw's private workspace and native memory outside this repository.
+- Copy all four short lifecycle aliases and all four `context-*` cores into the
+  private workspace's `.agents/skills/`; refresh copied skills after changes.
+- Run OpenClaw from the repository directory so root `AGENTS.md` is included,
+  then invoke `/skill setup`, `/skill start`, `/skill update`, or `/skill end`.
+- This experimental adapter installs no OpenClaw hook or plugin. Skill
+  allowlists do not replace separate shell-execution authorization.
+- See `adapters/openclaw/README.md` for the tested version and diagnostics.
 
 ## Validation
 

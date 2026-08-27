@@ -2,7 +2,7 @@
 
 # Context OS
 
-A portable Git-backed context and workflow layer for agents like Claude Code, Codex, and Hermes. Evolves alongside you and your agents. 
+A portable Git-backed context and workflow layer for agents like Claude Code, Codex, Hermes, and OpenClaw. Evolves alongside you and your agents.
 
 [![GitHub stars](https://img.shields.io/github/stars/conorbronsdon/agent-context-os?style=social)](https://github.com/conorbronsdon/agent-context-os/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
@@ -15,7 +15,8 @@ A portable Git-backed context and workflow layer for agents like Claude Code, Co
 
 Chat history, project instructions, and copied prompts drift apart. Context OS puts the durable parts in plain Markdown: who you are, what you are working on, decisions already made, and the workflows you want an agent to follow.
 
-Claude Code, Codex, and Hermes read the same repository state. A deterministic
+Claude Code, Codex, Hermes, and experimental OpenClaw support read the same
+repository state. A deterministic
 lifecycle kernel turns reviewed setup, checkpoint, and close requests into
 hash-checked proposals and receipts, without treating native memory as the
 source of truth.
@@ -23,7 +24,7 @@ source of truth.
 | What you need | How Context OS handles it |
 |---|---|
 | Bring useful context forward | A source-neutral [migration workflow](docs/migration-guide.md) turns selected chats, project instructions, memory exports, and documents into reviewable files. |
-| Work across coding agents | Provider-neutral state, skills, and lifecycle transitions live outside host adapters. Claude Code, Codex, and Hermes share the same kernel. |
+| Work across coding agents | Provider-neutral state, skills, and lifecycle transitions live outside host adapters. Registered runtimes share the same kernel. |
 | Add the tools that fit | A generated [integration catalog](references/integrations.md) documents install scope, data access, side effects, and confirmation gates. Nothing is enabled automatically. |
 | Keep context useful | Session handoffs, staleness checks, decision logs, and reviewable memory proposals make maintenance part of the normal workflow. |
 
@@ -44,6 +45,7 @@ git remote add origin <YOUR_PRIVATE_REPO_URL>
 # Select every agent this repository will use:
 bash scripts/setup.sh --agents claude,codex
 # bash scripts/setup.sh --agents hermes
+# bash scripts/setup.sh --agents openclaw
 # bash scripts/setup.sh --agents none  # core-only
 ```
 
@@ -66,6 +68,7 @@ Then start your agent from the repository root:
 | New workspace in Claude Code | Run `/setup` |
 | New workspace in Codex | Run `$setup` |
 | New workspace in Hermes | Run `/setup` after exposing the repository skills |
+| New workspace in OpenClaw | Follow the [experimental adapter](adapters/openclaw/README.md), then run `/skill setup` |
 | Existing context in another assistant | Follow the [migration guide](docs/migration-guide.md), then use the selected material during setup |
 | claude.ai only | Use [SETUP-PROMPTS.md](SETUP-PROMPTS.md) and copy the approved output into the repository |
 
@@ -75,7 +78,8 @@ The setup interview fills the identity, first project, workflows, and weekly sta
 
 ![A start session in Claude Code: state files load and a session briefing comes back, using sample data from the included example musician project](docs/assets/start-demo.gif)
 
-`/start` in Claude Code or Hermes and `$start` in Codex read your state,
+`/start` in Claude Code or Hermes, `$start` in Codex, and `/skill start` in
+OpenClaw read your state,
 priorities, decisions, blockers, and recent handoff. The result is grounded in
 files rather than reconstructed from chat.
 
@@ -87,12 +91,12 @@ At the end, `/end` or `$end` proposes a handoff for review before it updates `se
 
 Start small. Use the core loop for a week, add one active project, then turn a repeated task into a skill when the repetition is clear.
 
-| Moment | Claude Code | Codex | Hermes | Shared result |
-|---|---|---|---|---|
-| First run or major refresh | `/setup` | `$setup` | `/setup` | Reviewed context proposal |
-| Start work | `/start` | `$start` | `/start` | Read-only continuity inventory and briefing |
-| Save a checkpoint | `/update` | `$update` | `/update` | Hash-checked update and receipt |
-| Finish work | `/end` | `$end` | `/end` | Hash-checked handoff, decisions, and receipt |
+| Moment | Claude Code | Codex | Hermes | OpenClaw (experimental) | Shared result |
+|---|---|---|---|---|---|
+| First run or major refresh | `/setup` | `$setup` | `/setup` | `/skill setup` | Reviewed context proposal |
+| Start work | `/start` | `$start` | `/start` | `/skill start` | Read-only continuity inventory and briefing |
+| Save a checkpoint | `/update` | `$update` | `/update` | `/skill update` | Hash-checked update and receipt |
+| Finish work | `/end` | `$end` | `/end` | `/skill end` | Hash-checked handoff, decisions, and receipt |
 
 The namespaced `$context-setup`, `$context-start`, `$context-update`, and
 `$context-end` invocations remain available for compatibility.
@@ -119,6 +123,7 @@ The guide covers ChatGPT, Claude, Gemini Apps, Gemini CLI, and a generic path fo
 | Claude Code | first-class | Shared lifecycle, slash-command adapters, hooks, optional live reads, and Claude-only auto-memory curation |
 | Codex | first-class | Shared lifecycle, native skills, project instructions, hooks, and reviewed proposal/apply writes |
 | Hermes Agent | first-class | Shared lifecycle through portable skills, advisory hooks, MCP, and separate Hermes-native memory |
+| OpenClaw | experimental | Skills-first lifecycle support with copied portable skills, separate private memory, and no project-hook claim |
 <!-- runtime-support:end -->
 
 Compatibility paths that are not registered runtime adapters:
@@ -126,19 +131,19 @@ Compatibility paths that are not registered runtime adapters:
 | Host | Compatibility path |
 |---|---|
 | Gemini CLI / Antigravity CLI | Migration tooling plus portable-skill discovery for continuing enterprise/API-key Gemini CLI; no complete workspace adapter, and no Antigravity discovery or permission parity is claimed |
-| Cursor / OpenClaw | Read `AGENTS.md` from the repository root; portable skills usable where their Agent Skills support allows |
+| Cursor | Read `AGENTS.md` from the repository root; portable skills usable where its Agent Skills support allows |
 | claude.ai | Manual consumer of selected knowledge files; no repository writes, hooks, or slash-command parity |
 | Other agents | Can use the Markdown state and portable skills only when their file and Agent Skills support is compatible |
 
 ## One source, explicit host adapters
 
-| Capability | Shared | Claude Code | Codex | Hermes |
-|---|---:|---:|---:|---:|
-| Identity, project, state, and session files | Yes | Reads | Reads | Reads |
-| Deterministic proposal/apply and receipts | Yes | Adapter | Native skill calls | Installed skill calls |
-| Lifecycle vocabulary | Semantics | `/setup` etc. | `$setup` etc. | `/setup` etc. |
-| Project hooks | Event contract only | `.claude/` | `.codex/` | Optional adapter |
-| Native memory | No | Claude auto-memory | Outside contract | `MEMORY.md` / `USER.md` |
+| Capability | Shared | Claude Code | Codex | Hermes | OpenClaw (experimental) |
+|---|---:|---:|---:|---:|---:|
+| Identity, project, state, and session files | Yes | Reads | Reads | Reads | Reads |
+| Deterministic proposal/apply and receipts | Yes | Adapter | Native skill calls | Installed skill calls | Copied skill calls |
+| Lifecycle vocabulary | Semantics | `/setup` etc. | `$setup` etc. | `/setup` etc. | `/skill setup` etc. |
+| Project hooks | Event contract only | `.claude/` | `.codex/` | Optional adapter | Not claimed |
+| Native memory | No | Claude auto-memory | Outside contract | `MEMORY.md` / `USER.md` | Private workspace |
 
 The shared layer is intentionally plain files. Provider-specific tool names, hooks, permissions, and memory features stay in their adapter directories.
 
@@ -168,6 +173,7 @@ contextos/                 Deterministic lifecycle kernel
 .claude/hooks/             Claude Code-only safety and session hooks
 .codex/hooks.json          Codex lifecycle advisory adapter
 adapters/hermes/           Hermes installation and optional hook adapter
+adapters/openclaw/         Experimental OpenClaw skills-first adapter
 runtimes/                  Machine-readable capability manifests
 components/                Component ownership and dependency manifest
 workspace/                 Schema and inactive canonical config example
@@ -228,6 +234,7 @@ behavior of an installed agent version or an external service.
 | Import useful context from another system | [Migration guide](docs/migration-guide.md) |
 | Use the repository in Codex | [Codex onboarding](docs/codex-onboarding.md) |
 | Use the repository in Hermes Agent | [Memory across agents](docs/memory-across-agents.md) and the Hermes section of [AGENTS.md](AGENTS.md) |
+| Use the repository in OpenClaw | [Experimental OpenClaw adapter](adapters/openclaw/README.md) |
 | Keep claude.ai projects aligned | [Claude projects sync](docs/claude-projects-sync.md) |
 | See every command and portable skill | [Commands and skills](docs/commands-and-skills.md) |
 | Understand component ownership and future clean composition | [Component model](docs/component-model.md) |

@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "$REPO_ROOT"
 
-SETUP_USAGE="Usage: bash scripts/setup.sh [--agents claude,codex|auto|none] [--agent auto|RUNTIME|none]"
+SETUP_USAGE="Usage: bash scripts/setup.sh [--agents claude,codex,openclaw|auto|none] [--agent auto|RUNTIME|none]"
 AGENT_SELECTION_KIND=""
 AGENT_SELECTION_RAW=""
 while [ "$#" -gt 0 ]; do
@@ -60,7 +60,7 @@ while [ "$#" -gt 0 ]; do
     -h|--help)
       echo "$SETUP_USAGE"
       echo "  --agents records an additive tracked runtime set; it never removes agents."
-      echo "  --agent is the deprecated singleton alias and retains auto/Cursor/OpenClaw launch compatibility."
+      echo "  --agent is the deprecated singleton alias and retains auto/Cursor launch compatibility."
       exit 0
       ;;
     *)
@@ -90,7 +90,7 @@ validate_agent_selection() {
         LAUNCH_SELECTION="auto"
         return
         ;;
-      cursor|openclaw)
+      cursor)
         LAUNCH_SELECTION="$raw"
         echo "  Note: $raw remains launch-only until it has a registered runtime descriptor."
         return
@@ -496,6 +496,8 @@ if [[ "$SELECTED_AGENT" == *,* ]]; then
     SELECTED_AGENT="codex"
   elif [[ ",$SELECTED_AGENT," == *,hermes,* ]] && [ "$HERMES_FOUND" = true ]; then
     SELECTED_AGENT="hermes"
+  elif [[ ",$SELECTED_AGENT," == *,openclaw,* ]] && [ "$OPENCLAW_FOUND" = true ]; then
+    SELECTED_AGENT="openclaw"
   else
     SELECTED_AGENT="none"
   fi
@@ -507,6 +509,8 @@ if [ "$SELECTED_AGENT" = "auto" ]; then
     SELECTED_AGENT="codex"
   elif [ "$HERMES_FOUND" = true ]; then
     SELECTED_AGENT="hermes"
+  elif [ "$OPENCLAW_FOUND" = true ]; then
+    SELECTED_AGENT="openclaw"
   else
     SELECTED_AGENT="none"
   fi
@@ -572,21 +576,26 @@ case "$SELECTED_AGENT" in
     fi
     ;;
   openclaw)
-    printf '  1. cd %q && openclaw\n' "$REPO_ROOT"
-    echo "  2. OpenClaw reads AGENTS.md and agentskills.io-compatible skills from"
-    echo "     .agents/skills/. See AGENTS.md for the session loop."
-    echo ""
-    if [ -t 0 ] && [ "$OPENCLAW_FOUND" = true ] && prompt_yn "  Launch OpenClaw now?" "y"; then
-      cd "$REPO_ROOT"
-      exec openclaw
+    if [ -z "$REQUESTED_REGISTERED_AGENTS" ]; then
+      "$CONTEXTOS_PYTHON_CMD" -m contextos install --runtime openclaw >/dev/null
     fi
+    echo "  1. Create or choose a private OpenClaw workspace outside this repository."
+    echo "  2. Copy all eight lifecycle skills from .agents/skills/ into that"
+    echo "     workspace's .agents/skills/ directory."
+    printf '  3. cd %q && openclaw\n' "$REPO_ROOT"
+    echo "  4. Type: /skill setup"
+    echo "     Native OpenClaw memory stays in the private workspace."
+    echo "     See adapters/openclaw/README.md for configuration and limits."
+    echo "     Setup does not launch OpenClaw because it cannot verify that private"
+    echo "     workspace configuration without reading or changing host state."
+    echo ""
     ;;
   none)
     printf '  Claude Code: cd %q && claude, then run /setup\n' "$REPO_ROOT"
     printf '  Codex:       cd %q && codex, then run $setup\n' "$REPO_ROOT"
     printf '  Hermes:      cd %q && hermes (reads AGENTS.md; see AGENTS.md Hermes section)\n' "$REPO_ROOT"
     printf '  Cursor:      cd %q and open in Cursor (reads AGENTS.md)\n' "$REPO_ROOT"
-    printf '  OpenClaw:    cd %q && openclaw (reads AGENTS.md + .agents/skills/)\n' "$REPO_ROOT"
+    echo "  OpenClaw:    see adapters/openclaw/README.md (private workspace + copied skills)"
     echo "  claude.ai:   open SETUP-PROMPTS.md and paste the prompts there"
     echo "  Guide:       docs/getting-started.md"
     echo ""

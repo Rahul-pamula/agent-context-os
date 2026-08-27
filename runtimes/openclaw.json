@@ -1,0 +1,126 @@
+{
+  "schema_version": 2,
+  "runtime": "openclaw",
+  "display_name": "OpenClaw",
+  "support_tier": "experimental",
+  "support_summary": "Skills-first lifecycle support with copied portable skills, separate private memory, and no project-hook claim",
+  "components": ["core", "portable-skills", "agents-instructions", "openclaw-adapter"],
+  "install": {
+    "mode": "skill-copy-to-private-workspace",
+    "next_steps": [
+      "Create or choose a private OpenClaw workspace outside this repository.",
+      "Copy all eight lifecycle skill directories from this repository's .agents/skills directory into the private workspace's .agents/skills directory.",
+      "Run OpenClaw from the repository directory and invoke lifecycle skills explicitly with /skill setup, /skill start, /skill update, or /skill end."
+    ]
+  },
+  "onboarding_doc": "adapters/openclaw/README.md",
+  "surfaces": {
+    "cli": {
+      "kind": "cli",
+      "support_tier": "experimental",
+      "instruction_sources": [
+        {"scope": "repository", "role": "canonical", "path": "AGENTS.md", "precedence": 100},
+        {"scope": "workspace", "role": "persona", "path": "SOUL.md", "precedence": 90},
+        {"scope": "workspace", "role": "persona", "path": "USER.md", "precedence": 80},
+        {"scope": "workspace", "role": "memory", "path": "MEMORY.md", "precedence": 70}
+      ],
+      "skill_sources": [
+        {"scope": "workspace", "role": "skills", "path": "skills", "precedence": 100},
+        {"scope": "workspace", "role": "skills", "path": ".agents/skills", "precedence": 90}
+      ],
+      "invocation": {
+        "setup": "/skill setup",
+        "start": "/skill start",
+        "update": "/skill update",
+        "end": "/skill end"
+      },
+      "capabilities": {
+        "agent_skills": "native",
+        "explicit_invocation": "native",
+        "project_hooks": "unsupported",
+        "blocking_pre_tool_hook": "unsupported",
+        "mcp": "native",
+        "native_memory": "native",
+        "proposal_apply": "adapter",
+        "skill_allowlists": "native",
+        "execution_authorization": "native"
+      },
+      "hook_output": null,
+      "binary_probes": [
+        {"purpose": "availability", "candidates": ["openclaw"]},
+        {"purpose": "version", "candidates": ["openclaw"]},
+        {"purpose": "native-doctor", "candidates": ["openclaw"]}
+      ],
+      "conformance_tests": [
+        "tests/test_openclaw_conformance.py",
+        "tests/test_contextos_kernel.py"
+      ],
+      "evidence": [
+        "openclaw-skills",
+        "openclaw-workspace",
+        "openclaw-system-prompt",
+        "openclaw-exec-approvals",
+        "openclaw-doctor",
+        "openclaw-mcp",
+        "openclaw-kernel",
+        "openclaw-conformance"
+      ]
+    }
+  },
+  "evidence": {
+    "checked_on": "2026-08-27",
+    "tested_versions": [
+      {"surface": "cli", "version": "OpenClaw 2026.7.1-2 (0790d9f)"}
+    ],
+    "sources": [
+      {
+        "id": "openclaw-skills",
+        "type": "official",
+        "location": "https://docs.openclaw.ai/tools/skills",
+        "claims": ["agent_skills", "explicit_invocation", "skill_allowlists", "skill_sources", "invocation"]
+      },
+      {
+        "id": "openclaw-workspace",
+        "type": "official",
+        "location": "https://docs.openclaw.ai/agent-workspace",
+        "claims": ["native_memory", "instruction_sources"]
+      },
+      {
+        "id": "openclaw-system-prompt",
+        "type": "official",
+        "location": "https://docs.openclaw.ai/concepts/system-prompt",
+        "claims": ["instruction_sources"]
+      },
+      {
+        "id": "openclaw-exec-approvals",
+        "type": "official",
+        "location": "https://docs.openclaw.ai/tools/exec-approvals",
+        "claims": ["execution_authorization"]
+      },
+      {
+        "id": "openclaw-doctor",
+        "type": "official",
+        "location": "https://docs.openclaw.ai/cli/doctor",
+        "claims": ["support"]
+      },
+      {
+        "id": "openclaw-mcp",
+        "type": "official",
+        "location": "https://docs.openclaw.ai/cli/mcp",
+        "claims": ["mcp"]
+      },
+      {
+        "id": "openclaw-kernel",
+        "type": "conformance",
+        "location": "tests/test_contextos_kernel.py",
+        "claims": ["proposal_apply"]
+      },
+      {
+        "id": "openclaw-conformance",
+        "type": "conformance",
+        "location": "tests/test_openclaw_conformance.py",
+        "claims": ["support", "skill_sources", "instruction_sources", "invocation"]
+      }
+    ]
+  }
+}
