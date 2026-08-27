@@ -6,12 +6,12 @@ dates, append behavior, optimistic hashes, locking, and receipts.
 
 ## Shared lifecycle
 
-| Job | Claude Code | Codex | Hermes | OpenClaw (experimental) | Deterministic operation |
-|---|---|---|---|---|---|
-| Initialize context | `/setup` | `$setup` | `/setup` | `/skill setup` | `contextos propose setup` then `apply` |
-| Start a session | `/start` | `$start` | `/start` | `/skill start` | read-only `contextos start` |
-| Checkpoint | `/update` | `$update` | `/update` | `/skill update` | `contextos propose update` then `apply` |
-| Close a session | `/end` | `$end` | `/end` | `/skill end` | `contextos propose end` then `apply` |
+| Job | Claude Code | Codex | Hermes | OpenClaw (experimental) | Cursor IDE (experimental) | Cursor CLI (experimental) | Deterministic operation |
+|---|---|---|---|---|---|---|---|
+| Initialize context | `/setup` | `$setup` | `/setup` | `/skill setup` | `/context-setup` | `/context-setup` | `contextos propose setup` then `apply` |
+| Start a session | `/start` | `$start` | `/start` | `/skill start` | `/context-start` | `/context-start` | read-only `contextos start` |
+| Checkpoint | `/update` | `$update` | `/update` | `/skill update` | `/context-update` | `/context-update` | `contextos propose update` then `apply` |
+| Close a session | `/end` | `$end` | `/end` | `/skill end` | `/context-end` | `/context-end` | `contextos propose end` then `apply` |
 
 The portable cores are `.agents/skills/context-setup`, `context-start`,
 `context-update`, and `context-end`. Short skill directories are thin aliases;
@@ -28,13 +28,14 @@ The mutation protocol is always:
 
 ## Runtime boundary
 
-| Capability | Claude Code | Codex | Hermes | OpenClaw (experimental) |
-|---|---|---|---|---|
-| Project instructions | `CLAUDE.md` | `AGENTS.md` | `AGENTS.md` | Execution-directory `AGENTS.md` |
-| Portable skill source | Thin slash adapters | `.agents/skills/` | External directory or copied skills | Copied into private workspace `.agents/skills/` |
-| Project hooks | `.claude/settings.json` | `.codex/hooks.json` after trust | Optional shell/plugin adapter | Not claimed |
-| Lifecycle enforcement | Kernel | Kernel | Kernel | Kernel |
-| Native memory | Claude auto-memory | Not part of the shared contract | `MEMORY.md` and `USER.md` | Private OpenClaw workspace |
+| Capability | Claude Code | Codex | Hermes | OpenClaw (experimental) | Cursor IDE (experimental) | Cursor CLI (experimental) |
+|---|---|---|---|---|---|---|
+| Project instructions | `CLAUDE.md` | `AGENTS.md` | `AGENTS.md` | Execution-directory `AGENTS.md` | Root `AGENTS.md` | Root `AGENTS.md` |
+| Portable skill source | Thin slash adapters | `.agents/skills/` | External directory or copied skills | Copied into private workspace `.agents/skills/` | `.agents/skills/` | `.agents/skills/` |
+| Project hooks | `.claude/settings.json` | `.codex/hooks.json` after trust | Optional shell/plugin adapter | Not claimed | Not claimed | Not claimed |
+| Authorization | Host settings | Host settings | Outside contract | Separate execution approvals | IDE Run Modes and permissions | CLI permissions and `--force` |
+| Lifecycle enforcement | Kernel | Kernel | Kernel | Kernel | Kernel | Kernel |
+| Native memory | Claude auto-memory | Not part of the shared contract | `MEMORY.md` and `USER.md` | Private OpenClaw workspace | Outside contract | Outside contract |
 
 Runtime manifests in `runtimes/` are machine-readable claims. Hooks are defense
 in depth: the kernel repeats mutation invariants during every proposal and apply.

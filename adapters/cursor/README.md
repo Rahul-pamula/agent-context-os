@@ -1,0 +1,100 @@
+# Cursor experimental adapter
+
+Context OS supports Cursor as two separate experimental surfaces: the desktop
+IDE and the Agent CLI. Both discover the repository-root `AGENTS.md` and project
+skills under `.agents/skills/`, but they have different binaries, permissions,
+configuration, and conformance gates. A green CLI check is not IDE evidence.
+
+No installed Cursor version was available for this release. The descriptor is
+therefore capability-gated, has no tested version, and must not be promoted to
+first-class until the opt-in controls pass against exact IDE and CLI versions.
+
+## Setup
+
+Select Cursor alongside any other agents during repository setup:
+
+```bash
+bash scripts/setup.sh --agents cursor
+# or
+bash scripts/setup.sh --agents claude,codex,cursor
+```
+
+For the IDE, open this repository as the workspace. For the CLI, install the
+Cursor Agent CLI separately, start `agent` from the repository root, and verify
+the exact executable with `agent --version`. The executable name `agent` is too
+generic for safe automatic detection, so the experimental descriptor does not
+use it as a resolution-only availability probe. Setup registers the adapter but
+does not launch either surface, authenticate Cursor, trust the workspace, or
+change account, user, project, MCP, hook, sandbox, or permission settings.
+
+Invoke `/context-setup`, `/context-start`, `/context-update`, and `/context-end`
+explicitly. Cursor CLI owns the built-in `/update` command for updating Cursor
+itself, so this adapter deliberately avoids the short lifecycle aliases. The
+namespaced skills route mutations through the deterministic proposal/apply
+kernel. Even in an IDE run mode or `agent -p --force`, an agent instruction is
+not approval of a Context OS proposal: inspect the exact diff and approve its
+digest separately.
+
+## Rules and skills
+
+Cursor also supports project rules in `.cursor/rules/**/*.mdc`; plain Markdown
+files in that directory are ignored. Cursor documents Team, Project, then User
+rule priority, but does not document which source wins when root `AGENTS.md`
+conflicts with a project `.mdc` rule. Context OS therefore ships no Cursor rule
+file and makes no conflict-precedence claim. Keep the shared lifecycle contract
+in `AGENTS.md`; make Cursor rules narrow and non-overlapping.
+
+Cursor discovers skills in both `.agents/skills/` and `.cursor/skills/`, but its
+documentation does not define a same-name collision winner. Context OS ships
+only `.agents/skills/`. Do not duplicate these names in another Cursor skill
+root. `disable-model-invocation: true` can make a Cursor skill explicit-only;
+the checked-in lifecycle skills already require explicit use by contract.
+
+## Authorization boundaries
+
+The IDE and CLI authorization controls are not interchangeable:
+
+- IDE Run Modes and project/user `permissions.json` govern IDE shell, MCP, and
+  fetch behavior. Cursor says Auto-review is not a security boundary.
+- CLI permissions live in user `~/.cursor/cli-config.json` and project
+  `.cursor/cli.json`. An explicit deny wins an allow.
+- Current headless documentation says `agent -p` proposes without applying file
+  changes, while `agent -p --force` may write without confirmation except where
+  explicitly denied. Older usage text is less precise, so this behavior remains
+  an installed-version conformance gate.
+- `--trust`, `--force`, and broad shell, write, MCP, or absolute-path grants are
+  opt-in permission expansions. Setup never supplies them.
+
+Use a disposable fixture to test unattended modes. Never run a `--force`
+conformance check against a real context repository.
+
+## Hooks, memory, and MCP
+
+Cursor project hooks use `.cursor/hooks.json` and can fail open unless configured
+otherwise. Context OS ships no Cursor hook adapter because its current generic
+hook envelope cannot represent Cursor's event, exit-code, and `failClosed`
+semantics. Project hooks and blocking pre-tool hooks are therefore unsupported,
+not silently inherited from Claude or Codex.
+
+Cursor loads project MCP configuration from `.cursor/mcp.json`; MCP remains a
+separate trust and authorization boundary. Setup does not install, authenticate,
+approve, or enable a server.
+
+Cursor rules, account settings, chat/session history, Cloud Agents, Automations,
+and any host-native memories are outside Context OS state. No Cursor-native
+memory is synchronized into `state/` or `sessions/`; portable continuity changes
+only through a reviewed Context OS proposal.
+
+## Diagnostics and promotion gates
+
+Run `bash scripts/contextos.sh doctor --runtime cursor` for descriptor,
+registration, materialization, and local binary checks. Cursor has no documented
+all-up native doctor. For the CLI, record `agent --version`, `agent about`,
+`agent status`, and `agent mcp list` separately from IDE diagnostics.
+
+First-class promotion requires exact-version conformance for both surfaces,
+including root and nested instruction discovery, `.cursor/rules` conflict
+controls, explicit skill invocation, interactive must-fire and must-not-fire
+approval controls, headless no-`--force` and `--force` behavior, deny precedence,
+MCP scope, native-state isolation, and either a tested Cursor-specific hook
+adapter or a continuing explicit no-hook claim.

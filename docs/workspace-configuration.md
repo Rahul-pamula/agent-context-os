@@ -242,10 +242,10 @@ intent with these rules:
 - only `agent disable` may shrink the configured set;
 - local launch choice is ephemeral and never creates a stored primary agent;
 - no adapter or component is deleted merely because it was not selected; and
-- Cursor remains a launch/read compatibility name until a registered runtime
-  descriptor exists, so it cannot be stored in `agents` yet. OpenClaw is a
-  registered experimental runtime and can be selected, but its private
-  workspace and copied-skill onboarding remain separate host-local steps.
+- Cursor and OpenClaw are registered experimental runtimes and may be stored in
+  `agents`. Cursor registration does not conflate or launch its IDE and Agent
+  CLI surfaces; OpenClaw registration does not configure its private workspace
+  or copied skills. Both retain separate host-local onboarding steps.
 
 ## Root discovery
 

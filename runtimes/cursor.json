@@ -1,0 +1,152 @@
+{
+  "schema_version": 2,
+  "runtime": "cursor",
+  "display_name": "Cursor",
+  "support_tier": "experimental",
+  "support_summary": "Separate IDE and CLI onboarding through root AGENTS.md and project Agent Skills, without hook, memory, or rule-conflict claims",
+  "components": ["core", "portable-skills", "agents-instructions", "cursor-adapter"],
+  "install": {
+    "mode": "native-project-discovery",
+    "next_steps": [
+      "Open this repository as the Cursor workspace for IDE use, or start the Cursor Agent CLI from this repository root.",
+      "Invoke /context-setup, /context-start, /context-update, and /context-end explicitly; Cursor discovers the checked-in .agents/skills directory.",
+      "Keep Cursor rules and permissions non-overlapping with the shared AGENTS.md contract, and review every Context OS proposal before apply."
+    ]
+  },
+  "onboarding_doc": "adapters/cursor/README.md",
+  "surfaces": {
+    "ide": {
+      "kind": "ide",
+      "support_tier": "experimental",
+      "instruction_sources": [
+        {"scope": "repository", "role": "canonical", "path": "AGENTS.md", "precedence": 100}
+      ],
+      "skill_sources": [
+        {"scope": "repository", "role": "skills", "path": ".agents/skills", "precedence": 100}
+      ],
+      "invocation": {"setup": "/context-setup", "start": "/context-start", "update": "/context-update", "end": "/context-end"},
+      "capabilities": {
+        "agent_skills": "native",
+        "explicit_invocation": "native",
+        "project_hooks": "unsupported",
+        "blocking_pre_tool_hook": "unsupported",
+        "mcp": "native",
+        "native_memory": "unsupported",
+        "proposal_apply": "adapter",
+        "skill_allowlists": "unsupported",
+        "execution_authorization": "native"
+      },
+      "hook_output": null,
+      "binary_probes": [
+        {"purpose": "availability", "candidates": ["cursor"]},
+        {"purpose": "version", "candidates": ["cursor"]}
+      ],
+      "conformance_tests": [
+        "tests/test_cursor_conformance.py",
+        "tests/test_contextos_kernel.py"
+      ],
+      "evidence": [
+        "cursor-rules", "cursor-skills", "cursor-mcp", "cursor-run-modes",
+        "cursor-kernel", "cursor-conformance"
+      ]
+    },
+    "cli": {
+      "kind": "cli",
+      "support_tier": "experimental",
+      "instruction_sources": [
+        {"scope": "repository", "role": "canonical", "path": "AGENTS.md", "precedence": 100}
+      ],
+      "skill_sources": [
+        {"scope": "repository", "role": "skills", "path": ".agents/skills", "precedence": 100}
+      ],
+      "invocation": {"setup": "/context-setup", "start": "/context-start", "update": "/context-update", "end": "/context-end"},
+      "capabilities": {
+        "agent_skills": "native",
+        "explicit_invocation": "native",
+        "project_hooks": "unsupported",
+        "blocking_pre_tool_hook": "unsupported",
+        "mcp": "native",
+        "native_memory": "unsupported",
+        "proposal_apply": "adapter",
+        "skill_allowlists": "unsupported",
+        "execution_authorization": "native"
+      },
+      "hook_output": null,
+      "binary_probes": [],
+      "conformance_tests": [
+        "tests/test_cursor_conformance.py",
+        "tests/test_contextos_kernel.py"
+      ],
+      "evidence": [
+        "cursor-cli-using", "cursor-skills", "cursor-cli-slash-commands", "cursor-cli-headless",
+        "cursor-cli-permissions", "cursor-mcp", "cursor-kernel", "cursor-conformance"
+      ]
+    }
+  },
+  "evidence": {
+    "checked_on": "2026-08-27",
+    "tested_versions": [],
+    "sources": [
+      {
+        "id": "cursor-rules",
+        "type": "official",
+        "location": "https://cursor.com/docs/rules",
+        "claims": ["instruction_sources"]
+      },
+      {
+        "id": "cursor-skills",
+        "type": "official",
+        "location": "https://cursor.com/docs/skills",
+        "claims": ["agent_skills", "explicit_invocation", "skill_sources", "invocation"]
+      },
+      {
+        "id": "cursor-cli-using",
+        "type": "official",
+        "location": "https://cursor.com/docs/cli/using",
+        "claims": ["instruction_sources"]
+      },
+      {
+        "id": "cursor-cli-headless",
+        "type": "official",
+        "location": "https://cursor.com/docs/cli/headless",
+        "claims": ["execution_authorization"]
+      },
+      {
+        "id": "cursor-cli-slash-commands",
+        "type": "official",
+        "location": "https://cursor.com/docs/cli/reference/slash-commands",
+        "claims": ["invocation"]
+      },
+      {
+        "id": "cursor-cli-permissions",
+        "type": "official",
+        "location": "https://cursor.com/docs/cli/reference/permissions",
+        "claims": ["execution_authorization"]
+      },
+      {
+        "id": "cursor-run-modes",
+        "type": "official",
+        "location": "https://cursor.com/docs/agent/security/run-modes",
+        "claims": ["execution_authorization"]
+      },
+      {
+        "id": "cursor-mcp",
+        "type": "official",
+        "location": "https://cursor.com/docs/mcp",
+        "claims": ["mcp"]
+      },
+      {
+        "id": "cursor-kernel",
+        "type": "conformance",
+        "location": "tests/test_contextos_kernel.py",
+        "claims": ["proposal_apply"]
+      },
+      {
+        "id": "cursor-conformance",
+        "type": "conformance",
+        "location": "tests/test_cursor_conformance.py",
+        "claims": ["support"]
+      }
+    ]
+  }
+}

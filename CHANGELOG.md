@@ -14,6 +14,10 @@
   README support claims, plus strict maintainer and conformance checks.
 
 ### Added
+- Experimental Cursor onboarding with separate IDE and Agent CLI surfaces,
+  native root-instruction and project-skill discovery, explicit lifecycle
+  invocation, separate authorization guidance, no hook or memory claim, and
+  opt-in exact-version CLI controls without unsafe generic-binary detection.
 - Experimental OpenClaw onboarding with a machine-readable runtime descriptor,
   separate private-workspace boundary, copied lifecycle skills, explicit
   `/skill` invocations, honest no-hook claims, and opt-in installed-version

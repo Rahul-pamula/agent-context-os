@@ -793,6 +793,29 @@
             ]
         },
         {
+            "id": "cursor-adapter",
+            "description": "Experimental Cursor IDE and CLI onboarding, runtime descriptor, and capability-gated conformance controls.",
+            "depends_on": [
+                "core",
+                "portable-skills",
+                "agents-instructions"
+            ],
+            "paths": [
+                {
+                    "path": "adapters/cursor/README.md",
+                    "policy": "managed"
+                },
+                {
+                    "path": "runtimes/cursor.json",
+                    "policy": "managed"
+                },
+                {
+                    "path": "tests/test_cursor_conformance.py",
+                    "policy": "development"
+                }
+            ]
+        },
+        {
             "id": "example-project",
             "description": "Optional removable example project and workflow seeds.",
             "depends_on": [

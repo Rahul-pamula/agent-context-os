@@ -48,6 +48,7 @@ remain supported.
 - `.codex/hooks.json` maps Codex events to the same read-only policy checks.
 - `adapters/hermes/` documents optional Hermes hooks and skill installation.
 - `adapters/openclaw/` documents experimental skills-first OpenClaw support.
+- `adapters/cursor/` documents separate experimental Cursor IDE and CLI support.
 - Runtime manifests under `runtimes/` declare support instead of implying parity.
 - Kernel proposal/apply is the enforcement boundary on every host; hooks are
   defense in depth and host-local memory is never shared automatically.
@@ -74,6 +75,17 @@ remain supported.
 - This experimental adapter installs no OpenClaw hook or plugin. Skill
   allowlists do not replace separate shell-execution authorization.
 - See `adapters/openclaw/README.md` for the tested version and diagnostics.
+
+## Cursor
+
+- Open the repository as the IDE workspace or start the Agent CLI from its root;
+  both discover `AGENTS.md` and `.agents/skills/` natively.
+- Invoke `/context-setup`, `/context-start`, `/context-update`, and
+  `/context-end` explicitly; Cursor CLI reserves `/update` for self-updates.
+- Keep `.cursor/rules` non-overlapping with this file because Cursor does not
+  document their conflict order. IDE and CLI permissions remain separate.
+- This experimental adapter ships no Cursor hook or native-memory bridge. See
+  `adapters/cursor/README.md` for authorization and conformance boundaries.
 
 ## Validation
 

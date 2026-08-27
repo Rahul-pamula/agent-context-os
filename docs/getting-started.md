@@ -2,12 +2,13 @@
 
 Context OS can begin with a blank interview or selected context from another
 assistant. The result is a small, reviewable repository that Claude Code,
-Codex, Hermes, and experimental OpenClaw support can use as shared state.
+Codex, Hermes, and the experimental OpenClaw and Cursor adapters can use as
+shared state.
 
 ## Before you clone
 
 You need Git, Bash, Python 3.10 or newer, and at least one supported local
-agent: Claude Code, Codex, Hermes, or OpenClaw. claude.ai can help produce files but
+agent: Claude Code, Codex, Hermes, OpenClaw, or Cursor. claude.ai can help produce files but
 cannot maintain a local checkout directly.
 
 Python may be installed as either `python3` or `python`; the repository resolves
@@ -47,6 +48,8 @@ bash scripts/setup.sh --agents claude,codex
 bash scripts/setup.sh --agents hermes
 # or
 bash scripts/setup.sh --agents openclaw
+# or
+bash scripts/setup.sh --agents cursor
 # or, for the provider-neutral core only
 bash scripts/setup.sh --agents none
 ```
@@ -89,13 +92,19 @@ codex
 hermes
 # or, after following adapters/openclaw/README.md
 openclaw
+# or, open the repository in Cursor or start its Agent CLI here
+agent
 ```
 
-Run `/setup` in Claude Code or Hermes, `$setup` in Codex, or `/skill setup` in
-OpenClaw. OpenClaw first requires the separate private-workspace and copied-skill
+Run `/setup` in Claude Code or Hermes, `/context-setup` in Cursor, `$setup` in
+Codex, or `/skill setup` in OpenClaw. OpenClaw first requires the separate private-workspace and copied-skill
 steps in its [experimental adapter guide](../adapters/openclaw/README.md). The guided
 interview asks one question at a time, builds a deterministic proposal, and
 waits before applying the exact reviewed diff.
+
+Cursor has separate IDE and Agent CLI permission surfaces. Follow its
+[experimental adapter guide](../adapters/cursor/README.md); setup registers the
+runtime but launches neither surface and changes no Cursor authorization setting.
 
 ### Bring existing context
 
@@ -136,11 +145,11 @@ Commit and push only after the diff matches what you intend to preserve.
 
 ## Run the daily loop
 
-| Moment | Claude Code | Codex | Hermes | OpenClaw (experimental) |
-|---|---|---|---|---|
-| Start work | `/start` | `$start` | `/start` | `/skill start` |
-| Save progress without closing | `/update` | `$update` | `/update` | `/skill update` |
-| End with a reviewed handoff | `/end` | `$end` | `/end` | `/skill end` |
+| Moment | Claude Code | Codex | Hermes | OpenClaw (experimental) | Cursor IDE (experimental) | Cursor CLI (experimental) |
+|---|---|---|---|---|---|---|
+| Start work | `/start` | `$start` | `/start` | `/skill start` | `/context-start` | `/context-start` |
+| Save progress without closing | `/update` | `$update` | `/update` | `/skill update` | `/context-update` | `/context-update` |
+| End with a reviewed handoff | `/end` | `$end` | `/end` | `/skill end` | `/context-end` | `/context-end` |
 
 The lifecycle kernel writes shared continuity to `state/` and `sessions/` only
 after exact-proposal approval, then emits a local receipt. Each host retains
