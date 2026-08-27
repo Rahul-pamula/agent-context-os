@@ -586,11 +586,9 @@ case "$SELECTED_AGENT" in
     echo "  4. Type: /skill setup"
     echo "     Native OpenClaw memory stays in the private workspace."
     echo "     See adapters/openclaw/README.md for configuration and limits."
+    echo "     Setup does not launch OpenClaw because it cannot verify that private"
+    echo "     workspace configuration without reading or changing host state."
     echo ""
-    if [ -t 0 ] && [ "$OPENCLAW_FOUND" = true ] && prompt_yn "  Launch OpenClaw now?" "y"; then
-      cd "$REPO_ROOT"
-      exec openclaw
-    fi
     ;;
   none)
     printf '  Claude Code: cd %q && claude, then run /setup\n' "$REPO_ROOT"

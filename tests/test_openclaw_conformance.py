@@ -52,7 +52,8 @@ class OpenClawDescriptorTest(unittest.TestCase):
         for required in (
             "private workspace", "Copy all eight together", "skills.load.extraDirs",
             "shell-execution authorization", "installs no hook or plugin",
-            "not synchronized", "doctor --lint --json", "Do not use `--fix`",
+            "include all eight lifecycle skill names", "not synchronized",
+            "doctor --lint --json", "Do not use `--fix`",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, guide)
@@ -119,6 +120,15 @@ class InstalledOpenClawTest(unittest.TestCase):
                 self.assertTrue(skill["modelVisible"])
                 self.assertTrue(skill["userInvocable"])
                 self.assertTrue(skill["commandVisible"])
+
+    def test_repository_cwd_does_not_substitute_for_missing_workspace_copies(self) -> None:
+        shutil.rmtree(self.workspace / ".agents/skills")
+        (self.workspace / ".agents/skills").mkdir(parents=True)
+        skills = self._skills()
+        self.assertTrue(
+            LIFECYCLE_SKILLS.isdisjoint(skills),
+            sorted(LIFECYCLE_SKILLS & skills.keys()),
+        )
 
     def test_workspace_skill_shadows_project_agent_skill_and_fallback_fires(self) -> None:
         project = self.workspace / ".agents/skills/collision-probe"

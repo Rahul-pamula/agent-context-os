@@ -39,7 +39,9 @@ openclaw skills list --json
 openclaw skills check --json
 ```
 
-All eight lifecycle skills should report source `agents-skills-project`.
+Run those inventory commands from the private workspace, not from the source
+repository. All eight lifecycle skills should report source
+`agents-skills-project`.
 
 ## Run the lifecycle
 
@@ -60,7 +62,9 @@ proposal and approve that digest before applying it.
 ## Boundaries and diagnostics
 
 - OpenClaw skill allowlists control model and command visibility. They are not
-  shell-execution authorization. Configure execution approvals separately.
+  shell-execution authorization. Configure execution approvals separately. If
+  an agent skill allowlist is present, include all eight lifecycle skill names
+  or the omitted commands will not be visible to that agent.
 - Workspace hooks are disabled until explicitly enabled. This experimental
   adapter installs no hook or plugin and makes no blocking-hook claim.
 - Native OpenClaw memory is private host state and is not synchronized with

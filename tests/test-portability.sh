@@ -271,6 +271,11 @@ fi
 help_output=$(bash scripts/setup.sh --help)
 grep -Fq -- '--agents claude,codex,openclaw|auto|none' <<<"$help_output" || fail "setup help does not describe multi-agent selection"
 grep -Fq -- '--agent auto|RUNTIME|none' <<<"$help_output" || fail "setup help omits the singleton compatibility alias"
+grep -Fq 'Setup does not launch OpenClaw' scripts/setup.sh \
+  || fail "OpenClaw setup omits the private-workspace launch boundary"
+if grep -Fq 'Launch OpenClaw now?' scripts/setup.sh; then
+  fail "setup offers to launch OpenClaw before private-workspace configuration is verified"
+fi
 if bash scripts/setup.sh --agent invalid >/dev/null 2>&1; then
   fail "setup accepted an invalid agent"
 fi
