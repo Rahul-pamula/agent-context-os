@@ -228,6 +228,7 @@ def _bundle_main(args: argparse.Namespace) -> int:
             "schema_version": candidate.lock["schema_version"],
             "bundle": {"name": candidate.name, "version": candidate.version},
             "bundle_sha256": candidate.digest,
+            "source_git_commit": candidate.lock["bundle"]["source_git_commit"],
             "files": len(candidate.records),
             "source_mode": candidate.source_mode,
             "executable_modes_verified": candidate.mode_verified,

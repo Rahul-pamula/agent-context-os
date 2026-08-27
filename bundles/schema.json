@@ -25,6 +25,7 @@
         "component_manifest_path",
         "files",
         "name",
+        "source_git_commit",
         "version"
       ],
       "properties": {
@@ -35,6 +36,17 @@
         "version": {
           "type": "string",
           "minLength": 1
+        },
+        "source_git_commit": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40,64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "component_manifest_path": {
           "const": "components/manifest.json"

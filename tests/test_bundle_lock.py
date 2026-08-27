@@ -21,6 +21,8 @@ from contextos.bundle_schema import (
     verify_bundle,
     _git_index,
 )
+from contextos.kernel import canonical_json as kernel_canonical_json
+from contextos.primitives import canonical_json as primitive_canonical_json
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,8 +55,12 @@ class BundleFixture:
         (root / "managed.bin").write_bytes(managed)
         (root / "seed.txt").write_bytes(b"seed\n")
         runtime_components = ["core", "addon"] if addon else ["core"]
+        runtime_descriptor = json.loads(
+            (ROOT / "runtimes/codex.json").read_text(encoding="utf-8")
+        )
+        runtime_descriptor["components"] = runtime_components
         (root / "runtimes/codex.json").write_text(
-            json.dumps({"runtime": "codex", "components": runtime_components}) + "\n",
+            json.dumps(runtime_descriptor, indent=2) + "\n",
             encoding="utf-8",
         )
         (root / "dev/test.txt").write_text("not shipped\n", encoding="utf-8")
@@ -132,6 +138,14 @@ class BundleLockTest(unittest.TestCase):
         paths = [item["path"] for item in self.fixture.lock["bundle"]["files"]]
         self.assertIn("managed.bin", paths)
         self.assertNotIn("dev/test.txt", paths)
+
+    def test_kernel_and_bundle_share_one_canonical_digest_primitive(self) -> None:
+        self.assertIs(primitive_canonical_json, canonical_json)
+        self.assertIs(primitive_canonical_json, kernel_canonical_json)
+        fixture = {"z": "caf\u00e9", "a": {"b": [2, 1]}}
+        self.assertEqual(
+            '{"a":{"b":[2,1]},"z":"caf\u00e9"}', canonical_json(fixture)
+        )
 
     def test_checked_in_schema_matches_authoritative_contract(self) -> None:
         self.assertEqual(
@@ -211,14 +225,20 @@ class BundleLockTest(unittest.TestCase):
 
     def test_git_index_disables_executable_and_network_configuration(self) -> None:
         completed = subprocess.CompletedProcess([], 0, stdout=b"", stderr=b"")
-        with mock.patch("subprocess.run", return_value=completed) as run:
-            self.assertEqual({}, _git_index(self.source))
+        with mock.patch.dict(os.environ, {"GIT_DIR": "redirected"}):
+            with mock.patch("subprocess.run", return_value=completed) as run:
+                self.assertEqual({}, _git_index(self.source))
         command = run.call_args.args[0]
         environment = run.call_args.kwargs["env"]
         self.assertEqual(
-            ["git", "-c", "core.fsmonitor=false", "ls-files", "--stage", "-z", "--"],
+            [
+                "git", "-c", f"safe.directory={self.source.absolute()}",
+                "-C", str(self.source.absolute()), "-c", "core.fsmonitor=false",
+                "ls-files", "--stage", "-z", "--",
+            ],
             command,
         )
+        self.assertNotIn("GIT_DIR", environment)
         self.assertEqual("1", environment["GIT_NO_LAZY_FETCH"])
         self.assertEqual("1", environment["GIT_NO_REPLACE_OBJECTS"])
         self.assertEqual("0", environment["GIT_OPTIONAL_LOCKS"])
@@ -237,6 +257,78 @@ class BundleLockTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(BundleError, "unsupported non-regular mode 120000"):
             _git_index(repository)
+
+    def test_git_generation_is_pinned_to_clean_head_and_ignores_ambient_git_dir(self) -> None:
+        subprocess.run(["git", "init", "-q"], cwd=self.source, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "fixture@example.com"],
+            cwd=self.source, check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Fixture"], cwd=self.source, check=True
+        )
+        subprocess.run(["git", "add", "."], cwd=self.source, check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "fixture"], cwd=self.source, check=True
+        )
+        other = self.root / "other"
+        other.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=other, check=True)
+        with mock.patch.dict(os.environ, {"GIT_DIR": str(other / ".git")}):
+            lock = create_bundle_lock(
+                self.source,
+                name="fixture-template",
+                version="1.0.0",
+                source_mode="git-index",
+            )
+        expected_commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.source, check=True,
+            stdout=subprocess.PIPE,
+        ).stdout.decode("ascii").strip()
+        self.assertEqual(expected_commit, lock["bundle"]["source_git_commit"])
+        (self.source / "managed.bin").write_bytes(b"staged change")
+        subprocess.run(["git", "add", "managed.bin"], cwd=self.source, check=True)
+        with self.assertRaisesRegex(BundleError, "index differs from HEAD"):
+            create_bundle_lock(
+                self.source,
+                name="fixture-template",
+                version="1.0.0",
+                source_mode="git-index",
+            )
+
+    def test_invalid_runtime_descriptor_cannot_be_locked(self) -> None:
+        descriptor_path = self.source / "runtimes/codex.json"
+        descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+        descriptor["surprise"] = True
+        descriptor_path.write_text(json.dumps(descriptor) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(BundleError, "unknown surprise"):
+            create_bundle_lock(
+                self.source,
+                name="fixture-template",
+                version="1.0.0",
+                source_mode="directory",
+            )
+
+    def test_link_like_root_is_rejected_but_ancestor_alias_is_allowed(self) -> None:
+        alias = self.root / "alias"
+        try:
+            alias.symlink_to(self.root, target_is_directory=True)
+        except OSError:
+            self.skipTest("directory symlink creation unavailable")
+        with self.assertRaisesRegex(BundleError, "source_root: must not be link-like"):
+            create_bundle_lock(
+                alias,
+                name="fixture-template",
+                version="1.0.0",
+                source_mode="directory",
+            )
+        lock = create_bundle_lock(
+            alias / "source",
+            name="fixture-template",
+            version="1.0.0",
+            source_mode="directory",
+        )
+        self.assertEqual("fixture-template", lock["bundle"]["name"])
 
 
 class StructuralPlannerTest(unittest.TestCase):

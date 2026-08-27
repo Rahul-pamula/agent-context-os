@@ -100,6 +100,10 @@
                     "policy": "managed"
                 },
                 {
+                    "path": "contextos/primitives.py",
+                    "policy": "managed"
+                },
+                {
                     "path": "contextos/runtime_schema.py",
                     "policy": "managed"
                 },

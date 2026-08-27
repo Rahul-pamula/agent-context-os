@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -24,6 +23,14 @@ from .component_schema import (
     validate_component_manifest,
 )
 from .runtime_schema import RUNTIME_DESCRIPTOR_SCHEMA_VERSION
+from .runtime_schema import RuntimeManifestError, validate_runtime_manifest
+from .primitives import (
+    SnapshotError,
+    canonical_json,
+    is_link_like,
+    read_regular_file_snapshot,
+    sha256_bytes,
+)
 from .workspace_schema import (
     WORKSPACE_SCHEMA_VERSION,
     WorkspaceConfigError,
@@ -36,10 +43,12 @@ from .workspace_schema import (
 BUNDLE_LOCK_SCHEMA_VERSION = 1
 PLANNER_PROTOCOL_VERSION = 1
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40,64}$")
 BUNDLE_NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 LOCK_KEYS = {"schema_version", "bundle", "bundle_sha256"}
 BUNDLE_KEYS = {
-    "name", "version", "compatibility", "component_manifest_path", "files",
+    "name", "version", "source_git_commit", "compatibility",
+    "component_manifest_path", "files",
 }
 COMPATIBILITY_KEYS = {
     "component_manifest_schema", "runtime_descriptor_schema",
@@ -60,6 +69,7 @@ class VerifiedBundle:
     mode_verified: bool
     lock: dict[str, Any]
     manifest: dict[str, Any]
+    runtimes: dict[str, dict[str, Any]]
     records: dict[str, dict[str, Any]]
 
     @property
@@ -112,14 +122,6 @@ def _sha256(value: Any, field: str) -> str:
     return value
 
 
-def canonical_json(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
-
-
 def _validate_manifest(value: Any, *, root: Path) -> dict[str, Any]:
     try:
         return validate_component_manifest(value, root=root, check_paths=False)
@@ -136,25 +138,17 @@ def _component_closure(manifest: Any, component_ids: Sequence[str]) -> list[str]
 
 def _is_link_like(path: Path) -> bool:
     try:
-        metadata = path.lstat()
-    except FileNotFoundError:
-        return False
-    except OSError as exc:
-        raise BundleError(f"cannot inspect {path} without following links: {exc}") from exc
-    tags = {
-        getattr(stat, "IO_REPARSE_TAG_SYMLINK", -1),
-        getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", -2),
-    }
-    return stat.S_ISLNK(metadata.st_mode) or getattr(metadata, "st_reparse_tag", 0) in tags
+        return is_link_like(path)
+    except SnapshotError as exc:
+        raise BundleError(str(exc)) from exc
 
 
 def _source_root(root: Path, field: str) -> Path:
     if not isinstance(root, Path):
         _fail(field, "must be an explicit local Path")
     absolute = root.absolute()
-    for ancestor in reversed((absolute, *absolute.parents)):
-        if ancestor.exists() and _is_link_like(ancestor):
-            _fail(field, f"must not traverse link-like path {ancestor}")
+    if _is_link_like(absolute):
+        _fail(field, "must not be link-like")
     try:
         metadata = absolute.lstat()
     except OSError as exc:
@@ -204,40 +198,10 @@ def _safe_path(root: Path, relative: str, field: str, *, missing_ok: bool) -> Pa
 
 
 def _read_snapshot(path: Path, field: str) -> tuple[bytes, os.stat_result]:
-    if _is_link_like(path):
-        _fail(field, "must not be link-like")
-    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
-        descriptor = os.open(path, flags)
-    except OSError as exc:
-        _fail(field, f"cannot open regular-file snapshot: {exc}")
-    try:
-        before = os.fstat(descriptor)
-        if not stat.S_ISREG(before.st_mode):
-            _fail(field, "must name a regular file")
-        chunks: list[bytes] = []
-        while True:
-            chunk = os.read(descriptor, 1024 * 1024)
-            if not chunk:
-                break
-            chunks.append(chunk)
-        after = os.fstat(descriptor)
-        current = os.stat(path, follow_symlinks=False)
-        fingerprint_after = (
-            after.st_mode, after.st_size, after.st_mtime_ns, after.st_ctime_ns
-        )
-        current_content_fingerprint = (current.st_size, current.st_mtime_ns)
-        if (
-            before.st_mode, before.st_size, before.st_mtime_ns, before.st_ctime_ns
-        ) != fingerprint_after or (
-            after.st_size, after.st_mtime_ns
-        ) != current_content_fingerprint or (
-            after.st_dev, after.st_ino
-        ) != (current.st_dev, current.st_ino):
-            _fail(field, "changed while it was being read")
-        return b"".join(chunks), after
-    finally:
-        os.close(descriptor)
+        return read_regular_file_snapshot(path, subject=field)
+    except SnapshotError as exc:
+        raise BundleError(str(exc)) from exc
 
 
 def _record(path: str, data: bytes, executable: bool) -> dict[str, Any]:
@@ -269,8 +233,11 @@ def _git_index(root: Path) -> dict[str, tuple[str, bool]]:
 
     try:
         result = subprocess.run(
-            ["git", "-c", "core.fsmonitor=false", "ls-files", "--stage", "-z", "--"],
-            cwd=root, env=_git_environment(),
+            [
+                *_git_command(root), "-c", "core.fsmonitor=false",
+                "ls-files", "--stage", "-z", "--",
+            ],
+            env=_git_environment(),
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
@@ -307,7 +274,7 @@ def _git_blob(root: Path, oid: str, field: str) -> bytes:
 
     try:
         result = subprocess.run(
-            ["git", "cat-file", "blob", oid], cwd=root, check=True,
+            [*_git_command(root), "cat-file", "blob", oid], check=True,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_git_environment(),
         )
     except (OSError, subprocess.CalledProcessError) as exc:
@@ -321,7 +288,10 @@ def _git_blob(root: Path, oid: str, field: str) -> bytes:
 
 def _git_environment() -> dict[str, str]:
     """Keep local Git plumbing read-only, offline, and free of executable config."""
-    environment = os.environ.copy()
+    environment = {
+        key: value for key, value in os.environ.items()
+        if not key.upper().startswith("GIT_")
+    }
     environment.update({
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_CONFIG_GLOBAL": os.devnull,
@@ -330,6 +300,55 @@ def _git_environment() -> dict[str, str]:
         "GIT_OPTIONAL_LOCKS": "0",
     })
     return environment
+
+
+def _git_command(root: Path) -> list[str]:
+    return ["git", "-c", f"safe.directory={root}", "-C", str(root)]
+
+
+def _git_repository_identity(root: Path) -> str:
+    """Bind index bytes to this exact repository and one clean HEAD commit."""
+    import subprocess
+
+    environment = _git_environment()
+    try:
+        top = subprocess.run(
+            [*_git_command(root), "rev-parse", "--show-toplevel"],
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env=environment,
+        ).stdout.decode("utf-8").strip()
+        commit = subprocess.run(
+            [*_git_command(root), "rev-parse", "--verify", "HEAD^{commit}"],
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env=environment,
+        ).stdout.decode("ascii").strip()
+        staged = subprocess.run(
+            [*_git_command(root), "diff-index", "--cached", "--quiet", commit, "--"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment,
+        )
+    except (OSError, subprocess.CalledProcessError, UnicodeError) as exc:
+        detail = (
+            exc.stderr.decode("utf-8", errors="replace").strip()
+            if isinstance(exc, subprocess.CalledProcessError) else str(exc)
+        )
+        _fail("source_mode", f"cannot resolve the local Git repository: {detail}")
+    try:
+        same_root = os.path.samefile(root, Path(top))
+    except OSError as exc:
+        _fail("source_mode", f"cannot compare Git top-level identity: {exc}")
+    if not same_root:
+        _fail("source_mode", "source root must be the local Git top-level directory")
+    if staged.returncode == 1:
+        _fail("source_mode", "Git index differs from HEAD; commit or unstage it first")
+    if staged.returncode != 0:
+        _fail(
+            "source_mode",
+            "cannot compare Git index with HEAD: "
+            + staged.stderr.decode("utf-8", errors="replace").strip(),
+        )
+    if not GIT_COMMIT_RE.fullmatch(commit):
+        _fail("source_mode", "Git returned a non-canonical commit identifier")
+    return commit
 
 
 def _source_entries(
@@ -355,6 +374,36 @@ def _source_entries(
     return result
 
 
+def _validated_runtimes(
+    source_bytes: dict[str, bytes], manifest: dict[str, Any], *, root: Path,
+) -> dict[str, dict[str, Any]]:
+    runtimes: dict[str, dict[str, Any]] = {}
+    paths = sorted(
+        (
+            path for path in source_bytes
+            if len(PurePosixPath(path).parts) == 2
+            and PurePosixPath(path).parts[0] == "runtimes"
+            and path.endswith(".json")
+            and path != "runtimes/schema.json"
+        ),
+        key=portable_path_identity,
+    )
+    for path in paths:
+        runtime_id = PurePosixPath(path).stem
+        try:
+            value = strict_json_loads(
+                source_bytes[path].decode("utf-8"), source=path
+            )
+            descriptor = validate_runtime_manifest(
+                value, runtime_id=runtime_id, root=root, check_paths=False
+            )
+        except (UnicodeError, WorkspaceConfigError, RuntimeManifestError) as exc:
+            raise BundleError(str(exc)) from exc
+        _component_closure(manifest, descriptor["components"])
+        runtimes[runtime_id] = descriptor
+    return runtimes
+
+
 def create_bundle_lock(
     root: Path, *, name: str, version: str, source_mode: str = "git-index",
 ) -> dict[str, Any]:
@@ -362,6 +411,9 @@ def create_bundle_lock(
     root = _source_root(root, "source_root")
     name = _bundle_name(name, "bundle.name")
     version = _bundle_version(version, "bundle.version")
+    source_git_commit = (
+        _git_repository_identity(root) if source_mode == "git-index" else None
+    )
     manifest_relative = "components/manifest.json"
     source = _source_entries(root, [manifest_relative], source_mode=source_mode)
     try:
@@ -384,6 +436,9 @@ def create_bundle_lock(
     source = _source_entries(
         root, (item["path"] for item in paths), source_mode=source_mode
     )
+    _validated_runtimes(
+        {path: data for path, (data, _) in source.items()}, manifest, root=root
+    )
     files = []
     for item in paths:
         data, executable = source[item["path"]]
@@ -391,6 +446,7 @@ def create_bundle_lock(
     bundle = {
         "name": name,
         "version": version,
+        "source_git_commit": source_git_commit,
         "compatibility": {
             "component_manifest_schema": COMPONENT_MANIFEST_SCHEMA_VERSION,
             "runtime_descriptor_schema": RUNTIME_DESCRIPTOR_SCHEMA_VERSION,
@@ -414,6 +470,12 @@ def validate_bundle_lock(value: Any) -> dict[str, Any]:
     bundle = _exact_keys(document.get("bundle"), BUNDLE_KEYS, "bundle")
     _bundle_name(bundle.get("name"), "bundle.name")
     _bundle_version(bundle.get("version"), "bundle.version")
+    source_git_commit = bundle.get("source_git_commit")
+    if source_git_commit is not None and (
+        not isinstance(source_git_commit, str)
+        or not GIT_COMMIT_RE.fullmatch(source_git_commit)
+    ):
+        _fail("bundle.source_git_commit", "must be null or a lowercase Git commit id")
     compatibility = _exact_keys(
         bundle.get("compatibility"), COMPATIBILITY_KEYS, "bundle.compatibility"
     )
@@ -494,6 +556,13 @@ def verify_bundle(
     if lock["bundle_sha256"] != expected_sha256:
         _fail("expected_sha256", "does not match the supplied bundle lock")
     root = _source_root(source_root, "source_root")
+    if source_mode == "git-index":
+        locked_commit = lock["bundle"]["source_git_commit"]
+        if locked_commit is None:
+            _fail("bundle.source_git_commit", "is required for Git-index verification")
+        actual_commit = _git_repository_identity(root)
+        if actual_commit != locked_commit:
+            _fail("bundle.source_git_commit", "does not match the local Git HEAD commit")
     records = {item["path"]: item for item in lock["bundle"]["files"]}
     source = _source_entries(root, records, source_mode=source_mode)
     verified_bytes: dict[str, bytes] = {}
@@ -525,10 +594,11 @@ def verify_bundle(
         if extra:
             details.append("extra " + ", ".join(extra))
         _fail("bundle.files", "does not equal the non-development component inventory: " + "; ".join(details))
+    runtimes = _validated_runtimes(verified_bytes, manifest, root=root)
     return VerifiedBundle(
         root=root, lock_path=lock_path, source_mode=source_mode,
         mode_verified=(source_mode == "git-index" or os.name != "nt"), lock=lock,
-        manifest=manifest, records=records,
+        manifest=manifest, runtimes=runtimes, records=records,
     )
 
 
@@ -576,49 +646,15 @@ def _owned_records(bundle: VerifiedBundle, component_ids: Sequence[str]) -> dict
 
 
 def _runtime_ids(bundle: VerifiedBundle) -> list[str]:
-    return sorted(
-        PurePosixPath(path).stem
-        for path in bundle.records
-        if len(PurePosixPath(path).parts) == 2
-        and PurePosixPath(path).parts[0] == "runtimes"
-        and path.endswith(".json")
-        and path != "runtimes/schema.json"
-    )
+    return sorted(bundle.runtimes)
 
 
 def _configured_components(bundle: VerifiedBundle, agents: Sequence[str]) -> list[str]:
     requested: set[str] = {"core"}
-    paths = [f"runtimes/{agent}.json" for agent in agents]
-    for path in paths:
-        if path not in bundle.records:
-            _fail("workspace.agents", f"runtime descriptor {path!r} is unavailable in the bundle")
-    source = _source_entries(bundle.root, paths, source_mode=bundle.source_mode)
-    for agent, path in zip(agents, paths):
-        data, executable = source[path]
-        record = bundle.records[path]
-        if (
-            len(data) != record["size"]
-            or sha256_bytes(data) != record["sha256_raw"]
-            or (
-                (bundle.source_mode == "git-index" or os.name != "nt")
-                and executable != record["executable"]
-            )
-        ):
-            _fail(path, "runtime descriptor became stale after bundle verification")
-        try:
-            descriptor = strict_json_loads(
-                data.decode("utf-8"), source=path
-            )
-        except (UnicodeError, WorkspaceConfigError) as exc:
-            raise BundleError(str(exc)) from exc
-        if not isinstance(descriptor, dict) or descriptor.get("runtime") != agent:
-            _fail(path, f"must declare runtime {agent!r}")
-        components = descriptor.get("components")
-        if not isinstance(components, list) or not components or any(
-            not isinstance(item, str) for item in components
-        ):
-            _fail(path, "must declare a non-empty component array")
-        requested.update(components)
+    for agent in agents:
+        if agent not in bundle.runtimes:
+            _fail("workspace.agents", f"runtime {agent!r} is unavailable in the bundle")
+        requested.update(bundle.runtimes[agent]["components"])
     return _component_closure(bundle.manifest, sorted(requested))
 
 
@@ -822,6 +858,12 @@ def bundle_schema_document() -> dict[str, Any]:
                 "properties": {
                     "name": text,
                     "version": text,
+                    "source_git_commit": {
+                        "oneOf": [
+                            {"type": "string", "pattern": GIT_COMMIT_RE.pattern},
+                            {"type": "null"},
+                        ]
+                    },
                     "component_manifest_path": {"const": "components/manifest.json"},
                     "compatibility": {
                         "type": "object",
