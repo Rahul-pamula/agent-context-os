@@ -4623,9 +4623,10 @@ def doctor(
             "fail" if invalid_artifacts else "pass",
             (
                 f"{len(invalid_artifacts)} invalid journal entry or entries: "
-                f"{artifact_paths(invalid_artifacts)}; apply rejects symlinks, "
-                "non-directories, and names that are neither proposal IDs nor "
-                "recognized inert namespaces. Confirm no apply is active, inspect "
+                f"{artifact_paths(invalid_artifacts)}; apply does not traverse "
+                "link-like entries and rejects non-directories and names that are "
+                "neither proposal IDs nor recognized inert namespaces. Confirm "
+                "no apply is active, inspect "
                 "and correct or remove only entries explicitly named in this "
                 "report, then rerun doctor to enumerate any remaining paths"
             )

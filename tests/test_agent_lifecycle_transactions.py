@@ -1410,7 +1410,7 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         self.assertEqual("fail", invalid["status"])
         self.assertIn('".context-os/journals/.DS_Store"', invalid["detail"])
         self.assertIn('".context-os/journals/.gitkeep"', invalid["detail"])
-        self.assertIn("apply rejects", invalid["detail"])
+        self.assertIn("apply does not traverse link-like entries", invalid["detail"])
         self.assertNotIn("recovery candidate", invalid["detail"])
         self.assertNotIn("rerun the approved proposal", invalid["detail"])
 

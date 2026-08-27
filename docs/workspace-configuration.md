@@ -156,9 +156,10 @@ intact and the new build or retirement uses a collision-free numbered sibling.
 namespaces. A candidate's manifest is validated only when apply inspects it, so
 the candidate must be recovered or diagnosed rather than deleted. An inert path
 may be removed manually after confirming no apply is active and using a method
-that does not change shared-inode attributes. Symlinks, non-directories, and
-names outside both contracts are a third invalid category that blocks apply
-until each reported path is inspected and corrected or removed.
+that does not change shared-inode attributes. Link-like entries, non-directories,
+and names outside both contracts are a third invalid category. Apply does not
+traverse link-like entries and rejects the other invalid forms; inspect and
+correct or remove each reported path before retrying.
 
 ## Agent activation lifecycle
 
