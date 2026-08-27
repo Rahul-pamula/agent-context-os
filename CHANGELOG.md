@@ -16,6 +16,10 @@
   README support claims, plus strict maintainer and conformance checks.
 
 ### Added
+- Experimental Devin onboarding with distinct cloud-session and Review
+  surfaces, repository-native AGENTS.md and Agent Skills, a managed-account
+  setup/doctor boundary, and hostile controls that reject repository claims for
+  Blueprints, snapshots, Knowledge, secrets, permissions, or UI state.
 - Experimental Cursor onboarding with separate IDE and Agent CLI surfaces,
   native root-instruction and project-skill discovery, explicit lifecycle
   invocation, separate authorization guidance, no hook or memory claim, and

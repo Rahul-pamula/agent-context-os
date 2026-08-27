@@ -4414,9 +4414,17 @@ def doctor(
         )
 
         host_entry = local_hosts["hosts"].get(runtime_id) if local_hosts_valid else None
+        managed_account = (
+            manifest is not None
+            and manifest["install"]["mode"] == "managed-account"
+        )
         onboarding_status = (
             "unknown"
             if not local_hosts_valid
+            else "account-acknowledged"
+            if managed_account and host_entry is not None
+            else "account-unverified"
+            if managed_account
             else "configured"
             if host_entry is not None
             else "not-configured"

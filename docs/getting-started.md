@@ -50,6 +50,8 @@ bash scripts/setup.sh --agents hermes
 bash scripts/setup.sh --agents openclaw
 # or
 bash scripts/setup.sh --agents cursor
+# or
+bash scripts/setup.sh --agents devin
 # or, for the provider-neutral core only
 bash scripts/setup.sh --agents none
 ```
@@ -57,7 +59,9 @@ bash scripts/setup.sh --agents none
 Setup shows the exact tracked workspace diff and proposal digest, then defaults
 the apply decision to no. An approved selection is additive: rerunning with a
 subset or `none` preserves the existing set, while a new runtime expands it.
-Selected runtimes are also registered in the gitignored local host map. Omit
+Selected local runtimes are also registered in the gitignored local host map.
+Managed-account runtimes such as Devin record tracked intent without claiming
+the remote account is configured. Omit
 the option, or use `--agents auto`, to auto-detect local launch instructions
 without changing tracked intent. `--agent` remains a deprecated singleton
 alias. See [workspace configuration](workspace-configuration.md) for the full
@@ -105,6 +109,11 @@ waits before applying the exact reviewed diff.
 Cursor has separate IDE and Agent CLI permission surfaces. Follow its
 [experimental adapter guide](../adapters/cursor/README.md); setup registers the
 runtime but launches neither surface and changes no Cursor authorization setting.
+
+For Devin, follow the [experimental managed-account guide](../adapters/devin/README.md),
+verify repository access and the active environment in Devin, then start a fresh
+cloud session and invoke `@skills:context-setup`. Local setup does not authenticate,
+launch, or verify Devin, and Devin Review is not a lifecycle surface.
 
 ### Bring existing context
 

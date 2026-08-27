@@ -269,7 +269,7 @@ if "$CONTEXTOS_PYTHON_CMD" tests/validate-openai-metadata.py --command "$duplica
 fi
 
 help_output=$(bash scripts/setup.sh --help)
-grep -Fq -- '--agents claude,codex,cursor,openclaw|auto|none' <<<"$help_output" || fail "setup help does not describe multi-agent selection"
+grep -Fq -- '--agents claude,codex,cursor,devin,openclaw|auto|none' <<<"$help_output" || fail "setup help does not describe multi-agent selection"
 grep -Fq -- '--agent auto|RUNTIME|none' <<<"$help_output" || fail "setup help omits the singleton compatibility alias"
 grep -Fq 'Setup does not launch OpenClaw' scripts/setup.sh \
   || fail "OpenClaw setup omits the private-workspace launch boundary"
@@ -286,6 +286,14 @@ test -n "$cursor_setup_case" \
   || fail "Cursor setup case could not be inspected for launch behavior"
 if grep -Eq '(^|[[:space:]])exec[[:space:]]+(cursor|agent)([[:space:]]|$)' <<<"$cursor_setup_case"; then
   fail "setup launches an unverified Cursor surface"
+fi
+grep -Fq 'Setup records tracked intent only' scripts/setup.sh \
+  || fail "Devin setup omits the managed-account boundary"
+devin_setup_case=$(sed -n '/^  devin)/,/^    ;;/p' scripts/setup.sh)
+test -n "$devin_setup_case" \
+  || fail "Devin setup case could not be inspected for managed-account behavior"
+if grep -Eq '(^|[[:space:]])exec[[:space:]]+devin([[:space:]]|$)' <<<"$devin_setup_case"; then
+  fail "setup launches an unverified Devin account surface"
 fi
 if bash scripts/setup.sh --agent invalid >/dev/null 2>&1; then
   fail "setup accepted an invalid agent"
@@ -376,6 +384,26 @@ unexpected_setup_paths=$(git -C "$multi_agent_fixture" status --short | \
   grep -Ev '^( D workspace\.yaml|\?\? contextos\.workspace\.json)$' || true)
 test -z "$unexpected_setup_paths" \
   || fail "multi-agent setup changed unselected adapter or unrelated paths: $unexpected_setup_paths"
+
+devin_fixture="$portability_tmp/devin-managed-account-selection"
+make_setup_fixture "$devin_fixture"
+devin_output=$(printf 'y\n\nn\nn\nn\ny\nn\n' | (
+  cd "$devin_fixture" &&
+  PATH="$setup_test_path" bash scripts/setup.sh --agents devin
+) 2>&1)
+"$CONTEXTOS_PYTHON_CMD" - "$devin_fixture/contextos.workspace.json" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+config = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert config["agents"] == ["devin"], config["agents"]
+hosts_path = Path(sys.argv[1]).parent / ".context-os" / "hosts.json"
+if hosts_path.exists():
+    assert "devin" not in json.loads(hosts_path.read_text(encoding="utf-8"))["hosts"]
+PY
+grep -Fq 'remote onboarding remains unverified: devin' <<<"$devin_output" \
+  || fail "managed-account setup implied that Devin was locally configured"
 
 # Subset and none reruns are no-ops; a disjoint selection expands the set.
 subset_output=$(printf 'y\n\nn\nn\nn\n' | (

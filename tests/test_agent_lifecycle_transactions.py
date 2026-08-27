@@ -70,7 +70,10 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
             "runtimes/schema.json",
             "runtimes/claude.json",
             "runtimes/codex.json",
+            "runtimes/cursor.json",
+            "runtimes/devin.json",
             "runtimes/hermes.json",
+            "runtimes/openclaw.json",
             "workspace/schema.json",
         ):
             target = self.root / relative

@@ -49,6 +49,7 @@ remain supported.
 - `adapters/hermes/` documents optional Hermes hooks and skill installation.
 - `adapters/openclaw/` documents experimental skills-first OpenClaw support.
 - `adapters/cursor/` documents separate experimental Cursor IDE and CLI support.
+- `adapters/devin/` documents experimental Devin cloud-session and Review support.
 - Runtime manifests under `runtimes/` declare support instead of implying parity.
 - Kernel proposal/apply is the enforcement boundary on every host; hooks are
   defense in depth and host-local memory is never shared automatically.

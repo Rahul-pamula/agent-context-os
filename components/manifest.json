@@ -817,6 +817,29 @@
             ]
         },
         {
+            "id": "devin-adapter",
+            "description": "Experimental Devin cloud-session and Review onboarding with managed-account boundary controls.",
+            "depends_on": [
+                "core",
+                "portable-skills",
+                "agents-instructions"
+            ],
+            "paths": [
+                {
+                    "path": "adapters/devin/README.md",
+                    "policy": "managed"
+                },
+                {
+                    "path": "runtimes/devin.json",
+                    "policy": "managed"
+                },
+                {
+                    "path": "tests/test_devin_conformance.py",
+                    "policy": "development"
+                }
+            ]
+        },
+        {
             "id": "example-project",
             "description": "Optional removable example project and workflow seeds.",
             "depends_on": [

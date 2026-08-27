@@ -6,16 +6,18 @@ dates, append behavior, optimistic hashes, locking, and receipts.
 
 ## Shared lifecycle
 
-| Job | Claude Code | Codex | Hermes | OpenClaw (experimental) | Cursor IDE (experimental) | Cursor CLI (experimental) | Deterministic operation |
+| Job | Claude Code | Codex | Hermes | OpenClaw (experimental) | Cursor IDE/CLI (experimental) | Devin session (experimental) | Deterministic operation |
 |---|---|---|---|---|---|---|---|
-| Initialize context | `/setup` | `$setup` | `/setup` | `/skill setup` | `/context-setup` | `/context-setup` | `contextos propose setup` then `apply` |
-| Start a session | `/start` | `$start` | `/start` | `/skill start` | `/context-start` | `/context-start` | read-only `contextos start` |
-| Checkpoint | `/update` | `$update` | `/update` | `/skill update` | `/context-update` | `/context-update` | `contextos propose update` then `apply` |
-| Close a session | `/end` | `$end` | `/end` | `/skill end` | `/context-end` | `/context-end` | `contextos propose end` then `apply` |
+| Initialize context | `/setup` | `$setup` | `/setup` | `/skill setup` | `/context-setup` | `@skills:context-setup` | `contextos propose setup` then `apply` |
+| Start a session | `/start` | `$start` | `/start` | `/skill start` | `/context-start` | `@skills:context-start` | read-only `contextos start` |
+| Checkpoint | `/update` | `$update` | `/update` | `/skill update` | `/context-update` | `@skills:context-update` | `contextos propose update` then `apply` |
+| Close a session | `/end` | `$end` | `/end` | `/skill end` | `/context-end` | `@skills:context-end` | `contextos propose end` then `apply` |
 
 The portable cores are `.agents/skills/context-setup`, `context-start`,
 `context-update`, and `context-end`. Short skill directories are thin aliases;
 Claude files are host adapters. All lifecycle names require explicit invocation.
+Devin's portable skill frontmatter does not enforce user-only invocation, so
+that host remains experimental and the explicit-invocation claim is advisory.
 
 The mutation protocol is always:
 
