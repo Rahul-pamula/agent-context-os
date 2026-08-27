@@ -29,11 +29,11 @@ change account, user, project, MCP, hook, sandbox, or permission settings.
 
 Invoke `/context-setup`, `/context-start`, `/context-update`, and `/context-end`
 explicitly. Cursor CLI owns the built-in `/update` command for updating Cursor
-itself, so this adapter deliberately avoids the short lifecycle aliases. The
-namespaced skills route mutations through the deterministic proposal/apply
-kernel. Even in an IDE run mode or `agent -p --force`, an agent instruction is
-not approval of a Context OS proposal: inspect the exact diff and approve its
-digest separately.
+itself, so the documented Cursor lifecycle deliberately avoids the short
+aliases. The namespaced skills route mutations through the deterministic
+proposal/apply kernel. Even in an IDE run mode or `agent -p --force`, an agent
+instruction is not approval of a Context OS proposal: inspect the exact diff
+and approve its digest separately.
 
 ## Rules and skills
 
@@ -46,9 +46,14 @@ in `AGENTS.md`; make Cursor rules narrow and non-overlapping.
 
 Cursor discovers skills in both `.agents/skills/` and `.cursor/skills/`, but its
 documentation does not define a same-name collision winner. Context OS ships
-only `.agents/skills/`. Do not duplicate these names in another Cursor skill
-root. `disable-model-invocation: true` can make a Cursor skill explicit-only;
-the checked-in lifecycle skills already require explicit use by contract.
+only `.agents/skills/`. That shared directory includes the four short aliases
+as well as the four `context-*` cores, so Cursor discovers both sets even though
+this adapter documents only the namespaced commands. Cursor does not document
+whether its built-in `/update` or the discovered `update` skill wins. Do not use
+the short aliases in Cursor, and do not duplicate these names in another Cursor
+skill root. `disable-model-invocation: true` can make a Cursor skill
+explicit-only; the checked-in lifecycle skills already require explicit use by
+contract.
 
 ## Authorization boundaries
 
@@ -88,13 +93,20 @@ only through a reviewed Context OS proposal.
 ## Diagnostics and promotion gates
 
 Run `bash scripts/contextos.sh doctor --runtime cursor` for descriptor,
-registration, materialization, and local binary checks. Cursor has no documented
-all-up native doctor. For the CLI, record `agent --version`, `agent about`,
-`agent status`, and `agent mcp list` separately from IDE diagnostics.
+registration, materialization, and local binary checks. Its aggregate
+availability status reflects only the safely identifiable `cursor` IDE launcher;
+the generic `agent` CLI name has no resolution-only probe. Cursor has no
+documented all-up native doctor. For the CLI, record `agent --version`, `agent
+about`, `agent status`, and `agent mcp list` separately from IDE diagnostics.
+
+The current opt-in CLI control is an exact-version and required-flag smoke test,
+not installed lifecycle conformance. It runs from a disposable directory and
+does not authenticate, trust a workspace, call a model, or exercise writes.
 
 First-class promotion requires exact-version conformance for both surfaces,
 including root and nested instruction discovery, `.cursor/rules` conflict
-controls, explicit skill invocation, interactive must-fire and must-not-fire
-approval controls, headless no-`--force` and `--force` behavior, deny precedence,
-MCP scope, native-state isolation, and either a tested Cursor-specific hook
-adapter or a continuing explicit no-hook claim.
+controls, short-alias versus built-in resolution, explicit skill invocation,
+interactive must-fire and must-not-fire approval controls, headless
+no-`--force` and `--force` behavior, deny precedence, MCP scope, native-state
+isolation, and either a tested Cursor-specific hook adapter or a continuing
+explicit no-hook claim.

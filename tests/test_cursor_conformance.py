@@ -97,6 +97,8 @@ class CursorDescriptorTest(unittest.TestCase):
             "ships no Cursor rule file",
             "same-name collision winner",
             "built-in `/update`",
+            "Cursor discovers both sets",
+            "does not document whether its built-in `/update`",
             "agent -p --force",
             "too generic for safe automatic detection",
             "explicit deny wins an allow",
@@ -106,6 +108,8 @@ class CursorDescriptorTest(unittest.TestCase):
             "No Cursor-native memory is synchronized",
             "Never run a `--force` conformance check against a real context repository",
             "exact-version conformance for both surfaces",
+            "aggregate availability status reflects only",
+            "exact-version and required-flag smoke test",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, normalized)
@@ -116,7 +120,7 @@ class CursorDescriptorTest(unittest.TestCase):
     and os.environ.get("CONTEXTOS_CURSOR_CLI_VERSION"),
     "set CONTEXTOS_CURSOR_CLI_BIN and CONTEXTOS_CURSOR_CLI_VERSION for the exact CLI",
 )
-class InstalledCursorCliTest(unittest.TestCase):
+class CursorCliSmokeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.binary = Path(os.environ["CONTEXTOS_CURSOR_CLI_BIN"]).resolve(strict=True)

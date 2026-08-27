@@ -287,6 +287,8 @@ class DocumentationPositioningTests(unittest.TestCase):
             "The portable cores", 1
         )[0]
         claude_specific = index.split("## Claude-specific command index", 1)[1]
+        # Only Claude's lifecycle column and Claude-specific table describe
+        # .claude/commands; other host columns may name portable skills.
         indexed_commands = set(
             re.findall(
                 r"^\|[^|]+\| `/([a-z0-9]+(?:-[a-z0-9]+)*)` \|",
