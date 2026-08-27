@@ -1342,9 +1342,119 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
             if check["name"] == "transaction-journals"
         )
         self.assertEqual("warn", journal_check["status"])
+        self.assertIn("pending recovery candidate", journal_check["detail"])
+        retired_check = next(
+            check
+            for check in doctor(self.root)["checks"]
+            if check["name"] == "transaction-retired-artifacts"
+        )
+        self.assertEqual("pass", retired_check["status"])
         with self.assertRaisesRegex(ContextOSError, "existing receipt"):
             self.apply(path, proposal)
         self.assertFalse(journal.exists())
+
+    def test_doctor_separates_pending_and_retired_transaction_artifacts(self) -> None:
+        journals = self.root / ".context-os/journals"
+        proposal_id = "20260827T120000-agent-config-0123456789"
+        pending = journals / proposal_id
+        retired = journals / f".{proposal_id}.discard"
+        building = journals / ".other.1.building"
+        pending.mkdir(parents=True)
+        retired.mkdir()
+        building.mkdir()
+
+        checks = {item["name"]: item for item in doctor(self.root)["checks"]}
+        pending_check = checks["transaction-journals"]
+        retired_check = checks["transaction-retired-artifacts"]
+
+        self.assertEqual("warn", pending_check["status"])
+        self.assertIn(
+            f'".context-os/journals/{proposal_id}"', pending_check["detail"]
+        )
+        self.assertIn("do not delete the journal", pending_check["detail"])
+        self.assertNotIn(f".{proposal_id}.discard", pending_check["detail"])
+
+        self.assertEqual("warn", retired_check["status"])
+        self.assertIn(
+            f'".context-os/journals/.{proposal_id}.discard"',
+            retired_check["detail"],
+        )
+        self.assertIn(
+            '".context-os/journals/.other.1.building"', retired_check["detail"]
+        )
+        self.assertIn("no recoverable workspace state", retired_check["detail"])
+        self.assertIn("remove only paths explicitly named", retired_check["detail"])
+        self.assertIn("will not self-heal", retired_check["detail"])
+        self.assertNotIn("rerun the approved proposal", retired_check["detail"])
+        self.assertEqual("pass", checks["transaction-invalid-artifacts"]["status"])
+
+        shutil.rmtree(pending)
+        checks = {item["name"]: item for item in doctor(self.root)["checks"]}
+        self.assertEqual("pass", checks["transaction-journals"]["status"])
+        self.assertEqual("warn", checks["transaction-retired-artifacts"]["status"])
+        self.assertEqual("pass", checks["transaction-invalid-artifacts"]["status"])
+
+    def test_doctor_rejects_non_journal_entries_without_recovery_advice(self) -> None:
+        journals = self.root / ".context-os/journals"
+        stray_file = journals / ".DS_Store"
+        stray_directory = journals / ".gitkeep"
+        journals.mkdir(parents=True)
+        stray_file.write_bytes(b"not a journal\n")
+        stray_directory.mkdir()
+
+        checks = {item["name"]: item for item in doctor(self.root)["checks"]}
+        invalid = checks["transaction-invalid-artifacts"]
+
+        self.assertEqual("pass", checks["transaction-journals"]["status"])
+        self.assertEqual("pass", checks["transaction-retired-artifacts"]["status"])
+        self.assertEqual("fail", invalid["status"])
+        self.assertIn('".context-os/journals/.DS_Store"', invalid["detail"])
+        self.assertIn('".context-os/journals/.gitkeep"', invalid["detail"])
+        self.assertIn("apply does not traverse link-like entries", invalid["detail"])
+        self.assertNotIn("recovery candidate", invalid["detail"])
+        self.assertNotIn("rerun the approved proposal", invalid["detail"])
+
+    def test_doctor_bounds_retired_paths_with_repeatable_batch_advice(self) -> None:
+        journals = self.root / ".context-os/journals"
+        for ordinal in range(7):
+            (journals / f".proposal-{ordinal}.discard").mkdir(parents=True)
+
+        check = next(
+            item
+            for item in doctor(self.root)["checks"]
+            if item["name"] == "transaction-retired-artifacts"
+        )
+
+        self.assertEqual("warn", check["status"])
+        self.assertIn("and 2 more not shown", check["detail"])
+        self.assertIn("remove only paths explicitly named", check["detail"])
+        self.assertIn("rerun doctor to enumerate any remaining paths", check["detail"])
+        self.assertNotIn('".context-os/journals/.proposal-5.discard"', check["detail"])
+
+    def test_doctor_rejects_linked_retired_name_instead_of_calling_it_inert(self) -> None:
+        journals = self.root / ".context-os/journals"
+        outside = self.root / "outside-retired"
+        journals.mkdir(parents=True)
+        outside.mkdir()
+        linked = journals / ".proposal.discard"
+        try:
+            linked.symlink_to(outside, target_is_directory=True)
+        except OSError:
+            self.skipTest("directory symlink creation is unavailable")
+
+        checks = {item["name"]: item for item in doctor(self.root)["checks"]}
+
+        self.assertEqual("pass", checks["transaction-journals"]["status"])
+        self.assertEqual("pass", checks["transaction-retired-artifacts"]["status"])
+        self.assertEqual("fail", checks["transaction-invalid-artifacts"]["status"])
+        self.assertIn(
+            '".context-os/journals/.proposal.discard"',
+            checks["transaction-invalid-artifacts"]["detail"],
+        )
+        with self.assertRaisesRegex(
+            ContextOSError, "invalid agent transaction journal path"
+        ):
+            _recover_pending_agent_journals(self.root)
 
     def test_publication_preserves_existing_modes_and_uses_safe_defaults(self) -> None:
         target = self.root / "sessions/2026-08-25.md"
@@ -1637,9 +1747,12 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         ), mock.patch.object(Path, "lstat", return_value=metadata), mock.patch(
             "contextos.kernel.os.chmod",
             side_effect=AssertionError("zero-link cleanup must not chmod"),
-        ), self.assertRaisesRegex(ContextOSError, "link count 0"):
+        ), self.assertRaisesRegex(ContextOSError, "link count 0") as raised:
             _unlink_readonly_artifact(artifact)
 
+        self.assertIn("Automatic retry cannot remove it", str(raised.exception))
+        self.assertIn("containing namespace as inert", str(raised.exception))
+        self.assertNotIn("later cleanup attempt", str(raised.exception))
         self.assertEqual(b"retained\n", artifact.read_bytes())
 
     def test_readonly_hardlink_tree_cleanup_preserves_workspace_mode(self) -> None:

@@ -60,15 +60,21 @@
 - First-class Codex onboarding with a root `AGENTS.md`, four explicit-invocation lifecycle skills under `.agents/skills/`, generated skill UI metadata, `--agent codex` setup support, portability tests, and a host-boundary guide.
 
 ### Fixed
+- `doctor` now distinguishes proposal-ID transaction recovery candidates from
+  inert `.building`/`.discard` cleanup artifacts, preserving inspect-and-recover
+  advice only for the former and giving path-specific, shared-inode-safe manual
+  cleanup guidance for the latter. Unsupported atomic deletion no longer implies
+  an unchanged retry will self-heal.
 - Best-effort transaction cleanup now continues across removable siblings after
   retaining a blocked artifact, while strict recovery still surfaces the exact
   cleanup failure. Windows cleanup no longer widens even single-link read-only
   files when atomic deletion is unavailable; it fails closed and reports the
-  observed artifact kind and link count for a later retry. Retained garbage in
-  incomplete or retired journal namespaces no longer blocks unrelated applies,
-  same-ID journal retries use collision-free retired namespaces, and dual-failure
-  diagnostics distinguish incomplete transaction recovery from incomplete target
-  rollback.
+  observed artifact kind and link count without implying an unchanged retry can
+  self-heal. Retained garbage in incomplete or retired journal namespaces no
+  longer blocks unrelated applies, same-ID journal retries use collision-free
+  retired namespaces, and failure diagnostics now describe incomplete
+  transaction recovery without implying that restored targets necessarily remain
+  incomplete.
 - Windows transaction cleanup now removes read-only hard-link names with
   `FileDispositionInfoEx` instead of temporarily widening the shared inode's
   mode, closing the process-death window that could wedge recovery or silently
