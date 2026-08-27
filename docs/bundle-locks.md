@@ -97,3 +97,15 @@ layer exists, a structural plan is review evidence, not authorization to copy or
 delete files. The materializer must bind this exact `plan_digest` inside the
 existing kernel proposal/transaction contract; the plan is not a second apply
 protocol.
+
+Protocol version 1 also fixes three boundaries for that materializer:
+
+- after any interrupted write, journal recovery must restore the pre-plan state
+  before another plan is requested; the planner does not adopt ahead-of-lock
+  files;
+- component ownership and managed/seed policy are immutable between ordinary
+  upgrades; changing either requires a future signed migration contract and
+  protocol version; and
+- `contextos.workspace.json` is an existing, digest-bound planner input. Fresh
+  workspace creation must establish it through the existing workspace-setup
+  transaction before bundle planning, rather than adding an unplanned write.

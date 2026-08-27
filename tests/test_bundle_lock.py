@@ -247,7 +247,7 @@ class BundleLockTest(unittest.TestCase):
         self.assertEqual(
             [
                 "git", "-c", f"safe.directory={self.source.absolute()}",
-                "-C", str(self.source.absolute()), "-c", "core.fsmonitor=false",
+                "-c", "core.fsmonitor=false", "-C", str(self.source.absolute()),
                 "ls-files", "--stage", "-z", "--",
             ],
             command,
@@ -256,6 +256,25 @@ class BundleLockTest(unittest.TestCase):
         self.assertEqual("1", environment["GIT_NO_LAZY_FETCH"])
         self.assertEqual("1", environment["GIT_NO_REPLACE_OBJECTS"])
         self.assertEqual("0", environment["GIT_OPTIONAL_LOCKS"])
+
+    def test_git_identity_disables_repository_fsmonitor_for_every_command(self) -> None:
+        (self.source / ".git").mkdir()
+        completed = [
+            subprocess.CompletedProcess([], 0, stdout=str(self.source).encode(), stderr=b""),
+            subprocess.CompletedProcess([], 0, stdout=b"a" * 40, stderr=b""),
+            subprocess.CompletedProcess([], 0, stdout=b"", stderr=b""),
+        ]
+        with mock.patch("subprocess.run", side_effect=completed) as run:
+            self.assertEqual(
+                "a" * 40,
+                git_repository_identity(
+                    self.source, require_clean_index=True, require_toplevel=True
+                ),
+            )
+        for call in run.call_args_list:
+            command = call.args[0]
+            self.assertIn("core.fsmonitor=false", command)
+            self.assertEqual(1, command.count("core.fsmonitor=false"))
 
     def test_git_index_rejects_symlink_mode(self) -> None:
         repository = self.root / "git-source"

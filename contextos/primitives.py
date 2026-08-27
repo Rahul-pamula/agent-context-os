@@ -125,7 +125,10 @@ def _git_top_candidate(root: Path) -> Path:
 
 def git_command(root: Path, *, safe_root: Path | None = None) -> list[str]:
     safe_root = root if safe_root is None else safe_root
-    return ["git", "-c", f"safe.directory={safe_root}", "-C", str(root)]
+    return [
+        "git", "-c", f"safe.directory={safe_root}",
+        "-c", "core.fsmonitor=false", "-C", str(root),
+    ]
 
 
 def git_repository_identity(

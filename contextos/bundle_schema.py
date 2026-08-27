@@ -250,8 +250,7 @@ def _git_index(root: Path) -> dict[str, tuple[str, bool]]:
     try:
         result = subprocess.run(
             [
-                *git_command(root), "-c", "core.fsmonitor=false",
-                "ls-files", "--stage", "-z", "--",
+                *git_command(root), "ls-files", "--stage", "-z", "--",
             ],
             env=git_environment(),
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
