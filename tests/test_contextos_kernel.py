@@ -9,7 +9,7 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from unittest import mock
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from contextos.kernel import (
@@ -27,6 +27,7 @@ from contextos.kernel import (
     sha256_text,
     start_report,
 )
+from contextos.component_schema import load_component_manifest, resolved_component_paths
 from contextos.workspace_schema import render_workspace_config
 
 
@@ -356,6 +357,23 @@ class KernelTest(unittest.TestCase):
                 f"# {filename}\n\n**Last Updated:** [DATE]\n",
                 encoding="utf-8",
             )
+
+    def _configure_profile(self, *agents: str) -> None:
+        (self.root / "contextos.workspace.json").write_text(
+            root_config(agents=list(agents)), encoding="utf-8"
+        )
+
+    def _materialize_components(self, *component_ids: str) -> None:
+        manifest = load_component_manifest(
+            ROOT / "components" / "manifest.json", root=ROOT, check_paths=False
+        )
+        for record in resolved_component_paths(manifest, component_ids):
+            source = ROOT / record["path"]
+            target = self.root / record["path"]
+            if target.exists():
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
 
     def test_update_propose_apply_writes_receipt_and_history_once(self) -> None:
         current = (
@@ -690,6 +708,7 @@ class KernelTest(unittest.TestCase):
             self.assertEqual(1, content.count("**Last Updated:**"))
         self.assertTrue(start_report(self.root, NOW)["initialized"])
     def test_install_and_doctor_are_machine_local(self) -> None:
+        self._materialize_components("hermes-adapter")
         target, installed = install_runtime(self.root, "hermes")
         self.assertEqual(self.root / ".context-os/hosts.json", target)
         self.assertEqual("hermes", installed["runtime"])
@@ -824,6 +843,12 @@ class KernelTest(unittest.TestCase):
         report = doctor(self.root)
         check = next(item for item in report["checks"] if item["name"] == "local-host-state")
         self.assertEqual("fail", check["status"])
+        self.assertTrue(
+            all(
+                runtime["local_onboarding"]["status"] == "unknown"
+                for runtime in report["runtimes"].values()
+            )
+        )
 
     def test_local_host_write_failure_preserves_previous_bytes(self) -> None:
         local = self.root / ".context-os"
@@ -858,6 +883,7 @@ class KernelTest(unittest.TestCase):
         self.assertFalse((outside / "hosts.json").exists())
 
     def test_doctor_uses_configured_state_and_selected_manifest_only(self) -> None:
+        self._materialize_components("hermes-adapter")
         custom = self.root / "custom-state"
         (self.root / "state").rename(custom)
         (self.root / "workspace.yaml").write_text("state_dir: custom-state\n", encoding="utf-8")
@@ -865,6 +891,208 @@ class KernelTest(unittest.TestCase):
         report = doctor(self.root, "hermes")
         self.assertFalse(any(item["status"] == "fail" for item in report["checks"]))
         self.assertTrue(any(item["name"] == "file:custom-state/current.md" for item in report["checks"]))
+        self.assertEqual(["hermes"], list(report["runtimes"]))
+
+    def test_empty_profile_keeps_every_shipped_runtime_inert(self) -> None:
+        self._materialize_components("core")
+        self._configure_profile()
+        manifest = json.loads(
+            (self.root / "runtimes/claude.json").read_text(encoding="utf-8")
+        )
+        manifest["unknown"] = True
+        (self.root / "runtimes/claude.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+
+        report = doctor(self.root)
+
+        self.assertEqual("profile", report["scope"])
+        self.assertEqual([], report["workspace"]["configured_agents"])
+        self.assertFalse(any(item["status"] == "fail" for item in report["checks"]))
+        self.assertEqual("invalid-descriptor", report["runtimes"]["claude"]["support"]["status"])
+        self.assertEqual(
+            {
+                "status": "unconfigured",
+                "inert": True,
+                "validation_scope": False,
+            },
+            report["runtimes"]["claude"]["configuration"],
+        )
+
+    def test_profile_scope_comes_from_tracked_agents_not_local_hosts(self) -> None:
+        self._materialize_components("hermes-adapter")
+        install_runtime(self.root, "codex")
+        self._configure_profile("hermes")
+        manifest = json.loads(
+            (self.root / "runtimes/codex.json").read_text(encoding="utf-8")
+        )
+        manifest["unknown"] = True
+        (self.root / "runtimes/codex.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+
+        report = doctor(self.root)
+        names = {item["name"] for item in report["checks"]}
+
+        self.assertFalse(any(item["status"] == "fail" for item in report["checks"]))
+        self.assertIn("manifest:hermes", names)
+        self.assertNotIn("manifest:codex", names)
+        self.assertTrue(report["runtimes"]["codex"]["configuration"]["inert"])
+        self.assertEqual(
+            "configured", report["runtimes"]["codex"]["local_onboarding"]["status"]
+        )
+
+    def test_profile_materialization_blocks_only_configured_adapters(self) -> None:
+        self._materialize_components("claude-adapter", "codex-adapter")
+        (self.root / ".codex/hooks.json").unlink()
+        self._configure_profile("codex")
+
+        configured = doctor(self.root)
+        check = next(
+            item for item in configured["checks"] if item["name"] == "components:codex"
+        )
+        self.assertEqual("fail", check["status"])
+
+        self._configure_profile("claude")
+        inert = doctor(self.root)
+        self.assertFalse(any(item["status"] == "fail" for item in inert["checks"]))
+        self.assertEqual("partial", inert["runtimes"]["codex"]["components"]["status"])
+
+    def test_profile_missing_user_owned_seed_warns_but_managed_path_still_fails(self) -> None:
+        self._materialize_components("hermes-adapter")
+        self._configure_profile("hermes")
+        (self.root / "content/log.md").unlink()
+
+        seed_report = doctor(self.root)
+        seed_check = next(
+            item
+            for item in seed_report["checks"]
+            if item["name"] == "components:hermes"
+        )
+        self.assertEqual("warn", seed_check["status"])
+        self.assertFalse(any(item["status"] == "fail" for item in seed_report["checks"]))
+        self.assertIn(
+            "content/log.md",
+            seed_report["runtimes"]["hermes"]["components"]["missing_by_policy"]["seed"],
+        )
+        maintainer_check = next(
+            item
+            for item in doctor(self.root, all_runtimes=True)["checks"]
+            if item["name"] == "components:hermes"
+        )
+        self.assertEqual("fail", maintainer_check["status"])
+
+        (self.root / "AGENTS.md").unlink()
+        managed_report = doctor(self.root)
+        managed_check = next(
+            item
+            for item in managed_report["checks"]
+            if item["name"] == "components:hermes"
+        )
+        self.assertEqual("fail", managed_check["status"])
+
+    def test_profile_missing_core_state_seed_warns_without_failing(self) -> None:
+        self._materialize_components("hermes-adapter")
+        self._configure_profile("hermes")
+        (self.root / "state/current.md").unlink()
+
+        report = doctor(self.root)
+        file_check = next(
+            item
+            for item in report["checks"]
+            if item["name"] == "file:state/current.md"
+        )
+        component_check = next(
+            item
+            for item in report["checks"]
+            if item["name"] == "components:hermes"
+        )
+        self.assertEqual("warn", file_check["status"])
+        self.assertEqual("warn", component_check["status"])
+        self.assertFalse(any(item["status"] == "fail" for item in report["checks"]))
+
+    def test_availability_is_independent_from_support_and_onboarding(self) -> None:
+        self._materialize_components("hermes-adapter")
+        self._configure_profile("hermes")
+        with mock.patch(
+            "contextos.kernel.shutil.which",
+            side_effect=lambda command: "git-path" if command == "git" else None,
+        ):
+            report = doctor(self.root)
+        runtime = report["runtimes"]["hermes"]
+        self.assertEqual("supported", runtime["support"]["status"])
+        self.assertEqual("unavailable", runtime["local_availability"]["status"])
+        self.assertEqual("not-configured", runtime["local_onboarding"]["status"])
+        self.assertFalse(any(item["status"] == "fail" for item in report["checks"]))
+
+    def test_evidence_freshness_boundary_is_deterministic(self) -> None:
+        self._materialize_components("hermes-adapter")
+        self._configure_profile("hermes")
+        path = self.root / "runtimes/hermes.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        manifest["evidence"]["checked_on"] = "2026-05-27"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        fresh = doctor(self.root, today=date(2026, 8, 25))["runtimes"]["hermes"]["evidence"]
+        self.assertEqual(("fresh", 90, 90), (fresh["status"], fresh["age_days"], fresh["stale_after_days"]))
+
+        manifest["evidence"]["checked_on"] = "2026-05-26"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        stale_report = doctor(self.root, today=date(2026, 8, 25))
+        stale = stale_report["runtimes"]["hermes"]["evidence"]
+        self.assertEqual(("stale", 91), (stale["status"], stale["age_days"]))
+        self.assertEqual(
+            "warn",
+            next(
+                item
+                for item in stale_report["checks"]
+                if item["name"] == "runtime-evidence:hermes"
+            )["status"],
+        )
+
+        manifest["evidence"]["checked_on"] = "2026-08-26"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        skew_report = doctor(self.root, today=date(2026, 8, 25))
+        skew = skew_report["runtimes"]["hermes"]["evidence"]
+        self.assertEqual(("fresh", -1), (skew["status"], skew["age_days"]))
+        self.assertFalse(any(item["status"] == "fail" for item in skew_report["checks"]))
+
+        future_report = doctor(self.root, today=date(2026, 8, 24))
+        future = future_report["runtimes"]["hermes"]["evidence"]
+        self.assertEqual(("future", -2), (future["status"], future["age_days"]))
+        self.assertEqual(
+            "warn",
+            next(
+                item
+                for item in future_report["checks"]
+                if item["name"] == "runtime-evidence:hermes"
+            )["status"],
+        )
+
+    def test_agents_instruction_is_required_only_by_selected_closure(self) -> None:
+        self._materialize_components("claude-adapter", "hermes-adapter")
+        (self.root / "AGENTS.md").unlink()
+        self._configure_profile("claude")
+        claude = doctor(self.root)
+        self.assertFalse(any(item["status"] == "fail" for item in claude["checks"]))
+        self.assertNotIn("file:AGENTS.md", {item["name"] for item in claude["checks"]})
+
+        self._configure_profile("hermes")
+        hermes = doctor(self.root)
+        check = next(
+            item for item in hermes["checks"] if item["name"] == "components:hermes"
+        )
+        self.assertEqual("fail", check["status"])
+
+    def test_all_scope_reports_only_shipped_registry_runtimes(self) -> None:
+        install_runtime(self.root, "hermes")
+        hosts_path = self.root / ".context-os/hosts.json"
+        hosts = json.loads(hosts_path.read_text(encoding="utf-8"))
+        hosts["hosts"]["orphan"] = dict(hosts["hosts"]["hermes"])
+        hosts_path.write_text(json.dumps(hosts), encoding="utf-8")
+
+        report = doctor(self.root, all_runtimes=True)
+        self.assertEqual({"claude", "codex", "hermes"}, set(report["runtimes"]))
 
     def test_bare_doctor_validates_all_manifests_during_setup(self) -> None:
         manifest = json.loads((self.root / "runtimes/claude.json").read_text(encoding="utf-8"))
@@ -885,8 +1113,14 @@ class KernelTest(unittest.TestCase):
         )
         report = doctor(self.root)
         names = {item["name"] for item in report["checks"]}
+        self.assertEqual("legacy", report["scope"])
         self.assertIn("manifest:hermes", names)
         self.assertNotIn("manifest:claude", names)
+        components = next(
+            item for item in report["checks"] if item["name"] == "components:hermes"
+        )
+        self.assertEqual("warn", components["status"])
+        self.assertFalse(any(item["status"] == "fail" for item in report["checks"]))
 
     def test_bare_doctor_checks_drift_for_every_installed_host(self) -> None:
         install_runtime(self.root, "hermes")
@@ -914,6 +1148,184 @@ class KernelTest(unittest.TestCase):
         self.assertEqual("warn", check["status"])
         self.assertIn("confirming no install or migration is running", check["detail"])
 
+    def test_doctor_fails_closed_on_linked_apply_lock(self) -> None:
+        local = self.root / ".context-os"
+        local.mkdir()
+        lock = local / "apply.lock"
+        with tempfile.TemporaryDirectory() as external:
+            try:
+                make_directory_link(lock, Path(external))
+            except OSError:
+                self.skipTest("directory link creation is unavailable")
+            try:
+                report = doctor(self.root)
+            finally:
+                lock.rmdir() if os.name == "nt" else lock.unlink()
+
+        check = next(
+            item for item in report["checks"] if item["name"] == "transaction-lock"
+        )
+        self.assertEqual("fail", check["status"])
+        self.assertIn("symlink or reparse point", check["detail"])
+
+    def test_doctor_reports_dangling_local_artifact_link_without_crashing(self) -> None:
+        proposals = self.root / ".context-os/proposals"
+        proposals.mkdir(parents=True)
+        artifact = proposals / "dangling.json"
+        try:
+            artifact.symlink_to(self.root / "missing-artifact.json")
+        except OSError:
+            self.skipTest("symlink creation is unavailable")
+
+        report = doctor(self.root)
+        check = next(
+            item
+            for item in report["checks"]
+            if item["name"] == "local-artifact-retention"
+        )
+        self.assertEqual("warn", check["status"])
+        self.assertIn("link-like artifact ignored", check["detail"])
+
+    def test_doctor_fails_closed_on_linked_artifact_directory(self) -> None:
+        outside = Path(self.temp.name) / "outside-proposals"
+        outside.mkdir()
+        proposals = self.root / ".context-os/proposals"
+        proposals.parent.mkdir(parents=True, exist_ok=True)
+        if not make_directory_link(proposals, outside):
+            self.skipTest("directory link creation is unavailable")
+        try:
+            report = doctor(self.root)
+        finally:
+            proposals.rmdir() if os.name == "nt" else proposals.unlink()
+        check = next(
+            item
+            for item in report["checks"]
+            if item["name"] == "local-artifact-retention"
+        )
+        self.assertEqual("fail", check["status"])
+        self.assertIn("cannot inspect proposals", check["detail"])
+
+    def test_core_only_profile_checks_managed_core_materialization(self) -> None:
+        self._materialize_components("core")
+        self._configure_profile()
+        (self.root / "docs/getting-started.md").unlink()
+
+        report = doctor(self.root)
+
+        check = next(
+            item for item in report["checks"] if item["name"] == "components:core"
+        )
+        self.assertEqual("fail", check["status"])
+        self.assertIn("docs/getting-started.md", check["detail"])
+
+    def test_core_only_profile_reports_shadowed_directory_as_a_failure(self) -> None:
+        self._materialize_components("core")
+        self._configure_profile()
+        shutil.rmtree(self.root / "docs")
+        (self.root / "docs").write_text("not a directory\n", encoding="utf-8")
+
+        report = doctor(self.root)
+
+        check = next(
+            item for item in report["checks"] if item["name"] == "components:core"
+        )
+        self.assertEqual("fail", check["status"])
+        self.assertEqual("fail", report["status"])
+
+    def test_maintainer_scope_includes_development_component_paths(self) -> None:
+        report = doctor(self.root, all_runtimes=True)
+
+        missing = report["runtimes"]["claude"]["components"]["missing_by_policy"]
+        self.assertIn("CONTRIBUTING.md", missing["development"])
+
+    def test_doctor_normalizes_an_unresolved_root(self) -> None:
+        unresolved = self.root / "nested" / ".."
+
+        report = doctor(unresolved)
+
+        self.assertIn(report["status"], {"pass", "warn"})
+
+    def test_doctor_reports_linked_state_file_without_crashing(self) -> None:
+        with tempfile.TemporaryDirectory() as external:
+            outside = Path(external) / "outside-current.md"
+            outside.write_text("# external\n", encoding="utf-8")
+            current = self.root / "state/current.md"
+            current.unlink()
+            try:
+                current.symlink_to(outside)
+            except OSError:
+                self.skipTest("symlink creation is unavailable")
+            report = doctor(self.root)
+        check = next(
+            item for item in report["checks"] if item["name"] == "file:state/current.md"
+        )
+        self.assertEqual("fail", check["status"])
+        self.assertIn("symlink or reparse point", check["detail"])
+
+    def test_doctor_reports_linked_state_directory_without_crashing(self) -> None:
+        with tempfile.TemporaryDirectory() as external:
+            outside = Path(external) / "outside-state"
+            (self.root / "state").rename(outside)
+            state = self.root / "state"
+            try:
+                state.symlink_to(outside, target_is_directory=True)
+            except OSError:
+                outside.rename(state)
+                self.skipTest("directory symlink creation is unavailable")
+            report = doctor(self.root)
+        self.assertEqual("fail", report["status"])
+        self.assertEqual("invalid", report["scope"])
+        self.assertTrue(
+            any(
+                "symlink or reparse point" in item["detail"]
+                for item in report["checks"]
+            )
+        )
+
+    def test_doctor_reports_external_links_for_every_configurable_seed_path(self) -> None:
+        with tempfile.TemporaryDirectory() as external:
+            external_root = Path(external)
+            cases = (
+                (self.root / "sessions", external_root / "sessions", True),
+                (self.root / "TODO.md", external_root / "TODO.md", False),
+            )
+            for target, outside, is_directory in cases:
+                with self.subTest(path=target.name):
+                    target.rename(outside)
+                    try:
+                        target.symlink_to(outside, target_is_directory=is_directory)
+                    except OSError:
+                        outside.rename(target)
+                        self.skipTest("symlink creation is unavailable")
+                    report = doctor(self.root)
+                    self.assertEqual("fail", report["status"])
+                    self.assertEqual("invalid", report["scope"])
+                    self.assertTrue(
+                        any(
+                            missing == target.name
+                            or missing.startswith(target.name + "/")
+                            for runtime in report["runtimes"].values()
+                            for missing in runtime["components"]["missing_paths"]
+                        )
+                    )
+                    target.unlink()
+                    outside.rename(target)
+
+    def test_doctor_fails_closed_on_linked_local_state_root(self) -> None:
+        outside = self.root / "outside-context-os"
+        outside.mkdir()
+        local = self.root / ".context-os"
+        try:
+            local.symlink_to(outside, target_is_directory=True)
+        except OSError:
+            self.skipTest("directory symlink creation is unavailable")
+
+        report = doctor(self.root)
+        checks = {item["name"]: item for item in report["checks"]}
+        self.assertEqual("fail", checks["local-host-state"]["status"])
+        self.assertEqual("fail", checks["transaction-journals"]["status"])
+        self.assertEqual("fail", checks["host-state-lock"]["status"])
+
     def test_bare_doctor_fails_when_registry_is_empty(self) -> None:
         shutil.rmtree(self.root / "runtimes")
         report = doctor(self.root)
@@ -921,6 +1333,7 @@ class KernelTest(unittest.TestCase):
         self.assertEqual("fail", check["status"])
 
     def test_doctor_handles_runtime_without_a_cli_surface(self) -> None:
+        self._materialize_components("hermes-adapter")
         path = self.root / "runtimes/hermes.json"
         manifest = json.loads(path.read_text(encoding="utf-8"))
         cloud = manifest["surfaces"].pop("cli")
@@ -944,6 +1357,7 @@ class KernelTest(unittest.TestCase):
         )
 
     def test_doctor_never_executes_descriptor_probe_commands(self) -> None:
+        self._materialize_components("hermes-adapter")
         with mock.patch("contextos.kernel.shutil.which", return_value="resolved-command"), mock.patch(
             "contextos.kernel.subprocess.run",
             side_effect=AssertionError("descriptor probe executed a process"),
