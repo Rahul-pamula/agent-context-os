@@ -92,25 +92,28 @@ class InstalledOpenClawTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def _run(self, *args: str, allowed_codes: tuple[int, ...] = (0,)) -> subprocess.CompletedProcess[str]:
+    def _run(
+        self, *args: str, allowed_codes: tuple[int, ...] = (0,),
+        cwd: Path | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["OPENCLAW_STATE_DIR"] = str(self.state)
         result = subprocess.run(
-            [self.binary, *args], cwd=ROOT, env=env, text=True,
+            [self.binary, *args], cwd=cwd or ROOT, env=env, text=True,
             encoding="utf-8", errors="replace", capture_output=True,
             check=False, timeout=60,
         )
         self.assertIn(result.returncode, allowed_codes, result.stderr or result.stdout)
         return result
 
-    def _skills(self) -> dict[str, dict]:
-        report = json.loads(self._run("skills", "list", "--json").stdout)
+    def _skills(self, *, cwd: Path | None = None) -> dict[str, dict]:
+        report = json.loads(self._run("skills", "list", "--json", cwd=cwd).stdout)
         return {skill["name"]: skill for skill in report["skills"]}
 
     def test_exact_version_and_copied_lifecycle_inventory(self) -> None:
         expected = DESCRIPTOR["evidence"]["tested_versions"][0]["version"]
         self.assertEqual(expected, self._run("--version").stdout.strip())
-        skills = self._skills()
+        skills = self._skills(cwd=self.workspace)
         self.assertTrue(LIFECYCLE_SKILLS <= set(skills))
         for name in LIFECYCLE_SKILLS:
             with self.subTest(name=name):
@@ -122,9 +125,18 @@ class InstalledOpenClawTest(unittest.TestCase):
                 self.assertTrue(skill["commandVisible"])
 
     def test_repository_cwd_does_not_substitute_for_missing_workspace_copies(self) -> None:
+        sentinel = self.workspace / "skills/inventory-sentinel"
+        sentinel.mkdir(parents=True)
+        (sentinel / "SKILL.md").write_text(
+            "---\nname: inventory-sentinel\n"
+            "description: Proves that the negative-control inventory is live.\n"
+            "---\nSentinel.\n",
+            encoding="utf-8",
+        )
         shutil.rmtree(self.workspace / ".agents/skills")
         (self.workspace / ".agents/skills").mkdir(parents=True)
         skills = self._skills()
+        self.assertEqual("openclaw-workspace", skills["inventory-sentinel"]["source"])
         self.assertTrue(
             LIFECYCLE_SKILLS.isdisjoint(skills),
             sorted(LIFECYCLE_SKILLS & skills.keys()),
