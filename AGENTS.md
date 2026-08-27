@@ -97,4 +97,4 @@ this is guidance, not a host-enforced gate. The `$context-setup`, `$context-star
 ## Validation
 
 Run `bash scripts/validate-all.sh --workspace` for workspace changes. Product
-contributors and CI run it without `--workspace` after product changes.
+contributors and CI omit `--workspace` after instructions, hooks, scripts, manifests, or generated references change.

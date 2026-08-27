@@ -35,7 +35,7 @@ The mutation protocol is always:
 | Project instructions | `CLAUDE.md` | `AGENTS.md` | `AGENTS.md` | Execution-directory `AGENTS.md` | Root `AGENTS.md` | Root `AGENTS.md` |
 | Portable skill source | Thin slash adapters | `.agents/skills/` | External directory or copied skills | Copied into private workspace `.agents/skills/` | `.agents/skills/` | `.agents/skills/` |
 | Project hooks | `.claude/settings.json` | `.codex/hooks.json` after trust | Optional shell/plugin adapter | Not claimed | Not claimed | Not claimed |
-| Authorization | Host settings | Host settings | Outside contract | Separate execution approvals | Host permissions | Account-managed; outside adapter |
+| Authorization | Host settings | Host settings | Outside contract | Separate execution approvals | IDE/CLI permissions; CLI `--force` | Account-managed; outside adapter |
 | Lifecycle enforcement | Kernel | Kernel | Kernel | Kernel | Kernel | Kernel |
 | Native memory | Claude auto-memory | Not part of the shared contract | `MEMORY.md` and `USER.md` | Private OpenClaw workspace | Outside contract | Knowledge is not synchronized |
 

@@ -8,8 +8,8 @@ shared state.
 ## Before you clone
 
 You need Git, Bash, and Python 3.10 or newer. Local hosts include Claude Code,
-Codex, Hermes, OpenClaw, and Cursor; Devin uses the separately verified managed
-cloud path. claude.ai can help produce files but cannot maintain a local checkout.
+Codex, Hermes, OpenClaw, and Cursor; verify Devin's managed cloud path separately
+in its account UI. claude.ai cannot maintain a local checkout directly.
 
 Python may be installed as either `python3` or `python`; the repository resolves
 whichever works. To pin a specific interpreter — a virtualenv, or one of several
