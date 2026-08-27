@@ -62,16 +62,20 @@
           ],
           "properties": {
             "component_manifest_schema": {
-              "const": 1
-            },
-            "runtime_descriptor_schema": {
-              "const": 2
-            },
-            "workspace_schema": {
-              "const": 1
+              "type": "integer",
+              "minimum": 1
             },
             "planner_protocol": {
-              "const": 1
+              "type": "integer",
+              "minimum": 1
+            },
+            "runtime_descriptor_schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "workspace_schema": {
+              "type": "integer",
+              "minimum": 1
             }
           }
         },
@@ -85,6 +89,7 @@
               "executable",
               "path",
               "sha256_raw",
+              "sha256_text_lf",
               "size"
             ],
             "properties": {
@@ -95,6 +100,17 @@
               "sha256_raw": {
                 "type": "string",
                 "pattern": "^[0-9a-f]{64}$"
+              },
+              "sha256_text_lf": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "size": {
                 "type": "integer",

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import stat
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -86,3 +87,67 @@ def read_regular_file_snapshot(path: Path, *, subject: str) -> tuple[bytes, os.s
         raise SnapshotError(f"{subject} changed during snapshot: {path}") from exc
     finally:
         os.close(descriptor)
+
+
+def git_environment() -> dict[str, str]:
+    """Return an offline, read-only Git plumbing environment without ambient routing."""
+    environment = {
+        key: value for key, value in os.environ.items()
+        if not key.upper().startswith("GIT_")
+    }
+    environment.update({
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_NO_LAZY_FETCH": "1",
+        "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_OPTIONAL_LOCKS": "0",
+    })
+    return environment
+
+
+def git_command(root: Path) -> list[str]:
+    return ["git", "-c", f"safe.directory={root}", "-C", str(root)]
+
+
+def git_repository_identity(root: Path, *, require_clean_index: bool) -> str:
+    """Resolve one explicit top-level repository and optionally bind its index to HEAD."""
+    environment = git_environment()
+    try:
+        top = subprocess.run(
+            [*git_command(root), "rev-parse", "--show-toplevel"],
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env=environment,
+        ).stdout.decode("utf-8").strip()
+        commit = subprocess.run(
+            [*git_command(root), "rev-parse", "--verify", "HEAD^{commit}"],
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env=environment,
+        ).stdout.decode("ascii").strip()
+        staged = None
+        if require_clean_index:
+            staged = subprocess.run(
+                [*git_command(root), "diff-index", "--cached", "--quiet", commit, "--"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment,
+            )
+    except (OSError, subprocess.CalledProcessError, UnicodeError) as exc:
+        detail = (
+            exc.stderr.decode("utf-8", errors="replace").strip()
+            if isinstance(exc, subprocess.CalledProcessError) else str(exc)
+        )
+        raise SnapshotError(f"cannot resolve the local Git repository: {detail}") from exc
+    try:
+        same_root = os.path.samefile(root, Path(top))
+    except OSError as exc:
+        raise SnapshotError(f"cannot compare Git top-level identity: {exc}") from exc
+    if not same_root:
+        raise SnapshotError("source root must be the local Git top-level directory")
+    if staged is not None and staged.returncode == 1:
+        raise SnapshotError("Git index differs from HEAD; commit or unstage it first")
+    if staged is not None and staged.returncode != 0:
+        raise SnapshotError(
+            "cannot compare Git index with HEAD: "
+            + staged.stderr.decode("utf-8", errors="replace").strip()
+        )
+    if not all(character in "0123456789abcdef" for character in commit) or len(commit) not in {40, 64}:
+        raise SnapshotError("Git returned a non-canonical commit identifier")
+    return commit

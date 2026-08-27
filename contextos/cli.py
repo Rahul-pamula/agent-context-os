@@ -257,6 +257,7 @@ def _bundle_main(args: argparse.Namespace) -> int:
             args.current_source,
             expected_sha256=args.expect_current_sha256,
             source_mode=args.current_source_mode,
+            role="current",
         )
         current_components = component_selection(
             args.current_components, "current_components"

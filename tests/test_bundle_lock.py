@@ -22,6 +22,7 @@ from contextos.bundle_schema import (
     _git_index,
 )
 from contextos.kernel import canonical_json as kernel_canonical_json
+from contextos.kernel import git_head
 from contextos.primitives import canonical_json as primitive_canonical_json
 
 
@@ -47,14 +48,19 @@ def workspace(source: str, version: str) -> dict:
 
 
 class BundleFixture:
-    def __init__(self, root: Path, *, version: str, managed: bytes, addon: bool) -> None:
+    def __init__(
+        self, root: Path, *, version: str, managed: bytes, addon: bool,
+        runtime_addon: bool | None = None, include_seed: bool = True,
+    ) -> None:
         self.root = root
         (root / "components").mkdir(parents=True)
         (root / "runtimes").mkdir()
         (root / "dev").mkdir()
         (root / "managed.bin").write_bytes(managed)
         (root / "seed.txt").write_bytes(b"seed\n")
-        runtime_components = ["core", "addon"] if addon else ["core"]
+        if runtime_addon is None:
+            runtime_addon = addon
+        runtime_components = ["core", "addon"] if runtime_addon else ["core"]
         runtime_descriptor = json.loads(
             (ROOT / "runtimes/codex.json").read_text(encoding="utf-8")
         )
@@ -73,11 +79,12 @@ class BundleFixture:
                     {"path": "components/manifest.json", "policy": "managed"},
                     {"path": "managed.bin", "policy": "managed"},
                     {"path": "runtimes/codex.json", "policy": "managed"},
-                    {"path": "seed.txt", "policy": "seed"},
                     {"path": "dev/test.txt", "policy": "development"},
                 ],
             }
         ]
+        if include_seed:
+            components[0]["paths"].append({"path": "seed.txt", "policy": "seed"})
         if addon:
             (root / "addon.txt").write_text(f"addon {version}\n", encoding="utf-8")
             components.append({
@@ -101,12 +108,13 @@ class BundleFixture:
         self.lock_path = root.parent / f"lock-{version}.json"
         self.lock_path.write_text(json.dumps(self.lock, indent=2) + "\n", encoding="utf-8")
 
-    def verify(self):
+    def verify(self, *, role: str = "candidate"):
         return verify_bundle(
             self.lock_path,
             self.root,
             expected_sha256=self.lock["bundle_sha256"],
             source_mode="directory",
+            role=role,
         )
 
 
@@ -296,6 +304,51 @@ class BundleLockTest(unittest.TestCase):
                 source_mode="git-index",
             )
 
+    def test_kernel_git_identity_ignores_ambient_git_dir(self) -> None:
+        subprocess.run(["git", "init", "-q"], cwd=self.source, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "fixture@example.com"],
+            cwd=self.source, check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Fixture"], cwd=self.source, check=True
+        )
+        subprocess.run(["git", "add", "."], cwd=self.source, check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "fixture"], cwd=self.source, check=True
+        )
+        expected = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.source, check=True,
+            text=True, stdout=subprocess.PIPE,
+        ).stdout.strip()
+        other = self.root / "other-kernel"
+        other.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=other, check=True)
+        with mock.patch.dict(os.environ, {"GIT_DIR": str(other / ".git")}):
+            self.assertEqual(expected, git_head(self.source))
+
+    def test_current_bundle_only_requires_compatible_component_manifest(self) -> None:
+        older = copy.deepcopy(self.fixture.lock)
+        compatibility = older["bundle"]["compatibility"]
+        compatibility["runtime_descriptor_schema"] = 1
+        compatibility["workspace_schema"] = 99
+        compatibility["planner_protocol"] = 99
+        older["bundle_sha256"] = hashlib.sha256(
+            canonical_json(older["bundle"]).encode("utf-8")
+        ).hexdigest()
+        lock_path = self.root / "older-lock.json"
+        lock_path.write_text(json.dumps(older) + "\n", encoding="utf-8")
+        verified = verify_bundle(
+            lock_path, self.source, expected_sha256=older["bundle_sha256"],
+            source_mode="directory", role="current",
+        )
+        self.assertEqual("current", verified.role)
+        with self.assertRaisesRegex(BundleError, "unsupported for candidate"):
+            verify_bundle(
+                lock_path, self.source, expected_sha256=older["bundle_sha256"],
+                source_mode="directory", role="candidate",
+            )
+
     def test_invalid_runtime_descriptor_cannot_be_locked(self) -> None:
         descriptor_path = self.source / "runtimes/codex.json"
         descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
@@ -417,9 +470,9 @@ class StructuralPlannerTest(unittest.TestCase):
                 current_components=["core"],
             )
 
-    def test_current_ownership_must_match_configured_agent_closure(self) -> None:
+    def test_current_components_must_claim_every_materialized_component(self) -> None:
         before = self.snapshot()
-        with self.assertRaisesRegex(BundleError, "workspace agents"):
+        with self.assertRaisesRegex(BundleError, "unclaimed materialized path"):
             create_structural_plan(
                 target_root=self.target,
                 workspace_config_path=self.config,
@@ -430,6 +483,72 @@ class StructuralPlannerTest(unittest.TestCase):
                 current_components=[],
             )
         self.assertEqual(before, self.snapshot())
+
+    def test_crlf_checkout_matches_lf_base_without_becoming_dirty(self) -> None:
+        manifest = self.target / "components/manifest.json"
+        lf_bytes = manifest.read_bytes().replace(b"\r\n", b"\n")
+        manifest.write_bytes(lf_bytes.replace(b"\n", b"\r\n"))
+        plan = self.plan()
+        manifest_action = next(
+            item for item in plan["actions"]
+            if item["path"] == "components/manifest.json"
+        )
+        self.assertEqual("replace", manifest_action["action"])
+
+    def test_full_template_materialization_is_independent_of_configured_agents(self) -> None:
+        current_root = self.root / "full-current"
+        current_root.mkdir()
+        fixture = BundleFixture(
+            current_root, version="1.0.0", managed=b"binary\x00v1\n",
+            addon=True, runtime_addon=False,
+        )
+        current = fixture.verify(role="current")
+        target = self.root / "full-target"
+        shutil.copytree(current_root, target)
+        config = target / "contextos.workspace.json"
+        config.write_text(
+            json.dumps(workspace("fixture-template", "1.0.0"), indent=2) + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(BundleError, "unclaimed materialized path"):
+            create_structural_plan(
+                target_root=target, workspace_config_path=config,
+                expected_config_sha256=digest(config), candidate=self.candidate,
+                desired_components=["addon"], current=current,
+                current_components=["core"],
+            )
+        plan = create_structural_plan(
+            target_root=target, workspace_config_path=config,
+            expected_config_sha256=digest(config), candidate=self.candidate,
+            desired_components=["addon"], current=current,
+            current_components=["addon"],
+        )
+        self.assertEqual(["core", "addon"], plan["current_components"])
+
+    def test_new_seed_preserves_a_preexisting_user_file(self) -> None:
+        current_root = self.root / "seedless-current"
+        current_root.mkdir()
+        fixture = BundleFixture(
+            current_root, version="1.0.0", managed=b"binary\x00v1\n",
+            addon=False, include_seed=False,
+        )
+        current = fixture.verify(role="current")
+        target = self.root / "seedless-target"
+        shutil.copytree(current_root, target)
+        (target / "seed.txt").write_text("user file\n", encoding="utf-8")
+        config = target / "contextos.workspace.json"
+        config.write_text(
+            json.dumps(workspace("fixture-template", "1.0.0"), indent=2) + "\n",
+            encoding="utf-8",
+        )
+        plan = create_structural_plan(
+            target_root=target, workspace_config_path=config,
+            expected_config_sha256=digest(config), candidate=self.candidate,
+            desired_components=["addon"], current=current,
+            current_components=["core"],
+        )
+        seed_action = next(item for item in plan["actions"] if item["path"] == "seed.txt")
+        self.assertEqual("preserve-seed", seed_action["action"])
 
     def test_stale_config_hash_unavailable_component_and_unowned_collision_fail(self) -> None:
         with self.assertRaisesRegex(BundleError, "configuration is stale"):

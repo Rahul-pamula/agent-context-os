@@ -50,6 +50,7 @@ from .workspace_schema import (
 from .primitives import (
     SnapshotError,
     canonical_json,
+    git_repository_identity,
     is_link_like,
     read_regular_file_snapshot,
     sha256_bytes,
@@ -1448,10 +1449,10 @@ def transaction_lock(root: Path) -> Iterator[None]:
 
 
 def git_head(root: Path) -> str | None:
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=root, text=True, capture_output=True, check=False
-    )
-    return result.stdout.strip() if result.returncode == 0 else None
+    try:
+        return git_repository_identity(root, require_clean_index=False)
+    except SnapshotError:
+        return None
 
 
 def validate_proposal(document: dict[str, Any]) -> str:

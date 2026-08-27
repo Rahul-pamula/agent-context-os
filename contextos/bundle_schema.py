@@ -27,6 +27,9 @@ from .runtime_schema import RuntimeManifestError, validate_runtime_manifest
 from .primitives import (
     SnapshotError,
     canonical_json,
+    git_command,
+    git_environment,
+    git_repository_identity,
     is_link_like,
     read_regular_file_snapshot,
     sha256_bytes,
@@ -54,7 +57,7 @@ COMPATIBILITY_KEYS = {
     "component_manifest_schema", "runtime_descriptor_schema",
     "workspace_schema", "planner_protocol",
 }
-FILE_KEYS = {"path", "sha256_raw", "size", "executable"}
+FILE_KEYS = {"path", "sha256_raw", "sha256_text_lf", "size", "executable"}
 
 
 class BundleError(ValueError):
@@ -66,6 +69,7 @@ class VerifiedBundle:
     root: Path
     lock_path: Path
     source_mode: str
+    role: str
     mode_verified: bool
     lock: dict[str, Any]
     manifest: dict[str, Any]
@@ -208,9 +212,21 @@ def _record(path: str, data: bytes, executable: bool) -> dict[str, Any]:
     return {
         "path": path,
         "sha256_raw": sha256_bytes(data),
+        "sha256_text_lf": _text_lf_digest(data),
         "size": len(data),
         "executable": executable,
     }
+
+
+def _text_lf_digest(data: bytes) -> str | None:
+    if b"\0" in data:
+        return None
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+    return sha256_bytes(normalized)
 
 
 def _bundle_name(value: Any, field: str) -> str:
@@ -234,10 +250,10 @@ def _git_index(root: Path) -> dict[str, tuple[str, bool]]:
     try:
         result = subprocess.run(
             [
-                *_git_command(root), "-c", "core.fsmonitor=false",
+                *git_command(root), "-c", "core.fsmonitor=false",
                 "ls-files", "--stage", "-z", "--",
             ],
-            env=_git_environment(),
+            env=git_environment(),
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
@@ -274,8 +290,8 @@ def _git_blob(root: Path, oid: str, field: str) -> bytes:
 
     try:
         result = subprocess.run(
-            [*_git_command(root), "cat-file", "blob", oid], check=True,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_git_environment(),
+            [*git_command(root), "cat-file", "blob", oid], check=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=git_environment(),
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         detail = (
@@ -286,69 +302,13 @@ def _git_blob(root: Path, oid: str, field: str) -> bytes:
     return result.stdout
 
 
-def _git_environment() -> dict[str, str]:
-    """Keep local Git plumbing read-only, offline, and free of executable config."""
-    environment = {
-        key: value for key, value in os.environ.items()
-        if not key.upper().startswith("GIT_")
-    }
-    environment.update({
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_CONFIG_GLOBAL": os.devnull,
-        "GIT_NO_LAZY_FETCH": "1",
-        "GIT_NO_REPLACE_OBJECTS": "1",
-        "GIT_OPTIONAL_LOCKS": "0",
-    })
-    return environment
-
-
-def _git_command(root: Path) -> list[str]:
-    return ["git", "-c", f"safe.directory={root}", "-C", str(root)]
-
-
 def _git_repository_identity(root: Path) -> str:
-    """Bind index bytes to this exact repository and one clean HEAD commit."""
-    import subprocess
-
-    environment = _git_environment()
     try:
-        top = subprocess.run(
-            [*_git_command(root), "rev-parse", "--show-toplevel"],
-            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            env=environment,
-        ).stdout.decode("utf-8").strip()
-        commit = subprocess.run(
-            [*_git_command(root), "rev-parse", "--verify", "HEAD^{commit}"],
-            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            env=environment,
-        ).stdout.decode("ascii").strip()
-        staged = subprocess.run(
-            [*_git_command(root), "diff-index", "--cached", "--quiet", commit, "--"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment,
+        return git_repository_identity(
+            root, require_clean_index=True
         )
-    except (OSError, subprocess.CalledProcessError, UnicodeError) as exc:
-        detail = (
-            exc.stderr.decode("utf-8", errors="replace").strip()
-            if isinstance(exc, subprocess.CalledProcessError) else str(exc)
-        )
-        _fail("source_mode", f"cannot resolve the local Git repository: {detail}")
-    try:
-        same_root = os.path.samefile(root, Path(top))
-    except OSError as exc:
-        _fail("source_mode", f"cannot compare Git top-level identity: {exc}")
-    if not same_root:
-        _fail("source_mode", "source root must be the local Git top-level directory")
-    if staged.returncode == 1:
-        _fail("source_mode", "Git index differs from HEAD; commit or unstage it first")
-    if staged.returncode != 0:
-        _fail(
-            "source_mode",
-            "cannot compare Git index with HEAD: "
-            + staged.stderr.decode("utf-8", errors="replace").strip(),
-        )
-    if not GIT_COMMIT_RE.fullmatch(commit):
-        _fail("source_mode", "Git returned a non-canonical commit identifier")
-    return commit
+    except SnapshotError as exc:
+        raise BundleError(f"source_mode: {exc}") from exc
 
 
 def _source_entries(
@@ -443,6 +403,10 @@ def create_bundle_lock(
     for item in paths:
         data, executable = source[item["path"]]
         files.append(_record(item["path"], data, executable))
+    if source_mode == "git-index":
+        final_commit = _git_repository_identity(root)
+        if final_commit != source_git_commit:
+            _fail("source_mode", "Git HEAD changed while the bundle lock was generated")
     bundle = {
         "name": name,
         "version": version,
@@ -479,15 +443,9 @@ def validate_bundle_lock(value: Any) -> dict[str, Any]:
     compatibility = _exact_keys(
         bundle.get("compatibility"), COMPATIBILITY_KEYS, "bundle.compatibility"
     )
-    expected_compatibility = {
-        "component_manifest_schema": COMPONENT_MANIFEST_SCHEMA_VERSION,
-        "runtime_descriptor_schema": RUNTIME_DESCRIPTOR_SCHEMA_VERSION,
-        "workspace_schema": WORKSPACE_SCHEMA_VERSION,
-        "planner_protocol": PLANNER_PROTOCOL_VERSION,
-    }
-    for key, expected in expected_compatibility.items():
-        if type(compatibility.get(key)) is not int or compatibility[key] != expected:
-            _fail(f"bundle.compatibility.{key}", f"must equal integer {expected}")
+    for key in COMPATIBILITY_KEYS:
+        if type(compatibility.get(key)) is not int or compatibility[key] < 1:
+            _fail(f"bundle.compatibility.{key}", "must be a positive integer")
     try:
         manifest_path = validate_workspace_path(
             bundle.get("component_manifest_path"), "bundle.component_manifest_path"
@@ -513,6 +471,9 @@ def validate_bundle_lock(value: Any) -> dict[str, Any]:
             _fail("bundle.files", f"portable path collision: {identities[identity]!r} and {path!r}")
         identities[identity] = path
         _sha256(item.get("sha256_raw"), f"{field}.sha256_raw")
+        text_digest = item.get("sha256_text_lf")
+        if text_digest is not None:
+            _sha256(text_digest, f"{field}.sha256_text_lf")
         if type(item.get("size")) is not int or item["size"] < 0:
             _fail(f"{field}.size", "must be a non-negative integer")
         if type(item.get("executable")) is not bool:
@@ -545,14 +506,36 @@ def load_bundle_lock(path: Path) -> dict[str, Any]:
     return validate_bundle_lock(value)
 
 
+def _validate_compatibility(lock: dict[str, Any], role: str) -> None:
+    if role not in {"candidate", "current"}:
+        _fail("role", "must equal 'candidate' or 'current'")
+    compatibility = lock["bundle"]["compatibility"]
+    expected = {
+        "component_manifest_schema": COMPONENT_MANIFEST_SCHEMA_VERSION,
+        "runtime_descriptor_schema": RUNTIME_DESCRIPTOR_SCHEMA_VERSION,
+        "workspace_schema": WORKSPACE_SCHEMA_VERSION,
+        "planner_protocol": PLANNER_PROTOCOL_VERSION,
+    }
+    keys = expected if role == "candidate" else {
+        "component_manifest_schema": COMPONENT_MANIFEST_SCHEMA_VERSION
+    }
+    for key, value in keys.items():
+        if compatibility[key] != value:
+            _fail(
+                f"bundle.compatibility.{key}",
+                f"unsupported for {role} bundle; expected {value}, got {compatibility[key]}",
+            )
+
+
 def verify_bundle(
     lock_path: Path, source_root: Path, *, expected_sha256: str,
-    source_mode: str = "directory",
+    source_mode: str = "directory", role: str = "candidate",
 ) -> VerifiedBundle:
     """Verify one caller-pinned lock and all of its local bytes without fetching."""
     expected_sha256 = _sha256(expected_sha256, "expected_sha256")
     lock_path = lock_path.absolute()
     lock = load_bundle_lock(lock_path)
+    _validate_compatibility(lock, role)
     if lock["bundle_sha256"] != expected_sha256:
         _fail("expected_sha256", "does not match the supplied bundle lock")
     root = _source_root(source_root, "source_root")
@@ -570,6 +553,8 @@ def verify_bundle(
         data, executable = source[relative]
         if len(data) != record["size"] or sha256_bytes(data) != record["sha256_raw"]:
             _fail(f"source.{relative}", "raw bytes do not match the bundle lock")
+        if _text_lf_digest(data) != record["sha256_text_lf"]:
+            _fail(f"source.{relative}", "text normalization does not match the bundle lock")
         if (source_mode == "git-index" or os.name != "nt") and executable != record["executable"]:
             _fail(f"source.{relative}", "executable mode does not match the bundle lock")
         verified_bytes[relative] = data
@@ -594,9 +579,12 @@ def verify_bundle(
         if extra:
             details.append("extra " + ", ".join(extra))
         _fail("bundle.files", "does not equal the non-development component inventory: " + "; ".join(details))
-    runtimes = _validated_runtimes(verified_bytes, manifest, root=root)
+    runtimes = (
+        _validated_runtimes(verified_bytes, manifest, root=root)
+        if role == "candidate" else {}
+    )
     return VerifiedBundle(
-        root=root, lock_path=lock_path, source_mode=source_mode,
+        root=root, lock_path=lock_path, source_mode=source_mode, role=role,
         mode_verified=(source_mode == "git-index" or os.name != "nt"), lock=lock,
         manifest=manifest, runtimes=runtimes, records=records,
     )
@@ -618,6 +606,7 @@ def _snapshot(path: Path, field: str, *, executable_hint: bool) -> dict[str, Any
     )
     return {
         "sha256_raw": sha256_bytes(data),
+        "sha256_text_lf": _text_lf_digest(data),
         "size": len(data),
         "executable": executable,
     }
@@ -628,9 +617,28 @@ def _snapshot_value(record: dict[str, Any] | None) -> dict[str, Any] | None:
         return None
     return {
         "sha256_raw": record["sha256_raw"],
+        "sha256_text_lf": record["sha256_text_lf"],
         "size": record["size"],
         "executable": record["executable"],
     }
+
+
+def _matches_base(
+    observed: dict[str, Any] | None, base: dict[str, Any] | None,
+) -> bool:
+    if observed is None or base is None:
+        return observed is base
+    if observed["executable"] != base["executable"]:
+        return False
+    if (
+        observed["sha256_raw"] == base["sha256_raw"]
+        and observed["size"] == base["size"]
+    ):
+        return True
+    return (
+        base["sha256_text_lf"] is not None
+        and observed["sha256_text_lf"] == base["sha256_text_lf"]
+    )
 
 
 def _owned_records(bundle: VerifiedBundle, component_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
@@ -662,7 +670,7 @@ def _assert_bundle_current(bundle: VerifiedBundle, field: str) -> None:
     try:
         verify_bundle(
             bundle.lock_path, bundle.root, expected_sha256=bundle.digest,
-            source_mode=bundle.source_mode,
+            source_mode=bundle.source_mode, role=bundle.role,
         )
     except BundleError as exc:
         raise BundleError(f"{field}: source or lock became stale: {exc}") from exc
@@ -707,7 +715,7 @@ def create_structural_plan(
             config_bytes.decode("utf-8"), source=config_relative
         )
         config = validate_workspace_config(
-            config_value, known_runtime_ids=_runtime_ids(authority)
+            config_value, known_runtime_ids=_runtime_ids(candidate)
         )
     except (UnicodeError, WorkspaceConfigError) as exc:
         raise BundleError(str(exc)) from exc
@@ -728,13 +736,19 @@ def create_structural_plan(
     current_ids: list[str] = []
     if current is not None:
         current_ids = _component_closure(current.manifest, current_components)
-        configured_ids = _configured_components(current, config["agents"])
-        if current_ids != configured_ids:
-            _fail(
-                "current_components",
-                "must exactly match the component closure declared by workspace agents",
-            )
         base = _owned_records(current, current_ids)
+        all_current_ids = [item["id"] for item in current.manifest["components"]]
+        all_current = _owned_records(current, all_current_ids)
+        for relative in sorted(set(all_current) - set(base), key=portable_path_identity):
+            target = _safe_path(
+                target_root, relative, f"target.{relative}", missing_ok=True
+            )
+            if target.exists():
+                _fail(
+                    "current_components",
+                    f"unclaimed materialized path {relative!r}; include component "
+                    f"{all_current[relative]['owner']!r}",
+                )
     elif current_components:
         _fail("current_components", "requires a current verified bundle")
     actions: list[dict[str, Any]] = []
@@ -753,14 +767,21 @@ def create_structural_plan(
         policy = (after or before)["policy"]
         if before is None:
             if observed is not None:
-                _fail(f"target.{relative}", "unowned target collides with a planned add")
-            action, reason = "add", "selected component path is absent"
+                if policy == "seed":
+                    action, reason = (
+                        "preserve-seed",
+                        "pre-existing seed path remains user-owned",
+                    )
+                else:
+                    _fail(f"target.{relative}", "unowned target collides with a planned add")
+            else:
+                action, reason = "add", "selected component path is absent"
         elif after is None:
             if observed is None:
                 action, reason = "noop", "previously owned path is already absent"
             elif policy == "seed":
                 action, reason = "preserve-seed", "seed content is user-owned after creation"
-            elif observed_value != before_value:
+            elif not _matches_base(observed_value, before_value):
                 _fail(f"target.{relative}", "managed path is dirty and cannot be removed")
             else:
                 action, reason = "remove", "pristine managed path is no longer selected"
@@ -776,7 +797,7 @@ def create_structural_plan(
                 _fail(f"target.{relative}", "ownership or customization policy changed across bundles")
             if observed is None:
                 _fail(f"target.{relative}", "managed path is missing")
-            if observed_value != before_value:
+            if not _matches_base(observed_value, before_value):
                 _fail(f"target.{relative}", "managed path is dirty")
             if before_value == after_value:
                 action, reason = "noop", "managed path already matches candidate"
@@ -870,10 +891,8 @@ def bundle_schema_document() -> dict[str, Any]:
                         "additionalProperties": False,
                         "required": sorted(COMPATIBILITY_KEYS),
                         "properties": {
-                            "component_manifest_schema": {"const": COMPONENT_MANIFEST_SCHEMA_VERSION},
-                            "runtime_descriptor_schema": {"const": RUNTIME_DESCRIPTOR_SCHEMA_VERSION},
-                            "workspace_schema": {"const": WORKSPACE_SCHEMA_VERSION},
-                            "planner_protocol": {"const": PLANNER_PROTOCOL_VERSION},
+                            key: {"type": "integer", "minimum": 1}
+                            for key in sorted(COMPATIBILITY_KEYS)
                         },
                     },
                     "files": {
@@ -886,6 +905,9 @@ def bundle_schema_document() -> dict[str, Any]:
                             "properties": {
                                 "path": text,
                                 "sha256_raw": digest,
+                                "sha256_text_lf": {
+                                    "oneOf": [digest, {"type": "null"}]
+                                },
                                 "size": {"type": "integer", "minimum": 0},
                                 "executable": {"type": "boolean"},
                             },
