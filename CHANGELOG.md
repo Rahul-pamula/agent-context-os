@@ -71,10 +71,10 @@
   files when atomic deletion is unavailable; it fails closed and reports the
   observed artifact kind and link count without implying an unchanged retry can
   self-heal. Retained garbage in incomplete or retired journal namespaces no
-  longer blocks unrelated applies,
-  same-ID journal retries use collision-free retired namespaces, and failure
-  diagnostics now describe incomplete transaction recovery without implying that
-  restored targets necessarily remain incomplete.
+  longer blocks unrelated applies, same-ID journal retries use collision-free
+  retired namespaces, and failure diagnostics now describe incomplete
+  transaction recovery without implying that restored targets necessarily remain
+  incomplete.
 - Windows transaction cleanup now removes read-only hard-link names with
   `FileDispositionInfoEx` instead of temporarily widening the shared inode's
   mode, closing the process-death window that could wedge recovery or silently

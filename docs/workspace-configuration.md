@@ -142,9 +142,10 @@ Windows, read-only file names are removed atomically with
 `FileDispositionInfoEx`. If that API is unavailable, strict recovery fails
 closed and best-effort cleanup retains the blocked file while continuing with
 other removable siblings; the diagnostic reports the observed file kind and
-link count for a later retry. This policy avoids a check-then-`chmod` window even
-when metadata reports a single link, because another link can be created after
-that observation. Cleanup may temporarily add write permission to a directory,
+link count without promising an unchanged retry can remove it. This policy
+avoids a check-then-`chmod` window even when metadata reports a single link,
+because another link can be created after that observation. Cleanup may
+temporarily add write permission to a directory,
 which Windows does not permit to be hard-linked, and restores the original mode
 if the directory operation fails. Incomplete `.building` and retired `.discard`
 journal namespaces contain no recoverable workspace state; their cleanup is
@@ -154,7 +155,9 @@ intact and the new build or retirement uses a collision-free numbered sibling.
 `doctor` reports recoverable journals separately from those inert namespaces:
 pending journals must be recovered rather than deleted, while an inert path may
 be removed manually after confirming no apply is active and using a method that
-does not change shared-inode attributes.
+does not change shared-inode attributes. Symlinks, non-directories, and names
+outside both contracts are a third invalid category that blocks apply until each
+reported path is inspected and corrected or removed.
 
 ## Agent activation lifecycle
 

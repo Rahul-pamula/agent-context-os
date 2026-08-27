@@ -2001,9 +2001,9 @@ def _unlink_readonly_artifact(path: Path) -> None:
             f"{path} ({artifact_kind}, link count {metadata.st_nlink}); "
             "the artifact was retained. Automatic retry cannot remove it while "
             "atomic deletion remains unsupported. Do not change shared-inode "
-            "attributes; resolve filesystem support before retrying, and use "
-            "doctor to determine whether the containing journal is recoverable "
-            "or inert before any manual removal"
+            "attributes; resolve filesystem support before retrying. Before any "
+            "manual removal, retain the path unless doctor explicitly classifies "
+            "it as an inert transaction artifact"
         ) from exc
 
 
@@ -4563,12 +4563,20 @@ def doctor(
         retired_artifacts = [
             path
             for path in journal_artifacts
-            if _is_retired_transaction_namespace(path)
+            if not _is_link_like(path)
+            and path.is_dir()
+            and _is_retired_transaction_namespace(path)
         ]
         pending_journals = [
             path
             for path in journal_artifacts
-            if not _is_retired_transaction_namespace(path)
+            if not _is_link_like(path)
+            and path.is_dir()
+            and PROPOSAL_ID_RE.fullmatch(path.name) is not None
+        ]
+        classified = {*retired_artifacts, *pending_journals}
+        invalid_artifacts = [
+            path for path in journal_artifacts if path not in classified
         ]
 
         def artifact_paths(paths: Sequence[Path]) -> str:
@@ -4576,7 +4584,7 @@ def doctor(
                 json.dumps(path.relative_to(root).as_posix()) for path in paths[:5]
             ]
             if len(paths) > 5:
-                rendered.append(f"and {len(paths) - 5} more")
+                rendered.append(f"and {len(paths) - 5} more not shown")
             return ", ".join(rendered)
 
         add(
@@ -4600,18 +4608,34 @@ def doctor(
             (
                 f"{len(retired_artifacts)} inert build/retirement artifact(s): "
                 f"{artifact_paths(retired_artifacts)}; these namespaces contain "
-                "no recoverable workspace state. After confirming no apply "
-                "process is active, remove only the reported paths manually with "
-                "a tool/filesystem that does not change shared-inode attributes; "
-                "an unchanged retry will not self-heal when atomic deletion is "
-                "unsupported"
+                "no recoverable workspace state. Future applies retry best-effort "
+                "cleanup, but unsupported atomic deletion will not self-heal. If "
+                "a path remains, confirm no apply is active, remove only paths "
+                "explicitly named in this report with a tool/filesystem that does "
+                "not change shared-inode attributes, then rerun doctor to enumerate "
+                "any remaining paths"
             )
             if retired_artifacts
+            else "none",
+        )
+        add(
+            "transaction-invalid-artifacts",
+            "fail" if invalid_artifacts else "pass",
+            (
+                f"{len(invalid_artifacts)} invalid journal entry or entries: "
+                f"{artifact_paths(invalid_artifacts)}; apply rejects symlinks, "
+                "non-directories, and names that are neither proposal IDs nor "
+                "recognized inert namespaces. Confirm no apply is active, inspect "
+                "and correct or remove only entries explicitly named in this "
+                "report, then rerun doctor to enumerate any remaining paths"
+            )
+            if invalid_artifacts
             else "none",
         )
     except (ContextOSError, OSError) as exc:
         add("transaction-journals", "fail", str(exc))
         add("transaction-retired-artifacts", "fail", str(exc))
+        add("transaction-invalid-artifacts", "fail", str(exc))
     hosts_lock = root / ".context-os" / "hosts.lock"
     try:
         _guard_local_state_path(root, hosts_lock)
