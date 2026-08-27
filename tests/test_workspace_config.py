@@ -207,7 +207,20 @@ class WorkspaceConfigTest(unittest.TestCase):
         for accepted in (".github/state", "a/.private/state", "state"):
             with self.subTest(accepted=accepted):
                 self.assertIsNotNone(re.match(pattern, accepted))
-        for rejected in (".", "..", "./state", "a/./state", "a/../state"):
+        for rejected in (
+            ".",
+            "..",
+            "./state",
+            "a/./state",
+            "a/../state",
+            " state",
+            "state ",
+            "state\t",
+            "state\n",
+            "state\x00",
+            "state\x08",
+            "state\x7f",
+        ):
             with self.subTest(rejected=rejected):
                 self.assertIsNone(re.match(pattern, rejected))
 
