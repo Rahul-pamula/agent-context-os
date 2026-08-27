@@ -29,9 +29,9 @@ def load(runtime: str) -> dict:
 
 class RuntimeManifestTest(unittest.TestCase):
     def test_registry_discovers_and_validates_every_descriptor(self) -> None:
-        self.assertEqual(["claude", "codex", "hermes", "openclaw"], runtime_ids(ROOT))
+        self.assertEqual(["claude", "codex", "cursor", "hermes", "openclaw"], runtime_ids(ROOT))
         registry = runtime_registry(ROOT)
-        self.assertEqual({"claude", "codex", "hermes", "openclaw"}, set(registry))
+        self.assertEqual({"claude", "codex", "cursor", "hermes", "openclaw"}, set(registry))
         self.assertNotIn("generic", registry)
         for runtime, manifest in registry.items():
             with self.subTest(runtime=runtime):
@@ -50,6 +50,12 @@ class RuntimeManifestTest(unittest.TestCase):
             {name: f"/skill {name}" for name in ("setup", "start", "update", "end")},
             openclaw,
         )
+        cursor = load("cursor")
+        expected = {
+            name: f"/context-{name}" for name in ("setup", "start", "update", "end")
+        }
+        self.assertEqual(expected, cursor["surfaces"]["ide"]["invocation"])
+        self.assertEqual(expected, cursor["surfaces"]["cli"]["invocation"])
 
     def test_checked_in_schema_matches_authoritative_contract(self) -> None:
         actual = json.loads((ROOT / "runtimes/schema.json").read_text(encoding="utf-8"))

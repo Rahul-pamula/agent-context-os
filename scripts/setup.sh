@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "$REPO_ROOT"
 
-SETUP_USAGE="Usage: bash scripts/setup.sh [--agents claude,codex,openclaw|auto|none] [--agent auto|RUNTIME|none]"
+SETUP_USAGE="Usage: bash scripts/setup.sh [--agents claude,codex,cursor,openclaw|auto|none] [--agent auto|RUNTIME|none]"
 AGENT_SELECTION_KIND=""
 AGENT_SELECTION_RAW=""
 while [ "$#" -gt 0 ]; do
@@ -60,7 +60,7 @@ while [ "$#" -gt 0 ]; do
     -h|--help)
       echo "$SETUP_USAGE"
       echo "  --agents records an additive tracked runtime set; it never removes agents."
-      echo "  --agent is the deprecated singleton alias and retains auto/Cursor launch compatibility."
+      echo "  --agent is the deprecated singleton alias."
       exit 0
       ;;
     *)
@@ -88,11 +88,6 @@ validate_agent_selection() {
     case "$raw" in
       auto)
         LAUNCH_SELECTION="auto"
-        return
-        ;;
-      cursor)
-        LAUNCH_SELECTION="$raw"
-        echo "  Note: $raw remains launch-only until it has a registered runtime descriptor."
         return
         ;;
       none)
@@ -339,13 +334,14 @@ else
   echo "    Optional: hermes — see AGENTS.md (Hermes Agent section)"
 fi
 
-CURSOR_FOUND=false
-if command -v cursor-agent &>/dev/null || command -v cursor &>/dev/null; then
-  echo "    Found: cursor"
-  CURSOR_FOUND=true
+CURSOR_IDE_FOUND=false
+if command -v cursor &>/dev/null; then
+  echo "    Found: cursor (IDE launcher)"
+  CURSOR_IDE_FOUND=true
 else
-  echo "    Optional: cursor (Cursor CLI)"
+  echo "    Optional: cursor (IDE launcher)"
 fi
+echo "    Cursor Agent CLI uses the generic 'agent' name; verify it manually with agent --version."
 
 OPENCLAW_FOUND=false
 if command -v openclaw &>/dev/null; then
@@ -496,6 +492,8 @@ if [[ "$SELECTED_AGENT" == *,* ]]; then
     SELECTED_AGENT="codex"
   elif [[ ",$SELECTED_AGENT," == *,hermes,* ]] && [ "$HERMES_FOUND" = true ]; then
     SELECTED_AGENT="hermes"
+  elif [[ ",$SELECTED_AGENT," == *,cursor,* ]] && [ "$CURSOR_IDE_FOUND" = true ]; then
+    SELECTED_AGENT="cursor"
   elif [[ ",$SELECTED_AGENT," == *,openclaw,* ]] && [ "$OPENCLAW_FOUND" = true ]; then
     SELECTED_AGENT="openclaw"
   else
@@ -509,6 +507,8 @@ if [ "$SELECTED_AGENT" = "auto" ]; then
     SELECTED_AGENT="codex"
   elif [ "$HERMES_FOUND" = true ]; then
     SELECTED_AGENT="hermes"
+  elif [ "$CURSOR_IDE_FOUND" = true ]; then
+    SELECTED_AGENT="cursor"
   elif [ "$OPENCLAW_FOUND" = true ]; then
     SELECTED_AGENT="openclaw"
   else
@@ -565,15 +565,16 @@ case "$SELECTED_AGENT" in
     fi
     ;;
   cursor)
-    printf '  1. cd %q\n' "$REPO_ROOT"
-    echo "  2. Open the repository in Cursor; Cursor reads AGENTS.md from the"
-    echo "     repository root. The portable lifecycle skills in .agents/skills/"
-    echo "     can be pasted or referenced in Cursor rules as needed."
-    echo ""
-    if [ -t 0 ] && [ "$CURSOR_FOUND" = true ] && prompt_yn "  Launch Cursor CLI now?" "y"; then
-      cd "$REPO_ROOT"
-      if command -v cursor-agent &>/dev/null; then exec cursor-agent; else exec cursor; fi
+    if [ -z "$REQUESTED_REGISTERED_AGENTS" ]; then
+      "$CONTEXTOS_PYTHON_CMD" -m contextos install --runtime cursor >/dev/null
     fi
+    printf '  IDE: open %q as the Cursor workspace, then run /context-setup.\n' "$REPO_ROOT"
+    printf '  CLI: cd %q && agent, then run /context-setup.\n' "$REPO_ROOT"
+    echo "  Cursor discovers AGENTS.md and .agents/skills/ natively."
+    echo "  See adapters/cursor/README.md for separate IDE/CLI permission boundaries."
+    echo "  Setup does not launch Cursor because it cannot safely distinguish or"
+    echo "  verify both experimental surfaces and their authorization settings."
+    echo ""
     ;;
   openclaw)
     if [ -z "$REQUESTED_REGISTERED_AGENTS" ]; then
@@ -594,7 +595,7 @@ case "$SELECTED_AGENT" in
     printf '  Claude Code: cd %q && claude, then run /setup\n' "$REPO_ROOT"
     printf '  Codex:       cd %q && codex, then run $setup\n' "$REPO_ROOT"
     printf '  Hermes:      cd %q && hermes (reads AGENTS.md; see AGENTS.md Hermes section)\n' "$REPO_ROOT"
-    printf '  Cursor:      cd %q and open in Cursor (reads AGENTS.md)\n' "$REPO_ROOT"
+    printf '  Cursor:      see adapters/cursor/README.md (separate IDE and Agent CLI paths)\n'
     echo "  OpenClaw:    see adapters/openclaw/README.md (private workspace + copied skills)"
     echo "  claude.ai:   open SETUP-PROMPTS.md and paste the prompts there"
     echo "  Guide:       docs/getting-started.md"

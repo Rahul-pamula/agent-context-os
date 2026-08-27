@@ -7,6 +7,7 @@
     "extensible_roots": [
         ".agents/skills",
         ".claude/commands",
+        ".cursor",
         "content",
         "identity",
         "inbox",
@@ -788,6 +789,29 @@
                 },
                 {
                     "path": "tests/test_openclaw_conformance.py",
+                    "policy": "development"
+                }
+            ]
+        },
+        {
+            "id": "cursor-adapter",
+            "description": "Experimental Cursor IDE and CLI onboarding, runtime descriptor, and capability-gated conformance controls.",
+            "depends_on": [
+                "core",
+                "portable-skills",
+                "agents-instructions"
+            ],
+            "paths": [
+                {
+                    "path": "adapters/cursor/README.md",
+                    "policy": "managed"
+                },
+                {
+                    "path": "runtimes/cursor.json",
+                    "policy": "managed"
+                },
+                {
+                    "path": "tests/test_cursor_conformance.py",
                     "policy": "development"
                 }
             ]

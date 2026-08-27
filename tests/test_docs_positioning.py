@@ -283,7 +283,25 @@ class DocumentationPositioningTests(unittest.TestCase):
         index = self.text("docs/commands-and-skills.md")
         workspace = os.environ.get("CONTEXTOS_VALIDATION_PROFILE") == "workspace"
         shipped_commands = {path.stem for path in (ROOT / ".claude/commands").glob("*.md")}
-        indexed_commands = set(re.findall(r"`/([a-z0-9]+(?:-[a-z0-9]+)*)`", index))
+        shared_lifecycle = index.split("## Shared lifecycle", 1)[1].split(
+            "The portable cores", 1
+        )[0]
+        claude_specific = index.split("## Claude-specific command index", 1)[1]
+        # Only Claude's lifecycle column and Claude-specific table describe
+        # .claude/commands; other host columns may name portable skills.
+        indexed_commands = set(
+            re.findall(
+                r"^\|[^|]+\| `/([a-z0-9]+(?:-[a-z0-9]+)*)` \|",
+                shared_lifecycle,
+                re.MULTILINE,
+            )
+        ) | set(
+            re.findall(
+                r"^\| `/([a-z0-9]+(?:-[a-z0-9]+)*)` \|",
+                claude_specific,
+                re.MULTILINE,
+            )
+        )
         if workspace:
             self.assertLessEqual(indexed_commands, shipped_commands)
         else:

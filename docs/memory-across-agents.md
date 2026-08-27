@@ -46,6 +46,17 @@ It does not synchronize native memory into Context OS. Promote a durable fact
 across runtimes only through the same reviewed repository proposal used by the
 other hosts.
 
+## Cursor
+
+Cursor rules and skills are prompt context, not shared memory. Cursor account
+settings, IDE and CLI session history, Cloud Agents, Automations, and any
+host-native memories stay outside the repository contract. Context OS does not
+claim a foreground native-memory format or synchronize Cursor state.
+
+Use `state/` and `sessions/` for continuity that must travel between runtimes.
+Promote any durable Cursor-derived fact only through a reviewed repository
+proposal. See `adapters/cursor/README.md` for the separate IDE and CLI boundary.
+
 ## Proposal/apply boundary
 
 All registered runtimes use the same repository transaction:

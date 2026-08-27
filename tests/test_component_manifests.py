@@ -588,6 +588,7 @@ class ComponentManifestTest(unittest.TestCase):
             *owners,
             ".agents/skills/standup/SKILL.md",
             ".claude/commands/standup.md",
+            ".cursor/cli.json",
             "contextos.workspace.json",
             "sessions/2026-08-25.md",
         ]
@@ -595,6 +596,7 @@ class ComponentManifestTest(unittest.TestCase):
             [
                 ".agents/skills/standup/SKILL.md",
                 ".claude/commands/standup.md",
+                ".cursor/cli.json",
                 "sessions/2026-08-25.md",
             ],
             unclassified_tracked_paths(

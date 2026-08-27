@@ -269,7 +269,7 @@ if "$CONTEXTOS_PYTHON_CMD" tests/validate-openai-metadata.py --command "$duplica
 fi
 
 help_output=$(bash scripts/setup.sh --help)
-grep -Fq -- '--agents claude,codex,openclaw|auto|none' <<<"$help_output" || fail "setup help does not describe multi-agent selection"
+grep -Fq -- '--agents claude,codex,cursor,openclaw|auto|none' <<<"$help_output" || fail "setup help does not describe multi-agent selection"
 grep -Fq -- '--agent auto|RUNTIME|none' <<<"$help_output" || fail "setup help omits the singleton compatibility alias"
 grep -Fq 'Setup does not launch OpenClaw' scripts/setup.sh \
   || fail "OpenClaw setup omits the private-workspace launch boundary"
@@ -278,6 +278,14 @@ test -n "$openclaw_setup_case" \
   || fail "OpenClaw setup case could not be inspected for launch behavior"
 if grep -Eq '(^|[[:space:]])exec[[:space:]]+openclaw([[:space:]]|$)' <<<"$openclaw_setup_case"; then
   fail "setup can launch OpenClaw before private-workspace configuration is verified"
+fi
+grep -Fq 'Setup does not launch Cursor' scripts/setup.sh \
+  || fail "Cursor setup omits the separate-surface launch boundary"
+cursor_setup_case=$(sed -n '/^  cursor)/,/^    ;;/p' scripts/setup.sh)
+test -n "$cursor_setup_case" \
+  || fail "Cursor setup case could not be inspected for launch behavior"
+if grep -Eq '(^|[[:space:]])exec[[:space:]]+(cursor|agent)([[:space:]]|$)' <<<"$cursor_setup_case"; then
+  fail "setup launches an unverified Cursor surface"
 fi
 if bash scripts/setup.sh --agent invalid >/dev/null 2>&1; then
   fail "setup accepted an invalid agent"

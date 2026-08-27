@@ -21,9 +21,11 @@ Every currently tracked file has exactly one component owner and one policy:
 - `development`: repository maintenance, tests, CI, or contribution files.
   These prove or build the product but are not runtime workspace outputs.
 
-The roots `.agents/skills/`, `.claude/commands/`, `content/`, `identity/`,
-`inbox/`, `projects/`, `references/`, `sessions/`, `state/`, and `writing/` are
-extensible. The legacy root configuration file `workspace.yaml` is an exact
+The roots `.agents/skills/`, `.claude/commands/`, `.cursor/`, `content/`,
+`identity/`, `inbox/`, `projects/`, `references/`, `sessions/`, `state/`, and
+`writing/` are extensible. This lets a configured Cursor workspace track its
+own rules, permissions, skills, hooks, or MCP settings without weakening the
+strict maintainer inventory. The legacy root configuration file `workspace.yaml` is an exact
 extensible path rather than a directory root. The canonical tracked
 `contextos.workspace.json` created by reviewed setup transactions is the other
 exact extensible path.
@@ -53,6 +55,8 @@ other repository-root paths extensible or writable.
 | `claude-adapter` | `core`, `portable-skills` | Claude Code instructions, commands, hooks, memory tooling, and descriptor |
 | `codex-adapter` | `core`, `portable-skills`, `agents-instructions`, `openai-skill-metadata` | Codex hooks, onboarding, metadata, and descriptor |
 | `hermes-adapter` | `core`, `portable-skills`, `agents-instructions` | Hermes guidance, optional hooks, and descriptor |
+| `openclaw-adapter` | `core`, `portable-skills`, `agents-instructions` | Experimental OpenClaw guidance, descriptor, and conformance |
+| `cursor-adapter` | `core`, `portable-skills`, `agents-instructions` | Experimental Cursor IDE/CLI guidance, descriptor, and conformance |
 | `example-project` | `core` | Optional removable example content |
 
 Shared dependencies have one owner. Selecting both Claude and Codex therefore
