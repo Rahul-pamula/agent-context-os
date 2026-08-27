@@ -137,6 +137,14 @@ stale lock, the next agent-configuration apply recovers the journal before
 revalidating and applying its proposal. POSIX mode bits are exact; Windows
 validates only its meaningful writable/read-only behavior.
 
+Cleanup never makes a transaction artifact writable merely to delete it. On
+Windows, read-only names are removed atomically with `FileDispositionInfoEx`.
+If that API is unavailable, strict recovery fails closed and best-effort cleanup
+retains the blocked artifact while continuing with other removable siblings;
+the diagnostic reports the observed file kind and link count for a later retry.
+This policy avoids a check-then-`chmod` window even when metadata reports a
+single link, because another link can be created after that observation.
+
 ## Agent activation lifecycle
 
 List every bundled runtime while keeping tracked activation and machine-local

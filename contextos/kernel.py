@@ -1988,26 +1988,19 @@ def _unlink_readonly_artifact(path: Path) -> None:
             raise ContextOSError(
                 f"cannot inspect read-only transaction artifact {path}: {inspect_exc}"
             ) from inspect_exc
-        if (
-            _is_link_like(path)
-            or not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_nlink != 1
-        ):
-            raise ContextOSError(
-                "filesystem cannot safely remove a read-only transaction artifact "
-                f"without changing a shared inode: {path}; use a Windows NTFS "
-                "workspace with FileDispositionInfoEx support"
-            ) from exc
-        original_mode = metadata.st_mode & 0o7777
-        os.chmod(path, original_mode | stat.S_IWRITE)
-        try:
-            path.unlink()
-        except OSError as unlink_exc:
-            if path.exists() and not _is_link_like(path):
-                os.chmod(path, original_mode)
-            raise ContextOSError(
-                f"cannot remove read-only transaction artifact {path}: {unlink_exc}"
-            ) from unlink_exc
+        artifact_kind = (
+            "link-like"
+            if _is_link_like(path)
+            else "regular"
+            if stat.S_ISREG(metadata.st_mode)
+            else "non-regular"
+        )
+        raise ContextOSError(
+            "filesystem cannot safely remove a read-only transaction artifact "
+            "because atomic FileDispositionInfoEx deletion is unavailable: "
+            f"{path} ({artifact_kind}, link count {metadata.st_nlink}); "
+            "the artifact was retained for a later cleanup attempt"
+        ) from exc
 
 
 def _rmtree_readonly_artifacts(
@@ -2045,17 +2038,22 @@ def _rmtree_readonly_artifacts(
                 os.chmod(failed, original_mode)
             raise
 
-    def handle_error(function: Any, failed_path: str, error: Any) -> None:
-        handle_exception(function, failed_path, error[1])
+    def dispatch_exception(
+        function: Any, failed_path: str, exception: BaseException
+    ) -> None:
+        try:
+            handle_exception(function, failed_path, exception)
+        except (OSError, ContextOSError):
+            if not ignore_errors:
+                raise
 
-    try:
-        if sys.version_info >= (3, 12):
-            shutil.rmtree(path, onexc=handle_exception)
-        else:
-            shutil.rmtree(path, onerror=handle_error)
-    except (OSError, ContextOSError):
-        if not ignore_errors:
-            raise
+    def handle_error(function: Any, failed_path: str, error: Any) -> None:
+        dispatch_exception(function, failed_path, error[1])
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=dispatch_exception)
+    else:
+        shutil.rmtree(path, onerror=handle_error)
 
 
 def _write_exclusive_bytes(

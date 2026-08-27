@@ -5,6 +5,7 @@ import json
 import io
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -893,6 +894,32 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         self.assertEqual(original, legacy.read_bytes())
         self.assert_no_transaction_artifacts()
 
+    def test_primary_apply_failure_is_reported_with_strict_cleanup_failure(self) -> None:
+        legacy = self.root / "workspace.yaml"
+        original = legacy.read_bytes()
+        path, proposal = self.propose()
+        original_link = os.link
+
+        def fail_receipt(source, destination, *args, **kwargs):
+            if Path(destination).parent.name == "receipts":
+                raise OSError("primary receipt failure")
+            return original_link(source, destination, *args, **kwargs)
+
+        with mock.patch(
+            "contextos.kernel.os.link", side_effect=fail_receipt
+        ), mock.patch(
+            "contextos.kernel._discard_agent_journal",
+            side_effect=ContextOSError("strict journal cleanup failure"),
+        ):
+            with self.assertRaises(ContextOSError) as raised:
+                self.apply(path, proposal)
+
+        diagnostic = str(raised.exception)
+        self.assertIn("primary receipt failure", diagnostic)
+        self.assertIn("strict journal cleanup failure", diagnostic)
+        self.assertEqual(original, legacy.read_bytes())
+        self.assertFalse((self.root / "contextos.workspace.json").exists())
+
     def test_durable_journal_recovers_partial_crash_before_reapply(self) -> None:
         legacy = self.root / "workspace.yaml"
         legacy_bytes = b"state_dir: state\n"
@@ -1343,8 +1370,10 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         else:
             self.assertEqual(0o444, survivor.stat().st_mode & 0o7777)
 
-    @unittest.skipUnless(os.name == "nt", "Windows read-only fallback")
-    def test_readonly_single_link_uses_safe_unsupported_api_fallback(self) -> None:
+    @unittest.skipUnless(os.name == "nt", "Windows read-only cleanup")
+    def test_readonly_single_link_is_retained_when_atomic_api_is_unsupported(
+        self,
+    ) -> None:
         artifact = self.root / ".context-os/single-readonly-artifact"
         artifact.parent.mkdir()
         artifact.write_bytes(b"single inode\n")
@@ -1353,12 +1382,16 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         with mock.patch(
             "contextos.kernel._windows_unlink_readonly",
             side_effect=ctypes.WinError(87),
-        ):
+        ), mock.patch(
+            "contextos.kernel.os.chmod",
+            side_effect=AssertionError("unsupported atomic deletion must not chmod"),
+        ), self.assertRaisesRegex(ContextOSError, "artifact was retained"):
             _unlink_readonly_artifact(artifact)
 
-        self.assertFalse(artifact.exists())
+        self.assertTrue(artifact.exists())
+        self.assertFalse(artifact.stat().st_mode & 0o200)
 
-    @unittest.skipUnless(os.name == "nt", "Windows read-only fallback")
+    @unittest.skipUnless(os.name == "nt", "Windows read-only cleanup")
     def test_readonly_shared_inode_fails_cleanly_when_api_is_unsupported(self) -> None:
         survivor = self.root / "state/current.md"
         survivor.write_bytes(b"shared fallback inode\n")
@@ -1370,14 +1403,14 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         with mock.patch(
             "contextos.kernel._windows_unlink_readonly",
             side_effect=ctypes.WinError(87),
-        ), self.assertRaisesRegex(ContextOSError, "shared inode"):
+        ), self.assertRaisesRegex(ContextOSError, "link count 2"):
             _unlink_readonly_artifact(artifact)
 
         self.assertTrue(artifact.exists())
         self.assertEqual(b"shared fallback inode\n", survivor.read_bytes())
         self.assertFalse(survivor.stat().st_mode & 0o200)
 
-    @unittest.skipUnless(os.name == "nt", "Windows read-only fallback")
+    @unittest.skipUnless(os.name == "nt", "Windows read-only cleanup")
     def test_readonly_sharing_violation_never_enters_chmod_fallback(self) -> None:
         artifact = self.root / ".context-os/sharing-violation-artifact"
         artifact.parent.mkdir()
@@ -1396,8 +1429,10 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         self.assertTrue(artifact.exists())
         self.assertFalse(artifact.stat().st_mode & 0o200)
 
-    @unittest.skipUnless(os.name == "nt", "Windows read-only fallback")
-    def test_readonly_tree_uses_safe_single_link_unsupported_api_fallback(self) -> None:
+    @unittest.skipUnless(os.name == "nt", "Windows read-only cleanup")
+    def test_readonly_tree_retains_single_link_when_atomic_api_is_unsupported(
+        self,
+    ) -> None:
         tree = self.root / ".context-os/staging/unsupported-tree"
         artifact = tree / "artifact"
         artifact.parent.mkdir(parents=True)
@@ -1407,10 +1442,14 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         with mock.patch(
             "contextos.kernel._windows_unlink_readonly",
             side_effect=ctypes.WinError(87),
-        ):
+        ), mock.patch(
+            "contextos.kernel.os.chmod",
+            side_effect=AssertionError("unsupported atomic deletion must not chmod"),
+        ), self.assertRaisesRegex(ContextOSError, "artifact was retained"):
             _rmtree_readonly_artifacts(tree)
 
-        self.assertFalse(tree.exists())
+        self.assertTrue(artifact.exists())
+        self.assertFalse(artifact.stat().st_mode & 0o200)
 
     @unittest.skipUnless(os.name == "nt", "Windows read-only fallback")
     def test_readonly_tree_best_effort_suppresses_sharing_violation(self) -> None:
@@ -1431,6 +1470,58 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
 
         self.assertTrue(artifact.exists())
         self.assertFalse(artifact.stat().st_mode & 0o200)
+
+    def test_strict_recursive_cleanup_reraises_contextos_error(self) -> None:
+        tree = self.root / ".context-os/staging/strict-tree"
+        tree.mkdir(parents=True)
+        delegated = ContextOSError("delegated cleanup failure")
+
+        def fail_tree(path, **kwargs):
+            callback = kwargs.get("onexc") or kwargs.get("onerror")
+            error = delegated if "onexc" in kwargs else (None, delegated, None)
+            callback(os.unlink, str(tree / "blocked"), error)
+
+        with mock.patch(
+            "contextos.kernel.shutil.rmtree", side_effect=fail_tree
+        ), self.assertRaisesRegex(ContextOSError, "delegated cleanup failure"):
+            _rmtree_readonly_artifacts(tree)
+
+    def test_best_effort_recursive_cleanup_continues_after_retained_sibling(self) -> None:
+        tree = self.root / ".context-os/staging/best-effort-tree"
+        tree.mkdir(parents=True)
+        removable = tree / "removable"
+        removable.write_bytes(b"remove me\n")
+        delegated = ContextOSError("retained sibling")
+
+        def partial_tree(path, **kwargs):
+            callback = kwargs.get("onexc") or kwargs.get("onerror")
+            error = delegated if "onexc" in kwargs else (None, delegated, None)
+            callback(os.unlink, str(tree / "blocked"), error)
+            removable.unlink()
+
+        with mock.patch("contextos.kernel.shutil.rmtree", side_effect=partial_tree):
+            _rmtree_readonly_artifacts(tree, ignore_errors=True)
+
+        self.assertFalse(removable.exists())
+
+    def test_zero_link_metadata_fails_closed_without_chmod(self) -> None:
+        artifact = self.root / ".context-os/zero-link-artifact"
+        artifact.parent.mkdir()
+        artifact.write_bytes(b"retained\n")
+        metadata = mock.Mock(st_mode=stat.S_IFREG | 0o444, st_nlink=0)
+
+        with mock.patch.object(
+            Path, "unlink", side_effect=PermissionError("read-only")
+        ), mock.patch("contextos.kernel.os.name", "nt"), mock.patch(
+            "contextos.kernel._windows_unlink_readonly",
+            side_effect=ctypes.WinError(87),
+        ), mock.patch.object(Path, "lstat", return_value=metadata), mock.patch(
+            "contextos.kernel.os.chmod",
+            side_effect=AssertionError("zero-link cleanup must not chmod"),
+        ), self.assertRaisesRegex(ContextOSError, "link count 0"):
+            _unlink_readonly_artifact(artifact)
+
+        self.assertEqual(b"retained\n", artifact.read_bytes())
 
     def test_readonly_hardlink_tree_cleanup_preserves_workspace_mode(self) -> None:
         survivor = self.root / "state/current.md"

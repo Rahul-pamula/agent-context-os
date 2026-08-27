@@ -60,6 +60,11 @@
 - First-class Codex onboarding with a root `AGENTS.md`, four explicit-invocation lifecycle skills under `.agents/skills/`, generated skill UI metadata, `--agent codex` setup support, portability tests, and a host-boundary guide.
 
 ### Fixed
+- Best-effort transaction cleanup now continues across removable siblings after
+  retaining a blocked artifact, while strict recovery still surfaces the exact
+  cleanup failure. Windows cleanup no longer widens even single-link read-only
+  files when atomic deletion is unavailable; it fails closed and reports the
+  observed artifact kind and link count for a later retry.
 - Windows transaction cleanup now removes read-only hard-link names with
   `FileDispositionInfoEx` instead of temporarily widening the shared inode's
   mode, closing the process-death window that could wedge recovery or silently
