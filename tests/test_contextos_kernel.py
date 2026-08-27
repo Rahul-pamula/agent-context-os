@@ -1218,6 +1218,14 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
             ordinary["runtimes"]["devin"]["local_onboarding"]["status"],
         )
 
+        manifest["unknown"] = True
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        invalid = doctor(self.root)
+        self.assertEqual(
+            "unknown",
+            invalid["runtimes"]["devin"]["local_onboarding"]["status"],
+        )
+
     def test_legacy_runtime_migrates_only_to_atomic_local_host_state(self) -> None:
         local = self.root / ".context-os"
         local.mkdir()
@@ -1434,7 +1442,7 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
         self.assertNotIn("manifest:codex", names)
         self.assertTrue(report["runtimes"]["codex"]["configuration"]["inert"])
         self.assertEqual(
-            "configured", report["runtimes"]["codex"]["local_onboarding"]["status"]
+            "unknown", report["runtimes"]["codex"]["local_onboarding"]["status"]
         )
 
     def test_profile_materialization_blocks_only_configured_adapters(self) -> None:

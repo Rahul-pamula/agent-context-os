@@ -4421,6 +4421,8 @@ def doctor(
         onboarding_status = (
             "unknown"
             if not local_hosts_valid
+            else "unknown"
+            if manifest is None
             else "account-acknowledged"
             if managed_account and host_entry is not None
             else "account-unverified"

@@ -1,8 +1,7 @@
 # Context OS
 
-This repository is the durable source of truth for personal, project, and
-session context. Keep provider-neutral state here and host-specific behavior in
-its adapter directory.
+This repository is the durable source of truth for personal, project, and session
+context. Keep provider-neutral state here and host-specific behavior in its adapter.
 
 ## Session lifecycle
 
@@ -11,9 +10,9 @@ its adapter directory.
 - Save a mid-session checkpoint: use `$update`.
 - Close a session: use `$end`.
 
-These workflows require explicit invocation. The `$context-setup`,
-`$context-start`, `$context-update`, and `$context-end` compatibility names
-remain supported.
+Invoke these workflows explicitly with the form documented by the host adapter;
+this is guidance, not a host-enforced gate. The `$context-setup`, `$context-start`,
+`$context-update`, and `$context-end` compatibility names remain supported.
 
 ## Lifecycle kernel
 
@@ -38,7 +37,7 @@ remain supported.
   destructive action, credential change, or permission expansion.
 - Show proposed context changes before broad or destructive rewrites.
 - Never commit or push without explicit approval.
-- Optional integrations stay disabled until chosen and configured. Review
+- Optional integrations stay disabled until chosen and configured; see
   `references/integrations.md` for data and side-effect boundaries.
 
 ## Portability boundary
@@ -63,8 +62,7 @@ remain supported.
 - Invoke `/setup`, `/start`, `/update`, and `/end` explicitly.
 - Keep Hermes `MEMORY.md` and `USER.md` separate from repository state. See
   `docs/memory-across-agents.md`.
-- `.claude/hooks/` does not run under Hermes. The optional Hermes adapter maps
-  supported events to portable checks; kernel enforcement does not depend on it.
+- Hermes hooks are optional defense in depth; kernel enforcement does not depend on them.
 
 ## OpenClaw
 
@@ -73,9 +71,8 @@ remain supported.
   private workspace's `.agents/skills/`; refresh copied skills after changes.
 - Run OpenClaw from the repository directory so root `AGENTS.md` is included,
   then invoke `/skill setup`, `/skill start`, `/skill update`, or `/skill end`.
-- This experimental adapter installs no OpenClaw hook or plugin. Skill
-  allowlists do not replace separate shell-execution authorization.
-- See `adapters/openclaw/README.md` for the tested version and diagnostics.
+- This adapter installs no hook or plugin; skill allowlists do not replace
+  execution authorization. See `adapters/openclaw/README.md`.
 
 ## Cursor
 
@@ -87,12 +84,17 @@ remain supported.
   document their conflict order. IDE and CLI permissions remain separate.
 - Cursor CLI also reads the removable root `CLAUDE.md` when present. Treat its
   short lifecycle commands as Claude adapters, not Cursor invocations.
-- This experimental adapter ships no Cursor hook or native-memory bridge. See
-  `adapters/cursor/README.md` for authorization and conformance boundaries.
+- This adapter ships no hook or memory bridge; see `adapters/cursor/README.md`.
+
+## Devin
+
+- Cloud sessions use `@skills:context-setup`, `@skills:context-start`,
+  `@skills:context-update`, and `@skills:context-end`; automatic skill discovery
+  remains possible, while exact-digest approval still gates repository writes.
+- Review sends code externally and is not a lifecycle host. Account state is not
+  locally configured or verified; see `adapters/devin/README.md`.
 
 ## Validation
 
-Run `bash scripts/validate-all.sh --workspace` after changing personal context
-or adding workspace-owned skills and commands. Product contributors and CI run
-the strict form without `--workspace` after changing instructions, hooks,
-scripts, manifests, or generated references.
+Run `bash scripts/validate-all.sh --workspace` for workspace changes. Product
+contributors and CI run the strict form after product changes.

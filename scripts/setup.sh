@@ -452,10 +452,12 @@ PY
     fi
   done
   if [ "${#SETUP_REGISTERED_RUNTIMES[@]}" -gt 0 ]; then
-    echo "  Registered selected runtimes on this host: ${SETUP_REGISTERED_RUNTIMES[*]}"
+    setup_registered_csv=$(IFS=,; echo "${SETUP_REGISTERED_RUNTIMES[*]}")
+    echo "  Registered selected runtimes on this host: $setup_registered_csv"
   fi
   if [ "${#SETUP_MANAGED_RUNTIMES[@]}" -gt 0 ]; then
-    echo "  Tracked managed-account intent; remote onboarding remains unverified: ${SETUP_MANAGED_RUNTIMES[*]}"
+    setup_managed_csv=$(IFS=,; echo "${SETUP_MANAGED_RUNTIMES[*]}")
+    echo "  Tracked managed-account intent; remote onboarding remains unverified: $setup_managed_csv"
   fi
 elif [ -n "$REQUESTED_REGISTERED_AGENTS" ]; then
   LAUNCH_SELECTION="none"

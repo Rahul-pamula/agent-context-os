@@ -142,13 +142,13 @@ Compatibility paths that are not registered runtime adapters:
 
 ## One source, explicit host adapters
 
-| Capability | Shared | Claude Code | Codex | Hermes | OpenClaw (experimental) | Cursor IDE (experimental) | Cursor CLI (experimental) |
+| Capability | Shared | Claude Code | Codex | Hermes | OpenClaw (experimental) | Cursor IDE/CLI (experimental) | Devin session (experimental) |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Identity, project, state, and session files | Yes | Reads | Reads | Reads | Reads | Reads | Reads |
 | Deterministic proposal/apply and receipts | Yes | Adapter | Native skill calls | Installed skill calls | Copied skill calls | Native skill calls | Native skill calls |
-| Lifecycle vocabulary | Semantics | `/setup` etc. | `$setup` etc. | `/setup` etc. | `/skill setup` etc. | `/context-setup` etc. | `/context-setup` etc. |
+| Lifecycle vocabulary | Semantics | `/setup` etc. | `$setup` etc. | `/setup` etc. | `/skill setup` etc. | `/context-setup` etc. | `@skills:context-setup` etc. |
 | Project hooks | Event contract only | `.claude/` | `.codex/` | Optional adapter | Not claimed | Not claimed | Not claimed |
-| Native memory | No | Claude auto-memory | Outside contract | `MEMORY.md` / `USER.md` | Private workspace | Outside contract | Outside contract |
+| Native memory | No | Claude auto-memory | Outside contract | `MEMORY.md` / `USER.md` | Private workspace | Outside contract | Account-managed; not synchronized |
 
 The shared layer is intentionally plain files. Provider-specific tool names, hooks, permissions, and memory features stay in their adapter directories.
 

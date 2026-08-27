@@ -287,11 +287,14 @@ test -n "$cursor_setup_case" \
 if grep -Eq '(^|[[:space:]])exec[[:space:]]+(cursor|agent)([[:space:]]|$)' <<<"$cursor_setup_case"; then
   fail "setup launches an unverified Cursor surface"
 fi
-grep -Fq 'Setup records tracked intent only' scripts/setup.sh \
-  || fail "Devin setup omits the managed-account boundary"
 devin_setup_case=$(sed -n '/^  devin)/,/^    ;;/p' scripts/setup.sh)
 test -n "$devin_setup_case" \
   || fail "Devin setup case could not be inspected for managed-account behavior"
+grep -Fq 'Setup records tracked intent only' <<<"$devin_setup_case" \
+  || fail "Devin setup omits the managed-account boundary"
+if grep -Fq 'contextos install' <<<"$devin_setup_case"; then
+  fail "Devin setup case locally installs a managed-account runtime"
+fi
 if grep -Eq '(^|[[:space:]])exec[[:space:]]+devin([[:space:]]|$)' <<<"$devin_setup_case"; then
   fail "setup launches an unverified Devin account surface"
 fi

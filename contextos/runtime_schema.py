@@ -26,6 +26,13 @@ CAPABILITY_KEYS = {
     "execution_authorization",
 }
 SUPPORT_TIERS = {"first-class", "experimental", "compatibility", "deprecated"}
+INSTALL_MODES = {
+    "managed-account",
+    "native-project-discovery",
+    "repository-native",
+    "skill-copy-or-external-directory",
+    "skill-copy-to-private-workspace",
+}
 SURFACE_KINDS = {"cli", "ide", "cloud", "review", "gateway", "messaging", "environment"}
 HOOK_OUTPUT_MODES = {"system-message", "allow-message"}
 PROBE_PURPOSES = {"availability", "version", "native-doctor"}
@@ -166,7 +173,7 @@ def validate_runtime_manifest(
             _fail(f"components[{index}]", f"invalid component id {component!r}")
 
     install = _exact_keys(document.get("install"), {"mode", "next_steps"}, "install")
-    _string(install.get("mode"), "install.mode")
+    _enum(install.get("mode"), INSTALL_MODES, "install.mode")
     _unique_strings(install.get("next_steps"), "install.next_steps", minimum=1)
     _repo_path(
         root, document.get("onboarding_doc"), "onboarding_doc", must_exist=check_paths
@@ -409,7 +416,7 @@ def runtime_schema_document() -> dict[str, Any]:
                 "items": {"type": "string", "pattern": COMPONENT_ID_RE.pattern}},
             "install": {"type": "object", "additionalProperties": False,
                 "required": ["mode", "next_steps"],
-                "properties": {"mode": text, "next_steps": {"type": "array", "minItems": 1,
+                "properties": {"mode": {"enum": sorted(INSTALL_MODES)}, "next_steps": {"type": "array", "minItems": 1,
                     "uniqueItems": True, "items": text}}},
             "onboarding_doc": text,
             "surfaces": {"type": "object", "minProperties": 1,

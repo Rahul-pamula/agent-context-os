@@ -72,6 +72,12 @@ class RuntimeManifestTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeManifestError, "capabilities.mcp"):
             validate_runtime_manifest(manifest, runtime_id="codex", root=ROOT)
 
+    def test_mutation_sentinel_rejects_unknown_install_mode(self) -> None:
+        manifest = load("devin")
+        manifest["install"]["mode"] = "managed-acount"
+        with self.assertRaisesRegex(RuntimeManifestError, "install.mode"):
+            validate_runtime_manifest(manifest, runtime_id="devin", root=ROOT)
+
     def test_probe_contract_rejects_executable_arguments(self) -> None:
         manifest = load("codex")
         manifest["surfaces"]["cli"]["binary_probes"][0]["args"] = ["-c", "do_work()"]
