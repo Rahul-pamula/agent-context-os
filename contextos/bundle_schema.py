@@ -269,7 +269,8 @@ def _git_index(root: Path) -> dict[str, tuple[str, bool]]:
 
     try:
         result = subprocess.run(
-            ["git", "ls-files", "--stage", "-z", "--"], cwd=root,
+            ["git", "-c", "core.fsmonitor=false", "ls-files", "--stage", "-z", "--"],
+            cwd=root, env=_git_environment(),
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
@@ -290,6 +291,11 @@ def _git_index(root: Path) -> dict[str, tuple[str, bool]]:
             _fail("source_mode", "Git index returned an invalid record")
         if stage != b"0":
             _fail("source_mode", f"Git index has unresolved stages for {path}")
+        if mode not in {b"100644", b"100755"}:
+            _fail(
+                "source_mode",
+                f"Git index path {path!r} has unsupported non-regular mode {mode.decode('ascii', errors='replace')}",
+            )
         if path in entries:
             _fail("source_mode", f"Git index returned duplicate path {path!r}")
         entries[path] = (oid.decode("ascii"), mode == b"100755")
@@ -302,7 +308,7 @@ def _git_blob(root: Path, oid: str, field: str) -> bytes:
     try:
         result = subprocess.run(
             ["git", "cat-file", "blob", oid], cwd=root, check=True,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_git_environment(),
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         detail = (
@@ -311,6 +317,19 @@ def _git_blob(root: Path, oid: str, field: str) -> bytes:
         )
         _fail(field, f"cannot read local Git blob: {detail}")
     return result.stdout
+
+
+def _git_environment() -> dict[str, str]:
+    """Keep local Git plumbing read-only, offline, and free of executable config."""
+    environment = os.environ.copy()
+    environment.update({
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_NO_LAZY_FETCH": "1",
+        "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_OPTIONAL_LOCKS": "0",
+    })
+    return environment
 
 
 def _source_entries(
@@ -575,9 +594,20 @@ def _configured_components(bundle: VerifiedBundle, agents: Sequence[str]) -> lis
             _fail("workspace.agents", f"runtime descriptor {path!r} is unavailable in the bundle")
     source = _source_entries(bundle.root, paths, source_mode=bundle.source_mode)
     for agent, path in zip(agents, paths):
+        data, executable = source[path]
+        record = bundle.records[path]
+        if (
+            len(data) != record["size"]
+            or sha256_bytes(data) != record["sha256_raw"]
+            or (
+                (bundle.source_mode == "git-index" or os.name != "nt")
+                and executable != record["executable"]
+            )
+        ):
+            _fail(path, "runtime descriptor became stale after bundle verification")
         try:
             descriptor = strict_json_loads(
-                source[path][0].decode("utf-8"), source=path
+                data.decode("utf-8"), source=path
             )
         except (UnicodeError, WorkspaceConfigError) as exc:
             raise BundleError(str(exc)) from exc
@@ -648,6 +678,15 @@ def create_structural_plan(
     if config["template"] != {"source": authority.name, "version": authority.version}:
         _fail("workspace.template", "does not match the current bundle identity")
     desired_ids = _component_closure(candidate.manifest, desired_components)
+    required_desired_ids = _configured_components(candidate, config["agents"])
+    if not set(required_desired_ids).issubset(desired_ids):
+        missing = sorted(
+            set(required_desired_ids) - set(desired_ids), key=portable_path_identity
+        )
+        _fail(
+            "desired_components",
+            "omits components required by configured agents: " + ", ".join(missing),
+        )
     desired = _owned_records(candidate, desired_ids)
     base: dict[str, dict[str, Any]] = {}
     current_ids: list[str] = []
@@ -662,11 +701,6 @@ def create_structural_plan(
         base = _owned_records(current, current_ids)
     elif current_components:
         _fail("current_components", "requires a current verified bundle")
-    elif desired_ids != _configured_components(candidate, config["agents"]):
-        _fail(
-            "desired_components",
-            "must match workspace agents when no current ownership bundle is supplied",
-        )
     actions: list[dict[str, Any]] = []
     for relative in sorted(set(base) | set(desired), key=portable_path_identity):
         before = base.get(relative)
@@ -746,6 +780,15 @@ def create_structural_plan(
         "candidate_bundle_sha256": candidate.digest,
         "current_bundle_sha256": current.digest if current is not None else None,
         "workspace_config_sha256_raw": config_digest,
+        "executable_modes_verified": {
+            "candidate_source": candidate.mode_verified,
+            "current_source": current.mode_verified if current is not None else None,
+            "target": os.name != "nt",
+        },
+        "intended_workspace": {
+            **config,
+            "template": {"source": candidate.name, "version": candidate.version},
+        },
         "current_components": current_ids,
         "desired_components": desired_ids,
         "actions": actions,

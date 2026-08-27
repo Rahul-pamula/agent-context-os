@@ -5,9 +5,11 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from contextos.bundle_schema import (
     BundleError,
@@ -17,6 +19,7 @@ from contextos.bundle_schema import (
     create_structural_plan,
     validate_bundle_lock,
     verify_bundle,
+    _git_index,
 )
 
 
@@ -49,8 +52,9 @@ class BundleFixture:
         (root / "dev").mkdir()
         (root / "managed.bin").write_bytes(managed)
         (root / "seed.txt").write_bytes(b"seed\n")
+        runtime_components = ["core", "addon"] if addon else ["core"]
         (root / "runtimes/codex.json").write_text(
-            json.dumps({"runtime": "codex", "components": ["core"]}) + "\n",
+            json.dumps({"runtime": "codex", "components": runtime_components}) + "\n",
             encoding="utf-8",
         )
         (root / "dev/test.txt").write_text("not shipped\n", encoding="utf-8")
@@ -169,7 +173,7 @@ class BundleLockTest(unittest.TestCase):
             with self.subTest(message=message), self.assertRaisesRegex(BundleError, message):
                 validate_bundle_lock(value)
 
-    def test_symlink_and_hardlink_sources_fail_closed(self) -> None:
+    def test_symlink_sources_fail_closed(self) -> None:
         source = self.source / "managed.bin"
         replacement = self.root / "replacement.bin"
         replacement.write_bytes(source.read_bytes())
@@ -179,6 +183,18 @@ class BundleLockTest(unittest.TestCase):
         except OSError:
             self.skipTest("symlink creation unavailable")
         with self.assertRaisesRegex(BundleError, "link-like"):
+            self.fixture.verify()
+
+    def test_hardlink_sources_fail_closed(self) -> None:
+        source = self.source / "managed.bin"
+        replacement = self.root / "replacement.bin"
+        replacement.write_bytes(source.read_bytes())
+        source.unlink()
+        try:
+            os.link(replacement, source)
+        except OSError:
+            self.skipTest("hard-link creation unavailable")
+        with self.assertRaisesRegex(BundleError, "multiply linked"):
             self.fixture.verify()
 
     def test_schema_rejects_file_descendant_conflicts(self) -> None:
@@ -192,6 +208,35 @@ class BundleLockTest(unittest.TestCase):
         ).hexdigest()
         with self.assertRaisesRegex(BundleError, "file/descendant"):
             validate_bundle_lock(value)
+
+    def test_git_index_disables_executable_and_network_configuration(self) -> None:
+        completed = subprocess.CompletedProcess([], 0, stdout=b"", stderr=b"")
+        with mock.patch("subprocess.run", return_value=completed) as run:
+            self.assertEqual({}, _git_index(self.source))
+        command = run.call_args.args[0]
+        environment = run.call_args.kwargs["env"]
+        self.assertEqual(
+            ["git", "-c", "core.fsmonitor=false", "ls-files", "--stage", "-z", "--"],
+            command,
+        )
+        self.assertEqual("1", environment["GIT_NO_LAZY_FETCH"])
+        self.assertEqual("1", environment["GIT_NO_REPLACE_OBJECTS"])
+        self.assertEqual("0", environment["GIT_OPTIONAL_LOCKS"])
+
+    def test_git_index_rejects_symlink_mode(self) -> None:
+        repository = self.root / "git-source"
+        repository.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+        oid = subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"], cwd=repository,
+            input=b"target.txt", check=True, stdout=subprocess.PIPE,
+        ).stdout.decode("ascii").strip()
+        subprocess.run(
+            ["git", "update-index", "--add", "--cacheinfo", "120000", oid, "linked"],
+            cwd=repository, check=True,
+        )
+        with self.assertRaisesRegex(BundleError, "unsupported non-regular mode 120000"):
+            _git_index(repository)
 
 
 class StructuralPlannerTest(unittest.TestCase):
@@ -248,6 +293,11 @@ class StructuralPlannerTest(unittest.TestCase):
         self.assertEqual("replace", actions["managed.bin"])
         self.assertEqual("preserve-seed", actions["seed.txt"])
         self.assertEqual(
+            {"source": "fixture-template", "version": "2.0.0"},
+            first["intended_workspace"]["template"],
+        )
+        self.assertIn("target", first["executable_modes_verified"])
+        self.assertEqual(
             first["plan_digest"],
             hashlib.sha256(
                 canonical_json({
@@ -262,6 +312,18 @@ class StructuralPlannerTest(unittest.TestCase):
         with self.assertRaisesRegex(BundleError, "managed path is dirty"):
             self.plan()
         self.assertEqual(before, self.snapshot())
+
+    def test_desired_components_cannot_omit_candidate_agent_requirements(self) -> None:
+        with self.assertRaisesRegex(BundleError, "required by configured agents"):
+            create_structural_plan(
+                target_root=self.target,
+                workspace_config_path=self.config,
+                expected_config_sha256=digest(self.config),
+                candidate=self.candidate,
+                desired_components=["core"],
+                current=self.current,
+                current_components=["core"],
+            )
 
     def test_current_ownership_must_match_configured_agent_closure(self) -> None:
         before = self.snapshot()

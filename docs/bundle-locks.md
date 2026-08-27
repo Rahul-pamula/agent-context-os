@@ -43,11 +43,15 @@ bash scripts/contextos.sh bundle check \
   --expect-sha256 <64-lowercase-hex-digest>
 ```
 
-Every locked path is checked as a regular, non-link-like, singly linked file.
+Directory verification attests only the exact locked paths; unrelated extra
+files are ignored and never become planner inputs. Every locked path is checked
+as a regular, non-link-like, singly linked file.
 Raw bytes, sizes, portable path identity, the component graph, and executable
 modes are verified. Windows directory sources cannot expose a meaningful POSIX
 executable bit, so the report says that mode verification was unavailable;
-Git-index verification checks it on every host.
+Git-index verification checks it on every host, but it is only for a local Git
+checkout you created or otherwise trust. Do not use a received `.git` directory
+as an offline bundle; verify a received archive in `directory` mode.
 
 ## Read-only planning
 
@@ -55,6 +59,8 @@ Git-index verification checks it on every host.
 bundle, explicit current and desired component closures, and exact destination
 and workspace-config snapshots. It emits sorted `add`, `replace`, `remove`,
 `preserve-seed`, and `noop` actions plus a digest over every consulted input.
+The signed plan also records whether executable modes were observable on each
+source and the destination, plus the intended post-upgrade workspace identity.
 
 The planner rejects unavailable components, portable path aliases, symlinks or
 reparse points, hard links, unowned target collisions, stale configuration,

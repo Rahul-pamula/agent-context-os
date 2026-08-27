@@ -231,6 +231,7 @@ def _bundle_main(args: argparse.Namespace) -> int:
             "files": len(candidate.records),
             "source_mode": candidate.source_mode,
             "executable_modes_verified": candidate.mode_verified,
+            "unlocked_files_ignored": True,
             "writes": False,
         })
         return 0
