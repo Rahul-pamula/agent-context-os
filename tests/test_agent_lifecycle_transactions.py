@@ -1471,6 +1471,34 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         self.assertTrue(artifact.exists())
         self.assertFalse(artifact.stat().st_mode & 0o200)
 
+    @unittest.skipUnless(os.name == "nt", "Windows read-only cleanup")
+    def test_readonly_tree_best_effort_removes_real_siblings(self) -> None:
+        tree = self.root / ".context-os/staging/partial-tree"
+        retained = tree / "aaa-retained"
+        removable = tree / "bbb-removable"
+        nested = tree / "sub/ccc-removable"
+        retained.parent.mkdir(parents=True)
+        nested.parent.mkdir()
+        retained.write_bytes(b"retain me\n")
+        removable.write_bytes(b"remove me\n")
+        nested.write_bytes(b"remove me too\n")
+        os.chmod(retained, 0o444)
+
+        with mock.patch(
+            "contextos.kernel._windows_unlink_readonly",
+            side_effect=ctypes.WinError(87),
+        ), mock.patch(
+            "contextos.kernel.os.chmod",
+            side_effect=AssertionError("blocked file cleanup must not chmod"),
+        ):
+            _rmtree_readonly_artifacts(tree, ignore_errors=True)
+
+        self.assertTrue(retained.exists())
+        self.assertFalse(removable.exists())
+        self.assertFalse(nested.exists())
+        self.assertFalse((tree / "sub").exists())
+        self.assertFalse(retained.stat().st_mode & 0o200)
+
     def test_strict_recursive_cleanup_reraises_contextos_error(self) -> None:
         tree = self.root / ".context-os/staging/strict-tree"
         tree.mkdir(parents=True)
@@ -1510,11 +1538,14 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         artifact.write_bytes(b"retained\n")
         metadata = mock.Mock(st_mode=stat.S_IFREG | 0o444, st_nlink=0)
 
+        class UnsupportedDispositionError(OSError):
+            winerror = 87
+
         with mock.patch.object(
             Path, "unlink", side_effect=PermissionError("read-only")
         ), mock.patch("contextos.kernel.os.name", "nt"), mock.patch(
             "contextos.kernel._windows_unlink_readonly",
-            side_effect=ctypes.WinError(87),
+            side_effect=UnsupportedDispositionError("unsupported"),
         ), mock.patch.object(Path, "lstat", return_value=metadata), mock.patch(
             "contextos.kernel.os.chmod",
             side_effect=AssertionError("zero-link cleanup must not chmod"),
