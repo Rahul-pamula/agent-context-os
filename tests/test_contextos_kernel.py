@@ -333,7 +333,7 @@ class KernelTest(unittest.TestCase):
             (self.root / "state" / name).write_text(
                 f"# {name}\n\n**Last Updated:** 2026-08-20\n", encoding="utf-8"
             )
-        for runtime in ("claude", "codex", "hermes"):
+        for runtime in ("claude", "codex", "hermes", "openclaw"):
             source = ROOT / "runtimes" / f"{runtime}.json"
             (self.root / "runtimes" / f"{runtime}.json").write_bytes(source.read_bytes())
         for directory in (
@@ -1551,7 +1551,7 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
         hosts_path.write_text(json.dumps(hosts), encoding="utf-8")
 
         report = doctor(self.root, all_runtimes=True)
-        self.assertEqual({"claude", "codex", "hermes"}, set(report["runtimes"]))
+        self.assertEqual({"claude", "codex", "hermes", "openclaw"}, set(report["runtimes"]))
 
     def test_bare_doctor_validates_all_manifests_during_setup(self) -> None:
         manifest = json.loads((self.root / "runtimes/claude.json").read_text(encoding="utf-8"))

@@ -269,7 +269,7 @@ if "$CONTEXTOS_PYTHON_CMD" tests/validate-openai-metadata.py --command "$duplica
 fi
 
 help_output=$(bash scripts/setup.sh --help)
-grep -Fq -- '--agents claude,codex|auto|none' <<<"$help_output" || fail "setup help does not describe multi-agent selection"
+grep -Fq -- '--agents claude,codex,openclaw|auto|none' <<<"$help_output" || fail "setup help does not describe multi-agent selection"
 grep -Fq -- '--agent auto|RUNTIME|none' <<<"$help_output" || fail "setup help omits the singleton compatibility alias"
 if bash scripts/setup.sh --agent invalid >/dev/null 2>&1; then
   fail "setup accepted an invalid agent"
@@ -279,10 +279,27 @@ setup_lf_count=$(grep -Fc 'newline="\n",' scripts/setup.sh)
 test "$setup_write_count" -eq "$setup_lf_count" \
   || fail "every setup Python rewrite must explicitly preserve LF line endings"
 
+skill_validator_fixture="$portability_tmp/skill-validator-pruning"
+mkdir -p "$skill_validator_fixture/scripts" \
+  "$skill_validator_fixture/.context-os/skills/ignored-local" \
+  "$skill_validator_fixture/node_modules/package/skills/ignored-dependency"
+cp scripts/validate-skills.sh "$skill_validator_fixture/scripts/"
+cp CLAUDE.md "$skill_validator_fixture/"
+git -C "$skill_validator_fixture" init -q
+git -C "$skill_validator_fixture" add CLAUDE.md scripts/validate-skills.sh
+git -C "$skill_validator_fixture" -c user.name=Test -c user.email=test@example.invalid commit -qm baseline
+(cd "$skill_validator_fixture" && bash scripts/validate-skills.sh) >/dev/null \
+  || fail "skill validation inspected ignored local or dependency trees"
+mkdir -p "$skill_validator_fixture/.agents/skills/missing-skill-file"
+if (cd "$skill_validator_fixture" && bash scripts/validate-skills.sh) >/dev/null 2>&1; then
+  fail "skill validation stopped enforcing repository skill directories"
+fi
+
 make_setup_fixture() {
   local destination="$1"
   mkdir -p "$destination"
-  tar --exclude='.git' -cf - . | tar -xf - -C "$destination"
+  tar --exclude='.git' --exclude='.context-os' --exclude='node_modules' \
+    --exclude='bash.exe.stackdump' -cf - . | tar -xf - -C "$destination"
   # Setup's prompt sequence must remain stable after a user removes the optional
   # seed project from their own workspace. An empty fixture directory is enough
   # to exercise the removal prompt without fabricating tracked source content.
@@ -353,7 +370,7 @@ grep -Fq 'already contains this selection' <<<"$subset_output" \
   || fail "subset setup rerun did not preserve the configured set"
 printf 'y\n\nn\nn\nn\ny\nn\n' | (
   cd "$multi_agent_fixture" &&
-  PATH="$setup_test_path" bash scripts/setup.sh --agents hermes
+  PATH="$setup_test_path" bash scripts/setup.sh --agents hermes,openclaw
 ) >/dev/null
 "$CONTEXTOS_PYTHON_CMD" - "$multi_agent_fixture/contextos.workspace.json" <<'PY'
 from pathlib import Path
@@ -361,7 +378,7 @@ import json
 import sys
 
 config = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-assert config["agents"] == ["claude", "codex", "hermes"], config["agents"]
+assert config["agents"] == ["claude", "codex", "hermes", "openclaw"], config["agents"]
 PY
 none_output=$(printf 'y\n\nn\nn\nn\n' | (
   cd "$multi_agent_fixture" &&

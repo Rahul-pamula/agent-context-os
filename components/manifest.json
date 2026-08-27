@@ -770,6 +770,29 @@
             ]
         },
         {
+            "id": "openclaw-adapter",
+            "description": "Experimental OpenClaw onboarding, runtime descriptor, and installed-version conformance controls.",
+            "depends_on": [
+                "core",
+                "portable-skills",
+                "agents-instructions"
+            ],
+            "paths": [
+                {
+                    "path": "adapters/openclaw/README.md",
+                    "policy": "managed"
+                },
+                {
+                    "path": "runtimes/openclaw.json",
+                    "policy": "managed"
+                },
+                {
+                    "path": "tests/test_openclaw_conformance.py",
+                    "policy": "development"
+                }
+            ]
+        },
+        {
             "id": "example-project",
             "description": "Optional removable example project and workflow seeds.",
             "depends_on": [

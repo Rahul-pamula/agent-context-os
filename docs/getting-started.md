@@ -2,12 +2,12 @@
 
 Context OS can begin with a blank interview or selected context from another
 assistant. The result is a small, reviewable repository that Claude Code,
-Codex, and Hermes can use as shared state.
+Codex, Hermes, and experimental OpenClaw support can use as shared state.
 
 ## Before you clone
 
 You need Git, Bash, Python 3.10 or newer, and at least one supported local
-agent: Claude Code, Codex, or Hermes. claude.ai can help produce files but
+agent: Claude Code, Codex, Hermes, or OpenClaw. claude.ai can help produce files but
 cannot maintain a local checkout directly.
 
 Python may be installed as either `python3` or `python`; the repository resolves
@@ -45,6 +45,8 @@ Choose every registered agent you expect to use with this repository:
 bash scripts/setup.sh --agents claude,codex
 # or
 bash scripts/setup.sh --agents hermes
+# or
+bash scripts/setup.sh --agents openclaw
 # or, for the provider-neutral core only
 bash scripts/setup.sh --agents none
 ```
@@ -85,9 +87,13 @@ claude
 codex
 # or
 hermes
+# or, after following adapters/openclaw/README.md
+openclaw
 ```
 
-Run `/setup` in Claude Code or Hermes, or `$setup` in Codex. The guided
+Run `/setup` in Claude Code or Hermes, `$setup` in Codex, or `/skill setup` in
+OpenClaw. OpenClaw first requires the separate private-workspace and copied-skill
+steps in its [experimental adapter guide](../adapters/openclaw/README.md). The guided
 interview asks one question at a time, builds a deterministic proposal, and
 waits before applying the exact reviewed diff.
 
@@ -130,11 +136,11 @@ Commit and push only after the diff matches what you intend to preserve.
 
 ## Run the daily loop
 
-| Moment | Claude Code | Codex | Hermes |
-|---|---|---|---|
-| Start work | `/start` | `$start` | `/start` |
-| Save progress without closing | `/update` | `$update` | `/update` |
-| End with a reviewed handoff | `/end` | `$end` | `/end` |
+| Moment | Claude Code | Codex | Hermes | OpenClaw (experimental) |
+|---|---|---|---|---|
+| Start work | `/start` | `$start` | `/start` | `/skill start` |
+| Save progress without closing | `/update` | `$update` | `/update` | `/skill update` |
+| End with a reviewed handoff | `/end` | `$end` | `/end` | `/skill end` |
 
 The lifecycle kernel writes shared continuity to `state/` and `sessions/` only
 after exact-proposal approval, then emits a local receipt. Each host retains
