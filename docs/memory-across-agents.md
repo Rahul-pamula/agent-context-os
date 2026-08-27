@@ -57,6 +57,14 @@ Use `state/` and `sessions/` for continuity that must travel between runtimes.
 Promote any durable Cursor-derived fact only through a reviewed repository
 proposal. See `adapters/cursor/README.md` for the separate IDE and CLI boundary.
 
+## Devin
+
+Devin Knowledge, Blueprint knowledge, snapshots, and session history are
+account-managed state, not repository memory. Context OS neither materializes
+nor synchronizes them. Durable cross-runtime facts still belong in `state/`,
+`sessions/`, or another canonical repository file through a reviewed proposal.
+See `adapters/devin/README.md` for the separate session and Review boundary.
+
 ## Proposal/apply boundary
 
 All registered runtimes use the same repository transaction:

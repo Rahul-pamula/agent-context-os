@@ -1,0 +1,118 @@
+{
+  "schema_version": 2,
+  "runtime": "devin",
+  "display_name": "Devin",
+  "support_tier": "experimental",
+  "support_summary": "Experimental cloud-session lifecycle through repository AGENTS.md and Agent Skills, with Devin Review and all account-managed state kept separate",
+  "components": ["core", "portable-skills", "agents-instructions", "devin-adapter"],
+  "install": {
+    "mode": "managed-account",
+    "next_steps": [
+      "Connect and authorize the repository in Devin; local Context OS registration does not prove account access.",
+      "Verify the active Blueprint build and snapshot in Devin Settings, then start a fresh cloud session for this repository.",
+      "Invoke @skills:context-setup, @skills:context-start, @skills:context-update, or @skills:context-end explicitly and review every proposal before apply."
+    ]
+  },
+  "onboarding_doc": "adapters/devin/README.md",
+  "surfaces": {
+    "session": {
+      "kind": "cloud",
+      "support_tier": "experimental",
+      "instruction_sources": [
+        {"scope": "repository", "role": "canonical", "path": "AGENTS.md", "precedence": 100}
+      ],
+      "skill_sources": [
+        {"scope": "repository", "role": "skills", "path": ".agents/skills", "precedence": 100}
+      ],
+      "invocation": {
+        "setup": "@skills:context-setup",
+        "start": "@skills:context-start",
+        "update": "@skills:context-update",
+        "end": "@skills:context-end"
+      },
+      "capabilities": {
+        "agent_skills": "native",
+        "explicit_invocation": "advisory",
+        "project_hooks": "unsupported",
+        "blocking_pre_tool_hook": "unsupported",
+        "mcp": "unsupported",
+        "native_memory": "unsupported",
+        "proposal_apply": "adapter",
+        "skill_allowlists": "unsupported",
+        "execution_authorization": "unsupported"
+      },
+      "hook_output": null,
+      "binary_probes": [],
+      "conformance_tests": [
+        "tests/test_devin_conformance.py",
+        "tests/test_contextos_kernel.py"
+      ],
+      "evidence": [
+        "devin-agents",
+        "devin-skills",
+        "devin-kernel",
+        "devin-conformance"
+      ]
+    },
+    "review": {
+      "kind": "review",
+      "support_tier": "compatibility",
+      "instruction_sources": [
+        {"scope": "repository", "role": "canonical", "path": "AGENTS.md", "precedence": 100}
+      ],
+      "skill_sources": [],
+      "invocation": {"setup": null, "start": null, "update": null, "end": null},
+      "capabilities": {
+        "agent_skills": "unsupported",
+        "explicit_invocation": "unsupported",
+        "project_hooks": "unsupported",
+        "blocking_pre_tool_hook": "unsupported",
+        "mcp": "unsupported",
+        "native_memory": "unsupported",
+        "proposal_apply": "unsupported",
+        "skill_allowlists": "unsupported",
+        "execution_authorization": "unsupported"
+      },
+      "hook_output": null,
+      "binary_probes": [],
+      "conformance_tests": ["tests/test_devin_conformance.py"],
+      "evidence": ["devin-review", "devin-conformance"]
+    }
+  },
+  "evidence": {
+    "checked_on": "2026-08-27",
+    "tested_versions": [],
+    "sources": [
+      {
+        "id": "devin-agents",
+        "type": "official",
+        "location": "https://docs.devin.ai/onboard-devin/agents-md",
+        "claims": ["instruction_sources"]
+      },
+      {
+        "id": "devin-skills",
+        "type": "official",
+        "location": "https://docs.devin.ai/product-guides/skills",
+        "claims": ["agent_skills", "skill_sources", "invocation"]
+      },
+      {
+        "id": "devin-review",
+        "type": "official",
+        "location": "https://docs.devin.ai/work-with-devin/devin-review",
+        "claims": ["instruction_sources", "support"]
+      },
+      {
+        "id": "devin-kernel",
+        "type": "conformance",
+        "location": "tests/test_contextos_kernel.py",
+        "claims": ["proposal_apply"]
+      },
+      {
+        "id": "devin-conformance",
+        "type": "conformance",
+        "location": "tests/test_devin_conformance.py",
+        "claims": ["explicit_invocation", "support"]
+      }
+    ]
+  }
+}

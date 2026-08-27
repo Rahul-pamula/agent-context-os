@@ -7,9 +7,9 @@ shared state.
 
 ## Before you clone
 
-You need Git, Bash, Python 3.10 or newer, and at least one supported local
-agent: Claude Code, Codex, Hermes, OpenClaw, or Cursor. claude.ai can help produce files but
-cannot maintain a local checkout directly.
+You need Git, Bash, and Python 3.10 or newer. Local hosts include Claude Code,
+Codex, Hermes, OpenClaw, and Cursor; verify Devin's managed cloud path separately
+in its account UI. claude.ai cannot maintain a local checkout directly.
 
 Python may be installed as either `python3` or `python`; the repository resolves
 whichever works. To pin a specific interpreter — a virtualenv, or one of several
@@ -50,6 +50,8 @@ bash scripts/setup.sh --agents hermes
 bash scripts/setup.sh --agents openclaw
 # or
 bash scripts/setup.sh --agents cursor
+# or
+bash scripts/setup.sh --agents devin
 # or, for the provider-neutral core only
 bash scripts/setup.sh --agents none
 ```
@@ -57,7 +59,9 @@ bash scripts/setup.sh --agents none
 Setup shows the exact tracked workspace diff and proposal digest, then defaults
 the apply decision to no. An approved selection is additive: rerunning with a
 subset or `none` preserves the existing set, while a new runtime expands it.
-Selected runtimes are also registered in the gitignored local host map. Omit
+Selected local runtimes are also registered in the gitignored local host map.
+Managed-account runtimes such as Devin record tracked intent without claiming
+the remote account is configured. Omit
 the option, or use `--agents auto`, to auto-detect local launch instructions
 without changing tracked intent. `--agent` remains a deprecated singleton
 alias. See [workspace configuration](workspace-configuration.md) for the full
@@ -106,6 +110,11 @@ Cursor has separate IDE and Agent CLI permission surfaces. Follow its
 [experimental adapter guide](../adapters/cursor/README.md); setup registers the
 runtime but launches neither surface and changes no Cursor authorization setting.
 
+For Devin, follow the [experimental managed-account guide](../adapters/devin/README.md),
+verify repository access and the active environment in Devin, then start a fresh
+cloud session and invoke `@skills:context-setup`. Local setup does not authenticate,
+launch, or verify Devin, and Devin Review is not a lifecycle surface.
+
 ### Bring existing context
 
 Read the [migration guide](migration-guide.md) first. Create one reviewed migration packet from a selected project, conversation set, memory export, or group of source files. Then run the same setup command and provide that packet as your starting material.
@@ -145,11 +154,11 @@ Commit and push only after the diff matches what you intend to preserve.
 
 ## Run the daily loop
 
-| Moment | Claude Code | Codex | Hermes | OpenClaw (experimental) | Cursor IDE (experimental) | Cursor CLI (experimental) |
+| Moment | Claude Code | Codex | Hermes | OpenClaw (experimental) | Cursor IDE/CLI (experimental) | Devin session (experimental) |
 |---|---|---|---|---|---|---|
-| Start work | `/start` | `$start` | `/start` | `/skill start` | `/context-start` | `/context-start` |
-| Save progress without closing | `/update` | `$update` | `/update` | `/skill update` | `/context-update` | `/context-update` |
-| End with a reviewed handoff | `/end` | `$end` | `/end` | `/skill end` | `/context-end` | `/context-end` |
+| Start work | `/start` | `$start` | `/start` | `/skill start` | `/context-start` | `@skills:context-start` |
+| Save progress without closing | `/update` | `$update` | `/update` | `/skill update` | `/context-update` | `@skills:context-update` |
+| End with a reviewed handoff | `/end` | `$end` | `/end` | `/skill end` | `/context-end` | `@skills:context-end` |
 
 The lifecycle kernel writes shared continuity to `state/` and `sessions/` only
 after exact-proposal approval, then emits a local receipt. Each host retains

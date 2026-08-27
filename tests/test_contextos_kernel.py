@@ -333,7 +333,7 @@ class KernelTest(unittest.TestCase):
             (self.root / "state" / name).write_text(
                 f"# {name}\n\n**Last Updated:** 2026-08-20\n", encoding="utf-8"
             )
-        for runtime in ("claude", "codex", "cursor", "hermes", "openclaw"):
+        for runtime in ("claude", "codex", "cursor", "devin", "hermes", "openclaw"):
             source = ROOT / "runtimes" / f"{runtime}.json"
             (self.root / "runtimes" / f"{runtime}.json").write_bytes(source.read_bytes())
         for directory in (
@@ -1182,6 +1182,50 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
         drift_check = next(item for item in drift["checks"] if item["name"] == "runtime-manifest-drift")
         self.assertEqual("warn", drift_check["status"])
 
+    def test_managed_account_registration_never_claims_remote_readiness(self) -> None:
+        self._materialize_components("devin-adapter")
+        self._configure_profile("devin")
+        unverified = doctor(self.root)
+        self.assertEqual(
+            "account-unverified",
+            unverified["runtimes"]["devin"]["local_onboarding"]["status"],
+        )
+        onboarding = next(
+            item for item in unverified["checks"]
+            if item["name"] == "runtime-onboarding:devin"
+        )
+        self.assertEqual("warn", onboarding["status"])
+
+        install_runtime(self.root, "devin")
+        acknowledged = doctor(self.root)
+        self.assertEqual(
+            "account-acknowledged",
+            acknowledged["runtimes"]["devin"]["local_onboarding"]["status"],
+        )
+        onboarding = next(
+            item for item in acknowledged["checks"]
+            if item["name"] == "runtime-onboarding:devin"
+        )
+        self.assertEqual("warn", onboarding["status"])
+
+        manifest_path = self.root / "runtimes/devin.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["install"]["mode"] = "native-project-discovery"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        ordinary = doctor(self.root)
+        self.assertEqual(
+            "configured",
+            ordinary["runtimes"]["devin"]["local_onboarding"]["status"],
+        )
+
+        manifest["unknown"] = True
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        invalid = doctor(self.root)
+        self.assertEqual(
+            "unknown",
+            invalid["runtimes"]["devin"]["local_onboarding"]["status"],
+        )
+
     def test_legacy_runtime_migrates_only_to_atomic_local_host_state(self) -> None:
         local = self.root / ".context-os"
         local.mkdir()
@@ -1398,7 +1442,7 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
         self.assertNotIn("manifest:codex", names)
         self.assertTrue(report["runtimes"]["codex"]["configuration"]["inert"])
         self.assertEqual(
-            "configured", report["runtimes"]["codex"]["local_onboarding"]["status"]
+            "unknown", report["runtimes"]["codex"]["local_onboarding"]["status"]
         )
 
     def test_profile_materialization_blocks_only_configured_adapters(self) -> None:
@@ -1552,7 +1596,7 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
 
         report = doctor(self.root, all_runtimes=True)
         self.assertEqual(
-            {"claude", "codex", "cursor", "hermes", "openclaw"},
+            {"claude", "codex", "cursor", "devin", "hermes", "openclaw"},
             set(report["runtimes"]),
         )
 

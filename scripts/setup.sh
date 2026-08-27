@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "$REPO_ROOT"
 
-SETUP_USAGE="Usage: bash scripts/setup.sh [--agents claude,codex,cursor,openclaw|auto|none] [--agent auto|RUNTIME|none]"
+SETUP_USAGE="Usage: bash scripts/setup.sh [--agents claude,codex,cursor,devin,openclaw|auto|none] [--agent auto|RUNTIME|none]"
 AGENT_SELECTION_KIND=""
 AGENT_SELECTION_RAW=""
 while [ "$#" -gt 0 ]; do
@@ -432,10 +432,34 @@ fi
 
 if [ "$SETUP_SELECTION_ACTIVATED" = true ] && [ -n "$REQUESTED_REGISTERED_AGENTS" ]; then
   IFS=',' read -r -a SETUP_RUNTIME_IDS <<<"$REQUESTED_REGISTERED_AGENTS"
+  SETUP_REGISTERED_RUNTIMES=()
+  SETUP_MANAGED_RUNTIMES=()
   for setup_runtime in "${SETUP_RUNTIME_IDS[@]}"; do
-    "$CONTEXTOS_PYTHON_CMD" -m contextos install --runtime "$setup_runtime" >/dev/null
+    setup_install_mode=$("$CONTEXTOS_PYTHON_CMD" - "$setup_runtime" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+manifest = json.loads((Path("runtimes") / f"{sys.argv[1]}.json").read_text(encoding="utf-8"))
+print(manifest["install"]["mode"])
+PY
+)
+    if [ "$setup_install_mode" = "managed-account" ]; then
+      SETUP_MANAGED_RUNTIMES+=("$setup_runtime")
+    else
+      "$CONTEXTOS_PYTHON_CMD" -m contextos install --runtime "$setup_runtime" >/dev/null
+      SETUP_REGISTERED_RUNTIMES+=("$setup_runtime")
+    fi
   done
-  echo "  Registered selected runtimes on this host: $REQUESTED_REGISTERED_AGENTS"
+  if [ "${#SETUP_REGISTERED_RUNTIMES[@]}" -gt 0 ]; then
+    setup_registered_csv=$(IFS=,; echo "${SETUP_REGISTERED_RUNTIMES[*]}")
+    echo "  Registered selected runtimes on this host: $setup_registered_csv"
+  fi
+  if [ "${#SETUP_MANAGED_RUNTIMES[@]}" -gt 0 ]; then
+    setup_managed_csv=$(IFS=,; echo "${SETUP_MANAGED_RUNTIMES[*]}")
+    echo "  Tracked managed-account intent; remote onboarding remains unverified: $setup_managed_csv"
+    echo "  Complete each managed host's account checks in its adapter guide."
+  fi
 elif [ -n "$REQUESTED_REGISTERED_AGENTS" ]; then
   LAUNCH_SELECTION="none"
 fi
@@ -576,6 +600,15 @@ case "$SELECTED_AGENT" in
     echo "  verify both experimental surfaces and their authorization settings."
     echo ""
     ;;
+  devin)
+    echo "  1. Connect and authorize this repository in the intended Devin organization."
+    echo "  2. Verify its Blueprint build and active snapshot in Devin Settings."
+    echo "  3. Start a fresh cloud session, then invoke @skills:context-setup."
+    echo "     See adapters/devin/README.md for the repository/account boundary."
+    echo "     Setup records tracked intent only; it does not authenticate, launch,"
+    echo "     configure, or verify any Devin account state."
+    echo ""
+    ;;
   openclaw)
     if [ -z "$REQUESTED_REGISTERED_AGENTS" ]; then
       "$CONTEXTOS_PYTHON_CMD" -m contextos install --runtime openclaw >/dev/null
@@ -596,6 +629,7 @@ case "$SELECTED_AGENT" in
     printf '  Codex:       cd %q && codex, then run $setup\n' "$REPO_ROOT"
     printf '  Hermes:      cd %q && hermes (reads AGENTS.md; see AGENTS.md Hermes section)\n' "$REPO_ROOT"
     printf '  Cursor:      see adapters/cursor/README.md (separate IDE and Agent CLI paths)\n'
+    echo "  Devin:       see adapters/devin/README.md (managed cloud account + Review)"
     echo "  OpenClaw:    see adapters/openclaw/README.md (private workspace + copied skills)"
     echo "  claude.ai:   open SETUP-PROMPTS.md and paste the prompts there"
     echo "  Guide:       docs/getting-started.md"

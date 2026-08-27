@@ -29,9 +29,9 @@ def load(runtime: str) -> dict:
 
 class RuntimeManifestTest(unittest.TestCase):
     def test_registry_discovers_and_validates_every_descriptor(self) -> None:
-        self.assertEqual(["claude", "codex", "cursor", "hermes", "openclaw"], runtime_ids(ROOT))
+        self.assertEqual(["claude", "codex", "cursor", "devin", "hermes", "openclaw"], runtime_ids(ROOT))
         registry = runtime_registry(ROOT)
-        self.assertEqual({"claude", "codex", "cursor", "hermes", "openclaw"}, set(registry))
+        self.assertEqual({"claude", "codex", "cursor", "devin", "hermes", "openclaw"}, set(registry))
         self.assertNotIn("generic", registry)
         for runtime, manifest in registry.items():
             with self.subTest(runtime=runtime):
@@ -56,6 +56,11 @@ class RuntimeManifestTest(unittest.TestCase):
         }
         self.assertEqual(expected, cursor["surfaces"]["ide"]["invocation"])
         self.assertEqual(expected, cursor["surfaces"]["cli"]["invocation"])
+        devin = load("devin")
+        self.assertEqual(
+            {name: f"@skills:context-{name}" for name in ("setup", "start", "update", "end")},
+            devin["surfaces"]["session"]["invocation"],
+        )
 
     def test_checked_in_schema_matches_authoritative_contract(self) -> None:
         actual = json.loads((ROOT / "runtimes/schema.json").read_text(encoding="utf-8"))
@@ -66,6 +71,12 @@ class RuntimeManifestTest(unittest.TestCase):
         manifest["surfaces"]["cli"]["capabilities"]["mcp"] = "invented"
         with self.assertRaisesRegex(RuntimeManifestError, "capabilities.mcp"):
             validate_runtime_manifest(manifest, runtime_id="codex", root=ROOT)
+
+    def test_mutation_sentinel_rejects_unknown_install_mode(self) -> None:
+        manifest = load("devin")
+        manifest["install"]["mode"] = "managed-acount"
+        with self.assertRaisesRegex(RuntimeManifestError, "install.mode"):
+            validate_runtime_manifest(manifest, runtime_id="devin", root=ROOT)
 
     def test_probe_contract_rejects_executable_arguments(self) -> None:
         manifest = load("codex")
