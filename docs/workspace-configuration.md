@@ -161,6 +161,12 @@ and names outside both contracts are a third invalid category. Apply does not
 traverse link-like entries and rejects the other invalid forms; inspect and
 correct or remove each reported path before retrying.
 
+`doctor` does not enumerate `.context-os/staging/`. If unsupported atomic
+deletion retains a staging artifact, first confirm no apply is active. The
+containing `.context-os/staging/<proposal-id>` namespace is then disposable, but
+remove it only with a tool or filesystem that does not change shared-inode
+attributes. Journal paths remain subject to the recovery classifications above.
+
 ## Agent activation lifecycle
 
 List every bundled runtime while keeping tracked activation and machine-local

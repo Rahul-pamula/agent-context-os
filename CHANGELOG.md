@@ -64,7 +64,8 @@
   inert `.building`/`.discard` cleanup artifacts, preserving inspect-and-recover
   advice only for the former and giving path-specific, shared-inode-safe manual
   cleanup guidance for the latter. Unsupported atomic deletion no longer implies
-  an unchanged retry will self-heal.
+  an unchanged retry will self-heal, and retained staging artifacts now receive
+  actionable cleanup guidance without depending on journal-only classification.
 - Best-effort transaction cleanup now continues across removable siblings after
   retaining a blocked artifact, while strict recovery still surfaces the exact
   cleanup failure. Windows cleanup no longer widens even single-link read-only

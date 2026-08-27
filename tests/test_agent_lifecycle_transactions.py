@@ -1731,8 +1731,8 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         self.assertFalse(removable.exists())
 
     def test_zero_link_metadata_fails_closed_without_chmod(self) -> None:
-        artifact = self.root / ".context-os/zero-link-artifact"
-        artifact.parent.mkdir()
+        artifact = self.root / ".context-os/staging/proposal-id/zero-link-artifact"
+        artifact.parent.mkdir(parents=True)
         artifact.write_bytes(b"retained\n")
         metadata = mock.Mock(st_mode=stat.S_IFREG | 0o444, st_nlink=0)
 
@@ -1751,9 +1751,28 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
             _unlink_readonly_artifact(artifact)
 
         self.assertIn("Automatic retry cannot remove it", str(raised.exception))
-        self.assertIn("containing namespace as inert", str(raised.exception))
+        self.assertIn(
+            ".context-os/staging/<proposal-id> namespace is disposable",
+            str(raised.exception),
+        )
+        self.assertIn("confirm no apply is active", str(raised.exception).lower())
+        self.assertIn("do not remove a recovery candidate", str(raised.exception))
         self.assertNotIn("later cleanup attempt", str(raised.exception))
         self.assertEqual(b"retained\n", artifact.read_bytes())
+        transaction_checks = {
+            check["name"]: check
+            for check in doctor(self.root)["checks"]
+            if check["name"].startswith("transaction-")
+        }
+        self.assertEqual(
+            {"pass"}, {check["status"] for check in transaction_checks.values()}
+        )
+        self.assertTrue(
+            all(
+                ".context-os/staging" not in check["detail"]
+                for check in transaction_checks.values()
+            )
+        )
 
     def test_readonly_hardlink_tree_cleanup_preserves_workspace_mode(self) -> None:
         survivor = self.root / "state/current.md"

@@ -2001,9 +2001,13 @@ def _unlink_readonly_artifact(path: Path) -> None:
             f"{path} ({artifact_kind}, link count {metadata.st_nlink}); "
             "the artifact was retained. Automatic retry cannot remove it while "
             "atomic deletion remains unsupported. Do not change shared-inode "
-            "attributes; resolve filesystem support before retrying. Retain the "
-            "artifact unless doctor explicitly classifies its containing "
-            "namespace as inert before any manual removal"
+            "attributes; resolve filesystem support before retrying. Confirm no "
+            "apply is active before any manual removal. For an artifact under "
+            ".context-os/journals/, use doctor to classify its containing journal "
+            "namespace and do not remove a recovery candidate. A containing "
+            ".context-os/staging/<proposal-id> namespace is disposable after the "
+            "activity check, but remove it only with a tool/filesystem that does "
+            "not change shared-inode attributes"
         ) from exc
 
 
