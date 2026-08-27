@@ -5,6 +5,7 @@ import json
 import io
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -19,6 +20,7 @@ from unittest import mock
 from contextos.cli import main as cli_main
 from contextos.kernel import (
     ContextOSError,
+    _available_transaction_namespace,
     _agent_change,
     _create_agent_journal,
     _discard_agent_journal,
@@ -631,7 +633,9 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
             return original_replace(source, destination, *args, **kwargs)
 
         with mock.patch("contextos.kernel.os.replace", side_effect=race_then_fail):
-            with self.assertRaisesRegex(ContextOSError, "rollback was incomplete"):
+            with self.assertRaisesRegex(
+                ContextOSError, "transaction recovery was incomplete"
+            ):
                 self.apply(path, proposal)
         self.assertEqual(concurrent, target.read_bytes())
         self.assertTrue(legacy.exists())
@@ -660,7 +664,9 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         with mock.patch("contextos.kernel.os.replace", side_effect=fail_legacy), mock.patch(
             "pathlib.Path.read_bytes", autospec=True, side_effect=race_after_capture_read
         ):
-            with self.assertRaisesRegex(ContextOSError, "rollback was incomplete"):
+            with self.assertRaisesRegex(
+                ContextOSError, "transaction recovery was incomplete"
+            ):
                 self.apply(path, proposal)
         self.assertEqual(concurrent, target.read_bytes())
         self.assertTrue(legacy.exists())
@@ -685,7 +691,9 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         with mock.patch(
             "contextos.kernel.os.replace", side_effect=install_directory_racer
         ):
-            with self.assertRaisesRegex(ContextOSError, "rollback was incomplete"):
+            with self.assertRaisesRegex(
+                ContextOSError, "transaction recovery was incomplete"
+            ):
                 self.apply(path, proposal)
         journal = self.root / ".context-os/journals" / proposal["proposal_id"]
         self.assertEqual(
@@ -727,7 +735,9 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         with mock.patch(
             "contextos.kernel.os.replace", side_effect=race_during_capture
         ):
-            with self.assertRaisesRegex(ContextOSError, "rollback was incomplete"):
+            with self.assertRaisesRegex(
+                ContextOSError, "transaction recovery was incomplete"
+            ):
                 self.apply(path, proposal)
         journal = self.root / ".context-os/journals" / proposal["proposal_id"]
         capture_dir = next((journal / "rollback").glob("*.current"))
@@ -892,6 +902,32 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         self.assertFalse((self.root / "contextos.workspace.json").exists())
         self.assertEqual(original, legacy.read_bytes())
         self.assert_no_transaction_artifacts()
+
+    def test_primary_apply_failure_is_reported_with_strict_cleanup_failure(self) -> None:
+        legacy = self.root / "workspace.yaml"
+        original = legacy.read_bytes()
+        path, proposal = self.propose()
+        original_link = os.link
+
+        def fail_receipt(source, destination, *args, **kwargs):
+            if Path(destination).parent.name == "receipts":
+                raise OSError("primary receipt failure")
+            return original_link(source, destination, *args, **kwargs)
+
+        with mock.patch(
+            "contextos.kernel.os.link", side_effect=fail_receipt
+        ), mock.patch(
+            "contextos.kernel._discard_agent_journal",
+            side_effect=ContextOSError("strict journal cleanup failure"),
+        ):
+            with self.assertRaises(ContextOSError) as raised:
+                self.apply(path, proposal)
+
+        diagnostic = str(raised.exception)
+        self.assertIn("primary receipt failure", diagnostic)
+        self.assertIn("strict journal cleanup failure", diagnostic)
+        self.assertEqual(original, legacy.read_bytes())
+        self.assertFalse((self.root / "contextos.workspace.json").exists())
 
     def test_durable_journal_recovers_partial_crash_before_reapply(self) -> None:
         legacy = self.root / "workspace.yaml"
@@ -1141,7 +1177,9 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         with mock.patch(
             "contextos.kernel.os.link", side_effect=fail_forward_and_first_restore
         ):
-            with self.assertRaisesRegex(ContextOSError, "rollback was incomplete"):
+            with self.assertRaisesRegex(
+                ContextOSError, "transaction recovery was incomplete"
+            ):
                 self.apply(path, proposal)
         journal = self.root / ".context-os/journals" / proposal["proposal_id"]
         self.assertFalse(target.exists())
@@ -1184,7 +1222,9 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
             return original(source, destination, *args, **kwargs)
 
         with mock.patch("contextos.kernel.os.link", side_effect=race_target):
-            with self.assertRaisesRegex(ContextOSError, "rollback was incomplete"):
+            with self.assertRaisesRegex(
+                ContextOSError, "transaction recovery was incomplete"
+            ):
                 self.apply(path, proposal)
         metadata = target.stat()
         self.assertEqual(raced_identity, (metadata.st_dev, metadata.st_ino))
@@ -1233,6 +1273,23 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         self.apply(path, proposal)
         self.assertFalse(building.exists())
         self.assertTrue((self.root / "contextos.workspace.json").exists())
+
+    def test_transaction_namespace_skips_every_retained_collision(self) -> None:
+        journals = self.root / ".context-os/journals"
+        preferred = journals / ".proposal.discard"
+        first_alternate = journals / ".proposal.1.discard"
+        preferred.mkdir(parents=True)
+        first_alternate.mkdir()
+
+        selected = _available_transaction_namespace(
+            self.root,
+            preferred,
+            suffix=".discard",
+        )
+
+        self.assertEqual(journals / ".proposal.2.discard", selected)
+        self.assertTrue(preferred.is_dir())
+        self.assertTrue(first_alternate.is_dir())
 
     def test_proposal_json_rejects_duplicates_constants_and_boolean_version(self) -> None:
         path, proposal = self.propose()
@@ -1343,8 +1400,10 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         else:
             self.assertEqual(0o444, survivor.stat().st_mode & 0o7777)
 
-    @unittest.skipUnless(os.name == "nt", "Windows read-only fallback")
-    def test_readonly_single_link_uses_safe_unsupported_api_fallback(self) -> None:
+    @unittest.skipUnless(os.name == "nt", "Windows read-only cleanup")
+    def test_readonly_single_link_is_retained_when_atomic_api_is_unsupported(
+        self,
+    ) -> None:
         artifact = self.root / ".context-os/single-readonly-artifact"
         artifact.parent.mkdir()
         artifact.write_bytes(b"single inode\n")
@@ -1353,12 +1412,16 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         with mock.patch(
             "contextos.kernel._windows_unlink_readonly",
             side_effect=ctypes.WinError(87),
-        ):
+        ), mock.patch(
+            "contextos.kernel.os.chmod",
+            side_effect=AssertionError("unsupported atomic deletion must not chmod"),
+        ), self.assertRaisesRegex(ContextOSError, "artifact was retained"):
             _unlink_readonly_artifact(artifact)
 
-        self.assertFalse(artifact.exists())
+        self.assertTrue(artifact.exists())
+        self.assertFalse(artifact.stat().st_mode & 0o200)
 
-    @unittest.skipUnless(os.name == "nt", "Windows read-only fallback")
+    @unittest.skipUnless(os.name == "nt", "Windows read-only cleanup")
     def test_readonly_shared_inode_fails_cleanly_when_api_is_unsupported(self) -> None:
         survivor = self.root / "state/current.md"
         survivor.write_bytes(b"shared fallback inode\n")
@@ -1370,14 +1433,14 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         with mock.patch(
             "contextos.kernel._windows_unlink_readonly",
             side_effect=ctypes.WinError(87),
-        ), self.assertRaisesRegex(ContextOSError, "shared inode"):
+        ), self.assertRaisesRegex(ContextOSError, "link count 2"):
             _unlink_readonly_artifact(artifact)
 
         self.assertTrue(artifact.exists())
         self.assertEqual(b"shared fallback inode\n", survivor.read_bytes())
         self.assertFalse(survivor.stat().st_mode & 0o200)
 
-    @unittest.skipUnless(os.name == "nt", "Windows read-only fallback")
+    @unittest.skipUnless(os.name == "nt", "Windows read-only cleanup")
     def test_readonly_sharing_violation_never_enters_chmod_fallback(self) -> None:
         artifact = self.root / ".context-os/sharing-violation-artifact"
         artifact.parent.mkdir()
@@ -1396,8 +1459,10 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         self.assertTrue(artifact.exists())
         self.assertFalse(artifact.stat().st_mode & 0o200)
 
-    @unittest.skipUnless(os.name == "nt", "Windows read-only fallback")
-    def test_readonly_tree_uses_safe_single_link_unsupported_api_fallback(self) -> None:
+    @unittest.skipUnless(os.name == "nt", "Windows read-only cleanup")
+    def test_readonly_tree_retains_single_link_when_atomic_api_is_unsupported(
+        self,
+    ) -> None:
         tree = self.root / ".context-os/staging/unsupported-tree"
         artifact = tree / "artifact"
         artifact.parent.mkdir(parents=True)
@@ -1407,12 +1472,16 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         with mock.patch(
             "contextos.kernel._windows_unlink_readonly",
             side_effect=ctypes.WinError(87),
-        ):
+        ), mock.patch(
+            "contextos.kernel.os.chmod",
+            side_effect=AssertionError("unsupported atomic deletion must not chmod"),
+        ), self.assertRaisesRegex(ContextOSError, "artifact was retained"):
             _rmtree_readonly_artifacts(tree)
 
-        self.assertFalse(tree.exists())
+        self.assertTrue(artifact.exists())
+        self.assertFalse(artifact.stat().st_mode & 0o200)
 
-    @unittest.skipUnless(os.name == "nt", "Windows read-only fallback")
+    @unittest.skipUnless(os.name == "nt", "Windows read-only cleanup")
     def test_readonly_tree_best_effort_suppresses_sharing_violation(self) -> None:
         tree = self.root / ".context-os/staging/held-tree"
         artifact = tree / "artifact"
@@ -1431,6 +1500,147 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
 
         self.assertTrue(artifact.exists())
         self.assertFalse(artifact.stat().st_mode & 0o200)
+
+    @unittest.skipUnless(os.name == "nt", "Windows read-only cleanup")
+    def test_readonly_tree_best_effort_removes_real_siblings(self) -> None:
+        tree = self.root / ".context-os/staging/partial-tree"
+        retained = tree / "aaa-retained"
+        removable = tree / "bbb-removable"
+        nested = tree / "sub/ccc-removable"
+        retained.parent.mkdir(parents=True)
+        nested.parent.mkdir()
+        retained.write_bytes(b"retain me\n")
+        removable.write_bytes(b"remove me\n")
+        nested.write_bytes(b"remove me too\n")
+        os.chmod(retained, 0o444)
+
+        with mock.patch(
+            "contextos.kernel._windows_unlink_readonly",
+            side_effect=ctypes.WinError(87),
+        ), mock.patch(
+            "contextos.kernel.os.chmod",
+            side_effect=AssertionError("blocked file cleanup must not chmod"),
+        ):
+            _rmtree_readonly_artifacts(tree, ignore_errors=True)
+
+        self.assertTrue(retained.exists())
+        self.assertFalse(removable.exists())
+        self.assertFalse(nested.exists())
+        self.assertFalse((tree / "sub").exists())
+        self.assertFalse(retained.stat().st_mode & 0o200)
+
+    @unittest.skipUnless(os.name == "nt", "Windows read-only cleanup")
+    def test_retained_same_id_discard_does_not_block_later_applies(self) -> None:
+        path, proposal = self.propose()
+        discard = (
+            self.root
+            / ".context-os/journals"
+            / f".{proposal['proposal_id']}.discard"
+        )
+        building = discard.with_name(f".{proposal['proposal_id']}.building")
+        retained = discard / "aaa-retained"
+        retained_build = building / "aaa-retained"
+        removable = discard / "bbb-removable"
+        discard.mkdir(parents=True)
+        building.mkdir()
+        retained.write_bytes(b"retain me\n")
+        retained_build.write_bytes(b"retain build too\n")
+        removable.write_bytes(b"remove me\n")
+        os.chmod(retained, 0o444)
+        os.chmod(retained_build, 0o444)
+        original_chmod = os.chmod
+        protected = {retained.resolve(), retained_build.resolve()}
+
+        def reject_retained_chmod(candidate, mode, *args, **kwargs):
+            if Path(candidate).resolve() in protected:
+                raise AssertionError("blocked file cleanup must not chmod")
+            return original_chmod(candidate, mode, *args, **kwargs)
+
+        with mock.patch(
+            "contextos.kernel._windows_unlink_readonly",
+            side_effect=ctypes.WinError(87),
+        ), mock.patch(
+            "contextos.kernel.os.chmod",
+            side_effect=reject_retained_chmod,
+        ):
+            receipt, _ = self.apply(path, proposal)
+            next_path, next_proposal = create_agent_activation_proposal(
+                self.root,
+                "codex",
+                True,
+                NOW,
+            )
+            self.assertIsNotNone(next_path)
+            self.assertIsNotNone(next_proposal)
+            next_receipt, _ = self.apply(next_path, next_proposal)
+
+        self.assertTrue(receipt.exists())
+        self.assertTrue((self.root / "contextos.workspace.json").exists())
+        self.assertTrue(retained.exists())
+        self.assertTrue(retained_build.exists())
+        self.assertFalse(removable.exists())
+        self.assertFalse(retained.stat().st_mode & 0o200)
+        self.assertFalse(retained_build.stat().st_mode & 0o200)
+        self.assertTrue(next_receipt.exists())
+        self.assertEqual(
+            ["claude", "codex"],
+            read_json(self.root / "contextos.workspace.json")["agents"],
+        )
+
+    def test_strict_recursive_cleanup_reraises_contextos_error(self) -> None:
+        tree = self.root / ".context-os/staging/strict-tree"
+        tree.mkdir(parents=True)
+        delegated = ContextOSError("delegated cleanup failure")
+
+        def fail_tree(path, **kwargs):
+            callback = kwargs.get("onexc") or kwargs.get("onerror")
+            error = delegated if "onexc" in kwargs else (None, delegated, None)
+            callback(os.unlink, str(tree / "blocked"), error)
+
+        with mock.patch(
+            "contextos.kernel.shutil.rmtree", side_effect=fail_tree
+        ), self.assertRaisesRegex(ContextOSError, "delegated cleanup failure"):
+            _rmtree_readonly_artifacts(tree)
+
+    def test_best_effort_recursive_cleanup_continues_after_retained_sibling(self) -> None:
+        tree = self.root / ".context-os/staging/best-effort-tree"
+        tree.mkdir(parents=True)
+        removable = tree / "removable"
+        removable.write_bytes(b"remove me\n")
+        delegated = ContextOSError("retained sibling")
+
+        def partial_tree(path, **kwargs):
+            callback = kwargs.get("onexc") or kwargs.get("onerror")
+            error = delegated if "onexc" in kwargs else (None, delegated, None)
+            callback(os.unlink, str(tree / "blocked"), error)
+            removable.unlink()
+
+        with mock.patch("contextos.kernel.shutil.rmtree", side_effect=partial_tree):
+            _rmtree_readonly_artifacts(tree, ignore_errors=True)
+
+        self.assertFalse(removable.exists())
+
+    def test_zero_link_metadata_fails_closed_without_chmod(self) -> None:
+        artifact = self.root / ".context-os/zero-link-artifact"
+        artifact.parent.mkdir()
+        artifact.write_bytes(b"retained\n")
+        metadata = mock.Mock(st_mode=stat.S_IFREG | 0o444, st_nlink=0)
+
+        class UnsupportedDispositionError(OSError):
+            winerror = 87
+
+        with mock.patch.object(
+            Path, "unlink", side_effect=PermissionError("read-only")
+        ), mock.patch("contextos.kernel.os.name", "nt"), mock.patch(
+            "contextos.kernel._windows_unlink_readonly",
+            side_effect=UnsupportedDispositionError("unsupported"),
+        ), mock.patch.object(Path, "lstat", return_value=metadata), mock.patch(
+            "contextos.kernel.os.chmod",
+            side_effect=AssertionError("zero-link cleanup must not chmod"),
+        ), self.assertRaisesRegex(ContextOSError, "link count 0"):
+            _unlink_readonly_artifact(artifact)
+
+        self.assertEqual(b"retained\n", artifact.read_bytes())
 
     def test_readonly_hardlink_tree_cleanup_preserves_workspace_mode(self) -> None:
         survivor = self.root / "state/current.md"

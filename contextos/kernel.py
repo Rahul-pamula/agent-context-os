@@ -1988,26 +1988,19 @@ def _unlink_readonly_artifact(path: Path) -> None:
             raise ContextOSError(
                 f"cannot inspect read-only transaction artifact {path}: {inspect_exc}"
             ) from inspect_exc
-        if (
-            _is_link_like(path)
-            or not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_nlink != 1
-        ):
-            raise ContextOSError(
-                "filesystem cannot safely remove a read-only transaction artifact "
-                f"without changing a shared inode: {path}; use a Windows NTFS "
-                "workspace with FileDispositionInfoEx support"
-            ) from exc
-        original_mode = metadata.st_mode & 0o7777
-        os.chmod(path, original_mode | stat.S_IWRITE)
-        try:
-            path.unlink()
-        except OSError as unlink_exc:
-            if path.exists() and not _is_link_like(path):
-                os.chmod(path, original_mode)
-            raise ContextOSError(
-                f"cannot remove read-only transaction artifact {path}: {unlink_exc}"
-            ) from unlink_exc
+        artifact_kind = (
+            "link-like"
+            if _is_link_like(path)
+            else "regular"
+            if stat.S_ISREG(metadata.st_mode)
+            else "non-regular"
+        )
+        raise ContextOSError(
+            "filesystem cannot safely remove a read-only transaction artifact "
+            "because atomic FileDispositionInfoEx deletion is unavailable: "
+            f"{path} ({artifact_kind}, link count {metadata.st_nlink}); "
+            "the artifact was retained for a later cleanup attempt"
+        ) from exc
 
 
 def _rmtree_readonly_artifacts(
@@ -2045,17 +2038,22 @@ def _rmtree_readonly_artifacts(
                 os.chmod(failed, original_mode)
             raise
 
-    def handle_error(function: Any, failed_path: str, error: Any) -> None:
-        handle_exception(function, failed_path, error[1])
+    def dispatch_exception(
+        function: Any, failed_path: str, exception: BaseException
+    ) -> None:
+        try:
+            handle_exception(function, failed_path, exception)
+        except (OSError, ContextOSError):
+            if not ignore_errors:
+                raise
 
-    try:
-        if sys.version_info >= (3, 12):
-            shutil.rmtree(path, onexc=handle_exception)
-        else:
-            shutil.rmtree(path, onerror=handle_error)
-    except (OSError, ContextOSError):
-        if not ignore_errors:
-            raise
+    def handle_error(function: Any, failed_path: str, error: Any) -> None:
+        dispatch_exception(function, failed_path, error[1])
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=dispatch_exception)
+    else:
+        shutil.rmtree(path, onerror=handle_error)
 
 
 def _write_exclusive_bytes(
@@ -2099,6 +2097,31 @@ def _transaction_slot(ordinal: int, relative: str) -> str:
     return f"{ordinal:04d}-{sha256_text(identity)[:16]}"
 
 
+def _available_transaction_namespace(
+    root: Path,
+    preferred: Path,
+    *,
+    suffix: str,
+) -> Path:
+    """Choose a non-existing sibling without reusing retained garbage."""
+    if not suffix or not preferred.name.endswith(suffix):
+        raise ContextOSError(
+            f"invalid transaction namespace suffix for {preferred}: {suffix!r}"
+        )
+    _guard_local_artifact_path(root, preferred)
+    if not preferred.exists() and not preferred.is_symlink():
+        return preferred
+    stem = preferred.name[: -len(suffix)]
+    for ordinal in range(1, 10_000):
+        candidate = preferred.with_name(f"{stem}.{ordinal}{suffix}")
+        _guard_local_artifact_path(root, candidate)
+        if not candidate.exists() and not candidate.is_symlink():
+            return candidate
+    raise ContextOSError(
+        f"cannot allocate a collision-free transaction namespace beside {preferred}"
+    )
+
+
 def _create_agent_journal(
     root: Path,
     document: dict[str, Any],
@@ -2113,7 +2136,16 @@ def _create_agent_journal(
     building = journal.with_name(f".{journal.name}.building")
     _guard_local_artifact_path(root, building)
     if building.exists() or building.is_symlink():
-        raise ContextOSError(f"agent transaction journal build already exists: {building}")
+        if building.is_symlink() or not building.is_dir():
+            raise ContextOSError(
+                f"invalid agent transaction journal build path: {building}"
+            )
+        _rmtree_readonly_artifacts(building, ignore_errors=True)
+    building = _available_transaction_namespace(
+        root,
+        building,
+        suffix=".building",
+    )
     workflow = document["workflow"]
     entries: list[dict[str, Any]] = []
     for index, change in enumerate(document["changes"]):
@@ -2679,8 +2711,10 @@ def _recover_pending_agent_journals(root: Path) -> None:
             (".building", ".discard")
         ):
             # Repository targets are never touched until a complete journal is
-            # atomically promoted out of the build namespace.
-            _rmtree_readonly_artifacts(journal)
+            # atomically promoted out of the build namespace. Discard
+            # namespaces are likewise retired recovery evidence, so a blocked
+            # cleanup artifact must not wedge unrelated future applies.
+            _rmtree_readonly_artifacts(journal, ignore_errors=True)
             continue
         _recover_agent_journal(root, journal)
 
@@ -2695,7 +2729,12 @@ def _discard_agent_journal(root: Path, journal: Path) -> None:
     if disposable.exists():
         if disposable.is_symlink() or not disposable.is_dir():
             raise ContextOSError(f"invalid disposable journal path: {disposable}")
-        _rmtree_readonly_artifacts(disposable)
+        _rmtree_readonly_artifacts(disposable, ignore_errors=True)
+    disposable = _available_transaction_namespace(
+        root,
+        disposable,
+        suffix=".discard",
+    )
     journal.rename(disposable)
     _fsync_directory(journal.parent)
     _rmtree_readonly_artifacts(
@@ -3434,7 +3473,8 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
                     rollback_errors.append(str(rollback_exc))
             if rollback_errors:
                 raise ContextOSError(
-                    f"apply failed and rollback was incomplete ({'; '.join(rollback_errors)}): {exc}"
+                    "apply failed and transaction recovery was incomplete "
+                    f"({'; '.join(rollback_errors)}): {exc}"
                 ) from exc
             if journal_path is not None and journal_path.exists():
                 _discard_agent_journal(root, journal_path)

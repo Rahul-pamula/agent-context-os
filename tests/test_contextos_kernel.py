@@ -554,7 +554,9 @@ class KernelTest(unittest.TestCase):
         with mock.patch(
             "contextos.kernel.os.replace", side_effect=race_before_capture
         ):
-            with self.assertRaisesRegex(ContextOSError, "rollback was incomplete"):
+            with self.assertRaisesRegex(
+                ContextOSError, "transaction recovery was incomplete"
+            ):
                 self._apply(proposal_path, proposal)
         self.assertEqual(concurrent, current.read_bytes())
         self.assertFalse((self.root / "sessions/2026-08-23.md").exists())
@@ -588,7 +590,9 @@ class KernelTest(unittest.TestCase):
         with mock.patch(
             "contextos.kernel._publish_exclusive", side_effect=race_after_publish
         ):
-            with self.assertRaisesRegex(ContextOSError, "rollback was incomplete"):
+            with self.assertRaisesRegex(
+                ContextOSError, "transaction recovery was incomplete"
+            ):
                 self._apply(proposal_path, proposal)
         self.assertEqual(concurrent, current.read_bytes())
         self.assertTrue(
