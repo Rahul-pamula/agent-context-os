@@ -1814,6 +1814,7 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
         checks = {item["name"]: item for item in report["checks"]}
         self.assertEqual("fail", checks["local-host-state"]["status"])
         self.assertEqual("fail", checks["transaction-journals"]["status"])
+        self.assertEqual("fail", checks["transaction-retired-artifacts"]["status"])
         self.assertEqual("fail", checks["host-state-lock"]["status"])
 
     def test_bare_doctor_fails_when_registry_is_empty(self) -> None:

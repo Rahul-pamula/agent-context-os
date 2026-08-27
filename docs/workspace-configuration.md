@@ -151,6 +151,10 @@ journal namespaces contain no recoverable workspace state; their cleanup is
 best-effort and a retained artifact there does not block unrelated applies or a
 new journal with the same proposal ID. A colliding retained namespace is left
 intact and the new build or retirement uses a collision-free numbered sibling.
+`doctor` reports recoverable journals separately from those inert namespaces:
+pending journals must be recovered rather than deleted, while an inert path may
+be removed manually after confirming no apply is active and using a method that
+does not change shared-inode attributes.
 
 ## Agent activation lifecycle
 

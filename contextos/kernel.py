@@ -1999,7 +1999,11 @@ def _unlink_readonly_artifact(path: Path) -> None:
             "filesystem cannot safely remove a read-only transaction artifact "
             "because atomic FileDispositionInfoEx deletion is unavailable: "
             f"{path} ({artifact_kind}, link count {metadata.st_nlink}); "
-            "the artifact was retained for a later cleanup attempt"
+            "the artifact was retained. Automatic retry cannot remove it while "
+            "atomic deletion remains unsupported. Do not change shared-inode "
+            "attributes; resolve filesystem support before retrying, and use "
+            "doctor to determine whether the containing journal is recoverable "
+            "or inert before any manual removal"
         ) from exc
 
 
@@ -2697,6 +2701,12 @@ def _recover_agent_journal(
     )
 
 
+def _is_retired_transaction_namespace(path: Path) -> bool:
+    return path.name.startswith(".") and path.name.endswith(
+        (".building", ".discard")
+    )
+
+
 def _recover_pending_agent_journals(root: Path) -> None:
     journals = root / ".context-os" / "journals"
     _guard_local_artifact_path(root, journals)
@@ -2707,9 +2717,7 @@ def _recover_pending_agent_journals(root: Path) -> None:
     for journal in sorted(journals.iterdir(), key=lambda path: path.name.casefold()):
         if journal.is_symlink() or not journal.is_dir():
             raise ContextOSError(f"invalid agent transaction journal path: {journal}")
-        if journal.name.startswith(".") and journal.name.endswith(
-            (".building", ".discard")
-        ):
+        if _is_retired_transaction_namespace(journal):
             # Repository targets are never touched until a complete journal is
             # atomically promoted out of the build namespace. Discard
             # namespaces are likewise retired recovery evidence, so a blocked
@@ -4547,12 +4555,36 @@ def doctor(
         _guard_local_state_path(root, journals)
         if _is_link_like(journals) or (journals.exists() and not journals.is_dir()):
             raise ContextOSError(f"invalid journal path: {journals}")
-        pending_journals = list(journals.iterdir()) if journals.is_dir() else []
+        journal_artifacts = (
+            sorted(journals.iterdir(), key=lambda path: path.name.casefold())
+            if journals.is_dir()
+            else []
+        )
+        retired_artifacts = [
+            path
+            for path in journal_artifacts
+            if _is_retired_transaction_namespace(path)
+        ]
+        pending_journals = [
+            path
+            for path in journal_artifacts
+            if not _is_retired_transaction_namespace(path)
+        ]
+
+        def artifact_paths(paths: Sequence[Path]) -> str:
+            rendered = [
+                json.dumps(path.relative_to(root).as_posix()) for path in paths[:5]
+            ]
+            if len(paths) > 5:
+                rendered.append(f"and {len(paths) - 5} more")
+            return ", ".join(rendered)
+
         add(
             "transaction-journals",
             "warn" if pending_journals else "pass",
             (
-                f"{len(pending_journals)} pending journal artifact(s); confirm no "
+                f"{len(pending_journals)} recoverable pending journal(s): "
+                f"{artifact_paths(pending_journals)}; confirm no "
                 "apply process is active, remove a stale apply.lock if present, "
                 "then rerun the approved proposal apply to inspect and recover. "
                 "If recovery reports a committed target mismatch, restore the "
@@ -4562,8 +4594,24 @@ def doctor(
             if pending_journals
             else "none",
         )
+        add(
+            "transaction-retired-artifacts",
+            "warn" if retired_artifacts else "pass",
+            (
+                f"{len(retired_artifacts)} inert build/retirement artifact(s): "
+                f"{artifact_paths(retired_artifacts)}; these namespaces contain "
+                "no recoverable workspace state. After confirming no apply "
+                "process is active, remove only the reported paths manually with "
+                "a tool/filesystem that does not change shared-inode attributes; "
+                "an unchanged retry will not self-heal when atomic deletion is "
+                "unsupported"
+            )
+            if retired_artifacts
+            else "none",
+        )
     except (ContextOSError, OSError) as exc:
         add("transaction-journals", "fail", str(exc))
+        add("transaction-retired-artifacts", "fail", str(exc))
     hosts_lock = root / ".context-os" / "hosts.lock"
     try:
         _guard_local_state_path(root, hosts_lock)
