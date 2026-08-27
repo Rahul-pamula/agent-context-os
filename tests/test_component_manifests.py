@@ -523,6 +523,8 @@ class ComponentManifestTest(unittest.TestCase):
         )
         self.assertEqual("codex-adapter", owners[".codex/hooks.json"])
         self.assertEqual("hermes-adapter", owners["adapters/hermes/README.md"])
+        self.assertEqual("core", owners["workspace/example.json"])
+        self.assertEqual("managed", policies["workspace/example.json"])
         self.assertEqual("seed", policies["identity/who-i-am.md"])
         self.assertEqual("seed", policies["state/current.md"])
 
@@ -549,12 +551,14 @@ class ComponentManifestTest(unittest.TestCase):
             *owners,
             ".agents/skills/standup/SKILL.md",
             ".claude/commands/standup.md",
+            "contextos.workspace.json",
             "sessions/2026-08-25.md",
         ]
         self.assertEqual(
             [
                 ".agents/skills/standup/SKILL.md",
                 ".claude/commands/standup.md",
+                "contextos.workspace.json",
                 "sessions/2026-08-25.md",
             ],
             unclassified_tracked_paths(

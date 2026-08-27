@@ -1,6 +1,7 @@
 {
     "schema_version": 1,
     "extensible_paths": [
+        "contextos.workspace.json",
         "workspace.yaml"
     ],
     "extensible_roots": [
@@ -91,6 +92,10 @@
                 },
                 {
                     "path": "contextos/runtime_schema.py",
+                    "policy": "managed"
+                },
+                {
+                    "path": "contextos/workspace_schema.py",
                     "policy": "managed"
                 },
                 {
@@ -191,6 +196,10 @@
                 },
                 {
                     "path": "docs/templates/workflow-parity.json",
+                    "policy": "managed"
+                },
+                {
+                    "path": "docs/workspace-configuration.md",
                     "policy": "managed"
                 },
                 {
@@ -310,6 +319,10 @@
                     "policy": "development"
                 },
                 {
+                    "path": "scripts/workspace-config.py",
+                    "policy": "development"
+                },
+                {
                     "path": "SECURITY.md",
                     "policy": "development"
                 },
@@ -386,7 +399,19 @@
                     "policy": "development"
                 },
                 {
+                    "path": "tests/test_workspace_config.py",
+                    "policy": "development"
+                },
+                {
                     "path": "tests/test-hooks.sh",
+                    "policy": "development"
+                },
+                {
+                    "path": "tests/fixtures/workspace-conflicts.json",
+                    "policy": "development"
+                },
+                {
+                    "path": "tests/fixtures/workspace-migrations.json",
                     "policy": "development"
                 },
                 {
@@ -400,6 +425,14 @@
                 {
                     "path": "writing/skills/avoid-ai-writing/SKILL.md",
                     "policy": "seed"
+                },
+                {
+                    "path": "workspace/example.json",
+                    "policy": "managed"
+                },
+                {
+                    "path": "workspace/schema.json",
+                    "policy": "managed"
                 }
             ]
         },
