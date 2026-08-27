@@ -274,6 +274,8 @@ grep -Fq -- '--agent auto|RUNTIME|none' <<<"$help_output" || fail "setup help om
 grep -Fq 'Setup does not launch OpenClaw' scripts/setup.sh \
   || fail "OpenClaw setup omits the private-workspace launch boundary"
 openclaw_setup_case=$(sed -n '/^  openclaw)/,/^    ;;/p' scripts/setup.sh)
+test -n "$openclaw_setup_case" \
+  || fail "OpenClaw setup case could not be inspected for launch behavior"
 if grep -Eq '(^|[[:space:]])exec[[:space:]]+openclaw([[:space:]]|$)' <<<"$openclaw_setup_case"; then
   fail "setup can launch OpenClaw before private-workspace configuration is verified"
 fi
@@ -305,7 +307,7 @@ make_setup_fixture() {
   local destination="$1"
   mkdir -p "$destination"
   tar --exclude='.git' --exclude='.context-os' --exclude='node_modules' \
-    --exclude='bash.exe.stackdump' -cf - . | tar -xf - -C "$destination"
+    -cf - . | tar -xf - -C "$destination"
   # Setup's prompt sequence must remain stable after a user removes the optional
   # seed project from their own workspace. An empty fixture directory is enough
   # to exercise the removal prompt without fabricating tracked source content.
