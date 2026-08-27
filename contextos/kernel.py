@@ -2677,8 +2677,10 @@ def _recover_pending_agent_journals(root: Path) -> None:
             (".building", ".discard")
         ):
             # Repository targets are never touched until a complete journal is
-            # atomically promoted out of the build namespace.
-            _rmtree_readonly_artifacts(journal)
+            # atomically promoted out of the build namespace. Discard
+            # namespaces are likewise retired recovery evidence, so a blocked
+            # cleanup artifact must not wedge unrelated future applies.
+            _rmtree_readonly_artifacts(journal, ignore_errors=True)
             continue
         _recover_agent_journal(root, journal)
 
@@ -3432,7 +3434,8 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
                     rollback_errors.append(str(rollback_exc))
             if rollback_errors:
                 raise ContextOSError(
-                    f"apply failed and rollback was incomplete ({'; '.join(rollback_errors)}): {exc}"
+                    "apply failed and transaction recovery was incomplete "
+                    f"({'; '.join(rollback_errors)}): {exc}"
                 ) from exc
             if journal_path is not None and journal_path.exists():
                 _discard_agent_journal(root, journal_path)

@@ -146,7 +146,9 @@ link count for a later retry. This policy avoids a check-then-`chmod` window eve
 when metadata reports a single link, because another link can be created after
 that observation. Cleanup may temporarily add write permission to a directory,
 which Windows does not permit to be hard-linked, and restores the original mode
-if the directory operation fails.
+if the directory operation fails. Incomplete `.building` and retired `.discard`
+journal namespaces contain no recoverable workspace state; their cleanup is
+best-effort and a retained artifact there does not block unrelated applies.
 
 ## Agent activation lifecycle
 

@@ -632,7 +632,9 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
             return original_replace(source, destination, *args, **kwargs)
 
         with mock.patch("contextos.kernel.os.replace", side_effect=race_then_fail):
-            with self.assertRaisesRegex(ContextOSError, "rollback was incomplete"):
+            with self.assertRaisesRegex(
+                ContextOSError, "transaction recovery was incomplete"
+            ):
                 self.apply(path, proposal)
         self.assertEqual(concurrent, target.read_bytes())
         self.assertTrue(legacy.exists())
@@ -661,7 +663,9 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         with mock.patch("contextos.kernel.os.replace", side_effect=fail_legacy), mock.patch(
             "pathlib.Path.read_bytes", autospec=True, side_effect=race_after_capture_read
         ):
-            with self.assertRaisesRegex(ContextOSError, "rollback was incomplete"):
+            with self.assertRaisesRegex(
+                ContextOSError, "transaction recovery was incomplete"
+            ):
                 self.apply(path, proposal)
         self.assertEqual(concurrent, target.read_bytes())
         self.assertTrue(legacy.exists())
@@ -686,7 +690,9 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         with mock.patch(
             "contextos.kernel.os.replace", side_effect=install_directory_racer
         ):
-            with self.assertRaisesRegex(ContextOSError, "rollback was incomplete"):
+            with self.assertRaisesRegex(
+                ContextOSError, "transaction recovery was incomplete"
+            ):
                 self.apply(path, proposal)
         journal = self.root / ".context-os/journals" / proposal["proposal_id"]
         self.assertEqual(
@@ -728,7 +734,9 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         with mock.patch(
             "contextos.kernel.os.replace", side_effect=race_during_capture
         ):
-            with self.assertRaisesRegex(ContextOSError, "rollback was incomplete"):
+            with self.assertRaisesRegex(
+                ContextOSError, "transaction recovery was incomplete"
+            ):
                 self.apply(path, proposal)
         journal = self.root / ".context-os/journals" / proposal["proposal_id"]
         capture_dir = next((journal / "rollback").glob("*.current"))
@@ -1168,7 +1176,9 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         with mock.patch(
             "contextos.kernel.os.link", side_effect=fail_forward_and_first_restore
         ):
-            with self.assertRaisesRegex(ContextOSError, "rollback was incomplete"):
+            with self.assertRaisesRegex(
+                ContextOSError, "transaction recovery was incomplete"
+            ):
                 self.apply(path, proposal)
         journal = self.root / ".context-os/journals" / proposal["proposal_id"]
         self.assertFalse(target.exists())
@@ -1211,7 +1221,9 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
             return original(source, destination, *args, **kwargs)
 
         with mock.patch("contextos.kernel.os.link", side_effect=race_target):
-            with self.assertRaisesRegex(ContextOSError, "rollback was incomplete"):
+            with self.assertRaisesRegex(
+                ContextOSError, "transaction recovery was incomplete"
+            ):
                 self.apply(path, proposal)
         metadata = target.stat()
         self.assertEqual(raced_identity, (metadata.st_dev, metadata.st_ino))
@@ -1451,7 +1463,7 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         self.assertTrue(artifact.exists())
         self.assertFalse(artifact.stat().st_mode & 0o200)
 
-    @unittest.skipUnless(os.name == "nt", "Windows read-only fallback")
+    @unittest.skipUnless(os.name == "nt", "Windows read-only cleanup")
     def test_readonly_tree_best_effort_suppresses_sharing_violation(self) -> None:
         tree = self.root / ".context-os/staging/held-tree"
         artifact = tree / "artifact"
@@ -1497,6 +1509,38 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
         self.assertFalse(removable.exists())
         self.assertFalse(nested.exists())
         self.assertFalse((tree / "sub").exists())
+        self.assertFalse(retained.stat().st_mode & 0o200)
+
+    @unittest.skipUnless(os.name == "nt", "Windows read-only cleanup")
+    def test_retained_discard_artifact_does_not_block_unrelated_apply(self) -> None:
+        discard = self.root / ".context-os/journals/.stale.discard"
+        retained = discard / "aaa-retained"
+        removable = discard / "bbb-removable"
+        discard.mkdir(parents=True)
+        retained.write_bytes(b"retain me\n")
+        removable.write_bytes(b"remove me\n")
+        os.chmod(retained, 0o444)
+        path, proposal = self.propose()
+        original_chmod = os.chmod
+
+        def reject_retained_chmod(candidate, mode, *args, **kwargs):
+            if Path(candidate).resolve() == retained.resolve():
+                raise AssertionError("blocked file cleanup must not chmod")
+            return original_chmod(candidate, mode, *args, **kwargs)
+
+        with mock.patch(
+            "contextos.kernel._windows_unlink_readonly",
+            side_effect=ctypes.WinError(87),
+        ), mock.patch(
+            "contextos.kernel.os.chmod",
+            side_effect=reject_retained_chmod,
+        ):
+            receipt, _ = self.apply(path, proposal)
+
+        self.assertTrue(receipt.exists())
+        self.assertTrue((self.root / "contextos.workspace.json").exists())
+        self.assertTrue(retained.exists())
+        self.assertFalse(removable.exists())
         self.assertFalse(retained.stat().st_mode & 0o200)
 
     def test_strict_recursive_cleanup_reraises_contextos_error(self) -> None:
