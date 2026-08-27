@@ -1450,7 +1450,9 @@ def transaction_lock(root: Path) -> Iterator[None]:
 
 def git_head(root: Path) -> str | None:
     try:
-        return git_repository_identity(root, require_clean_index=False)
+        return git_repository_identity(
+            root, require_clean_index=False, require_toplevel=False
+        )
     except SnapshotError:
         return None
 

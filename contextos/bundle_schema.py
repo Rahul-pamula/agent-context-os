@@ -188,7 +188,7 @@ def _safe_path(root: Path, relative: str, field: str, *, missing_ok: bool) -> Pa
             _fail(field, f"must not be or traverse a link-like path: {relative}")
         if not current.exists() and index < len(PurePosixPath(relative).parts) - 1:
             if missing_ok:
-                break
+                continue
             _fail(field, f"missing ancestor for {relative}")
     if current.exists():
         metadata = current.lstat()
@@ -740,6 +740,8 @@ def create_structural_plan(
         all_current_ids = [item["id"] for item in current.manifest["components"]]
         all_current = _owned_records(current, all_current_ids)
         for relative in sorted(set(all_current) - set(base), key=portable_path_identity):
+            if all_current[relative]["policy"] == "seed":
+                continue
             target = _safe_path(
                 target_root, relative, f"target.{relative}", missing_ok=True
             )

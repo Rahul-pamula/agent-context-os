@@ -79,6 +79,8 @@ which agents are configured. Full-template installs therefore declare the full
 materialized closure, while slimmer installs declare only what they contain.
 If a target contains an owned path outside that declaration, planning fails and
 names the component that must be included instead of silently inferring state.
+Seed paths are excluded from that inference because a user-created file is not
+evidence that its optional component was ever materialized.
 
 The planner rejects unavailable components, portable path aliases, symlinks or
 reparse points, hard links, unowned target collisions, stale configuration,

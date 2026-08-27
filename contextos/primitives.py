@@ -105,28 +105,51 @@ def git_environment() -> dict[str, str]:
     return environment
 
 
-def git_command(root: Path) -> list[str]:
-    return ["git", "-c", f"safe.directory={root}", "-C", str(root)]
+def _git_top_candidate(root: Path) -> Path:
+    """Find the nearest lexical ancestor carrying a non-link-like .git marker."""
+    for candidate in (root, *root.parents):
+        marker = candidate / ".git"
+        try:
+            metadata = marker.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise SnapshotError(f"cannot inspect local Git marker {marker}: {exc}") from exc
+        if is_link_like(marker):
+            raise SnapshotError(f"local Git marker must not be link-like: {marker}")
+        if stat.S_ISDIR(metadata.st_mode) or stat.S_ISREG(metadata.st_mode):
+            return candidate
+        raise SnapshotError(f"local Git marker must be a file or directory: {marker}")
+    raise SnapshotError("cannot find a containing local Git repository")
 
 
-def git_repository_identity(root: Path, *, require_clean_index: bool) -> str:
-    """Resolve one explicit top-level repository and optionally bind its index to HEAD."""
+def git_command(root: Path, *, safe_root: Path | None = None) -> list[str]:
+    safe_root = root if safe_root is None else safe_root
+    return ["git", "-c", f"safe.directory={safe_root}", "-C", str(root)]
+
+
+def git_repository_identity(
+    root: Path, *, require_clean_index: bool, require_toplevel: bool = True,
+) -> str:
+    """Resolve a containing repository and optionally require root to be its top level."""
     environment = git_environment()
+    git_top = _git_top_candidate(root)
+    command = git_command(root, safe_root=git_top)
     try:
         top = subprocess.run(
-            [*git_command(root), "rev-parse", "--show-toplevel"],
+            [*command, "rev-parse", "--show-toplevel"],
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             env=environment,
         ).stdout.decode("utf-8").strip()
         commit = subprocess.run(
-            [*git_command(root), "rev-parse", "--verify", "HEAD^{commit}"],
+            [*command, "rev-parse", "--verify", "HEAD^{commit}"],
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             env=environment,
         ).stdout.decode("ascii").strip()
         staged = None
         if require_clean_index:
             staged = subprocess.run(
-                [*git_command(root), "diff-index", "--cached", "--quiet", commit, "--"],
+                [*command, "diff-index", "--cached", "--quiet", commit, "--"],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment,
             )
     except (OSError, subprocess.CalledProcessError, UnicodeError) as exc:
@@ -136,10 +159,13 @@ def git_repository_identity(root: Path, *, require_clean_index: bool) -> str:
         )
         raise SnapshotError(f"cannot resolve the local Git repository: {detail}") from exc
     try:
+        same_candidate = os.path.samefile(git_top, Path(top))
         same_root = os.path.samefile(root, Path(top))
     except OSError as exc:
         raise SnapshotError(f"cannot compare Git top-level identity: {exc}") from exc
-    if not same_root:
+    if not same_candidate:
+        raise SnapshotError("Git top level does not match the nearest local .git marker")
+    if require_toplevel and not same_root:
         raise SnapshotError("source root must be the local Git top-level directory")
     if staged is not None and staged.returncode == 1:
         raise SnapshotError("Git index differs from HEAD; commit or unstage it first")

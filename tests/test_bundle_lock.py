@@ -20,10 +20,15 @@ from contextos.bundle_schema import (
     validate_bundle_lock,
     verify_bundle,
     _git_index,
+    _safe_path,
 )
 from contextos.kernel import canonical_json as kernel_canonical_json
 from contextos.kernel import git_head
-from contextos.primitives import canonical_json as primitive_canonical_json
+from contextos.primitives import (
+    SnapshotError,
+    canonical_json as primitive_canonical_json,
+    git_repository_identity,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,6 +56,7 @@ class BundleFixture:
     def __init__(
         self, root: Path, *, version: str, managed: bytes, addon: bool,
         runtime_addon: bool | None = None, include_seed: bool = True,
+        addon_policy: str = "managed",
     ) -> None:
         self.root = root
         (root / "components").mkdir(parents=True)
@@ -91,7 +97,7 @@ class BundleFixture:
                 "id": "addon",
                 "description": "Optional fixture.",
                 "depends_on": ["core"],
-                "paths": [{"path": "addon.txt", "policy": "managed"}],
+                "paths": [{"path": "addon.txt", "policy": addon_policy}],
             })
         manifest = {
             "schema_version": 1,
@@ -326,6 +332,13 @@ class BundleLockTest(unittest.TestCase):
         subprocess.run(["git", "init", "-q"], cwd=other, check=True)
         with mock.patch.dict(os.environ, {"GIT_DIR": str(other / ".git")}):
             self.assertEqual(expected, git_head(self.source))
+            nested = self.source / "nested-workspace"
+            nested.mkdir()
+            self.assertEqual(expected, git_head(nested))
+            with self.assertRaisesRegex(SnapshotError, "top-level"):
+                git_repository_identity(
+                    nested, require_clean_index=False, require_toplevel=True
+                )
 
     def test_current_bundle_only_requires_compatible_component_manifest(self) -> None:
         older = copy.deepcopy(self.fixture.lock)
@@ -549,6 +562,45 @@ class StructuralPlannerTest(unittest.TestCase):
         )
         seed_action = next(item for item in plan["actions"] if item["path"] == "seed.txt")
         self.assertEqual("preserve-seed", seed_action["action"])
+
+    def test_uninstalled_component_seed_is_not_inferred_as_materialized(self) -> None:
+        current_root = self.root / "seed-component-current"
+        candidate_root = self.root / "seed-component-candidate"
+        current_root.mkdir()
+        candidate_root.mkdir()
+        current_fixture = BundleFixture(
+            current_root, version="1.0.0", managed=b"binary\x00v1\n",
+            addon=True, runtime_addon=False, addon_policy="seed",
+        )
+        candidate_fixture = BundleFixture(
+            candidate_root, version="2.0.0", managed=b"binary\x00v2\n",
+            addon=True, runtime_addon=True, addon_policy="seed",
+        )
+        current = current_fixture.verify(role="current")
+        candidate = candidate_fixture.verify()
+        target = self.root / "seed-component-target"
+        shutil.copytree(current_root, target)
+        (target / "addon.txt").write_text("user-created\n", encoding="utf-8")
+        config = target / "contextos.workspace.json"
+        config.write_text(
+            json.dumps(workspace("fixture-template", "1.0.0"), indent=2) + "\n",
+            encoding="utf-8",
+        )
+        plan = create_structural_plan(
+            target_root=target, workspace_config_path=config,
+            expected_config_sha256=digest(config), candidate=candidate,
+            desired_components=["addon"], current=current,
+            current_components=["core"],
+        )
+        addon_action = next(item for item in plan["actions"] if item["path"] == "addon.txt")
+        self.assertEqual("preserve-seed", addon_action["action"])
+
+    def test_missing_safe_path_returns_requested_leaf_not_first_missing_ancestor(self) -> None:
+        expected = self.target / "absent" / "nested" / "file.txt"
+        actual = _safe_path(
+            self.target, "absent/nested/file.txt", "target.fixture", missing_ok=True
+        )
+        self.assertEqual(expected, actual)
 
     def test_stale_config_hash_unavailable_component_and_unowned_collision_fail(self) -> None:
         with self.assertRaisesRegex(BundleError, "configuration is stale"):
