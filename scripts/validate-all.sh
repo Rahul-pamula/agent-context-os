@@ -32,6 +32,7 @@ CONTEXTOS_VALIDATION_PROFILE="$VALIDATION_PROFILE" \
   "$CONTEXTOS_PYTHON_CMD" -m unittest discover -s tests -p 'test_*.py'
 "$CONTEXTOS_PYTHON_CMD" scripts/integrations.py check
 "$CONTEXTOS_PYTHON_CMD" scripts/component-manifests.py "${COMPONENT_CHECK_ARGS[@]}"
+"$CONTEXTOS_PYTHON_CMD" scripts/bundle-locks.py check
 "$CONTEXTOS_PYTHON_CMD" scripts/runtime-manifests.py check
 "$CONTEXTOS_PYTHON_CMD" scripts/workspace-config.py check
 

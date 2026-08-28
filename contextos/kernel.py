@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import difflib
 import errno
-import hashlib
 import json
 import os
 import re
@@ -47,6 +46,14 @@ from .workspace_schema import (
     strict_json_loads,
     validate_workspace_config,
     validate_workspace_path,
+)
+from .primitives import (
+    SnapshotError,
+    canonical_json,
+    git_repository_identity,
+    is_link_like,
+    read_regular_file_snapshot,
+    sha256_bytes,
 )
 
 
@@ -118,14 +125,6 @@ class WorkspaceResolution:
     canonical: bool | None
 
 
-def canonical_json(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
-
-
 def sha256_text(value: str) -> str:
     return sha256_bytes(value.encode("utf-8"))
 
@@ -148,49 +147,11 @@ def raw_file_digest(path: Path) -> str | None:
 
 def _read_regular_file_snapshot(path: Path) -> bytes:
     """Read one no-follow snapshot and verify the pathname still names it."""
-    if _is_link_like(path):
-        raise ContextOSError(f"transaction target must not be link-like: {path}")
-    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
-        descriptor = os.open(path, flags)
-    except OSError as exc:
-        raise ContextOSError(f"cannot open transaction target snapshot {path}: {exc}") from exc
-    try:
-        metadata_before = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata_before.st_mode):
-            raise ContextOSError(f"transaction target must be a regular file: {path}")
-        chunks: list[bytes] = []
-        while True:
-            chunk = os.read(descriptor, 1024 * 1024)
-            if not chunk:
-                break
-            chunks.append(chunk)
-        current = os.stat(path, follow_symlinks=False)
-        metadata_after = os.fstat(descriptor)
-        fingerprint_before = (
-            metadata_before.st_mode,
-            metadata_before.st_size,
-            metadata_before.st_mtime_ns,
-            metadata_before.st_ctime_ns,
-        )
-        fingerprint_after = (
-            metadata_after.st_mode,
-            metadata_after.st_size,
-            metadata_after.st_mtime_ns,
-            metadata_after.st_ctime_ns,
-        )
-        if (
-            not stat.S_ISREG(current.st_mode)
-            or not os.path.samestat(metadata_before, current)
-            or not os.path.samestat(metadata_before, metadata_after)
-            or fingerprint_before != fingerprint_after
-        ):
-            raise ContextOSError(f"transaction target changed during snapshot: {path}")
-        return b"".join(chunks)
-    except OSError as exc:
-        raise ContextOSError(f"transaction target changed during snapshot: {path}") from exc
-    finally:
-        os.close(descriptor)
+        data, _ = read_regular_file_snapshot(path, subject="transaction target")
+        return data
+    except SnapshotError as exc:
+        raise ContextOSError(str(exc)) from exc
 
 
 def utc_now() -> datetime:
@@ -212,17 +173,9 @@ def parse_now(raw: str | None) -> datetime:
 def _is_link_like(path: Path) -> bool:
     """Recognize symlinks and Windows reparse points without following them."""
     try:
-        metadata = path.lstat()
-    except FileNotFoundError:
-        return False
-    except OSError as exc:
-        raise ContextOSError(f"cannot inspect path without following links {path}: {exc}") from exc
-    reparse_tag = getattr(metadata, "st_reparse_tag", 0)
-    link_tags = {
-        getattr(stat, "IO_REPARSE_TAG_SYMLINK", -1),
-        getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", -2),
-    }
-    return stat.S_ISLNK(metadata.st_mode) or reparse_tag in link_tags
+        return is_link_like(path)
+    except SnapshotError as exc:
+        raise ContextOSError(str(exc)) from exc
 
 
 def _same_file(left: Path, right: Path) -> bool:
@@ -1496,10 +1449,12 @@ def transaction_lock(root: Path) -> Iterator[None]:
 
 
 def git_head(root: Path) -> str | None:
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=root, text=True, capture_output=True, check=False
-    )
-    return result.stdout.strip() if result.returncode == 0 else None
+    try:
+        return git_repository_identity(
+            root, require_clean_index=False, require_toplevel=False
+        )
+    except SnapshotError:
+        return None
 
 
 def validate_proposal(document: dict[str, Any]) -> str:

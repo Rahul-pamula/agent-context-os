@@ -8,6 +8,8 @@ every checked-in path.
 This inventory is metadata, not a materializer. It does not copy, delete,
 upgrade, or rewrite a workspace. Those operations require the later
 configuration and transaction layers described in the multi-agent design epic.
+Detached immutable source identity and read-only composition planning are
+defined in [`bundle-locks.md`](bundle-locks.md).
 
 ## Path policies
 

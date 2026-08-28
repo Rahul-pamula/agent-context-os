@@ -16,6 +16,10 @@
   README support claims, plus strict maintainer and conformance checks.
 
 ### Added
+- Detached immutable bundle locks with Git-index-stable raw-byte identity,
+  explicit offline digest verification, exact component compatibility, and a
+  deterministic read-only structural planner that rejects stale, dirty,
+  unavailable, colliding, linked, or implicitly sourced inputs.
 - Experimental Devin onboarding with distinct cloud-session and Review
   surfaces, repository-native AGENTS.md and Agent Skills, a managed-account
   setup/doctor boundary, and hostile controls that reject repository claims for
