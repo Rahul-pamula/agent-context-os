@@ -173,6 +173,7 @@ state/                     Current focus, priorities, blockers, and decisions
 sessions/                  Reviewed session handoffs
 .agents/skills/            Provider-neutral workflow cores
 contextos/                 Deterministic lifecycle kernel
+                           and offline bundle materializer
 .claude/commands/          Claude Code slash-command adapters
 .claude/skills/            Claude Code-only skills
 .claude/hooks/             Claude Code-only safety and session hooks

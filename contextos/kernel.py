@@ -66,11 +66,13 @@ WORKSPACE_MIGRATION_OPERATION = "workspace-migrate"
 WORKSPACE_SETUP_OPERATION = "workspace-setup"
 AGENT_ENABLE_OPERATION = "agent-enable"
 AGENT_DISABLE_OPERATION = "agent-disable"
+MATERIALIZE_OPERATION = "component-materialize"
 AGENT_SET_OPERATIONS = {
     WORKSPACE_MIGRATION_OPERATION,
     WORKSPACE_SETUP_OPERATION,
     AGENT_ENABLE_OPERATION,
     AGENT_DISABLE_OPERATION,
+    MATERIALIZE_OPERATION,
 }
 LOCAL_ARTIFACT_MODE = 0o600
 NEW_CONTENT_MODE = 0o666 if os.name == "nt" else 0o644
@@ -470,6 +472,14 @@ def safe_repo_path(root: Path, raw: str) -> Path:
     except ValueError as exc:
         raise ContextOSError(f"path escapes repository root: {raw}") from exc
     return resolved
+
+
+def _transaction_target(root: Path, raw: str, operation: str | None) -> Path:
+    if operation == MATERIALIZE_OPERATION and raw == ".context-os/installed-bundle.json":
+        candidate = root / ".context-os" / "installed-bundle.json"
+        _guard_local_artifact_path(root, candidate)
+        return candidate
+    return safe_repo_path(root, raw)
 
 
 def workspace_resolution_report(root: Path) -> dict[str, Any]:
@@ -1516,6 +1526,10 @@ def _validate_agent_proposal_shape(
     if set(document) != required:
         raise ContextOSError("agent-config proposal has an invalid top-level shape")
     operation = document.get("operation")
+    if operation == MATERIALIZE_OPERATION:
+        from .materializer import validate_materialization_proposal_shape
+
+        return validate_materialization_proposal_shape(root, document)
     if operation not in AGENT_SET_OPERATIONS:
         raise ContextOSError(f"unsupported agent lifecycle operation: {operation}")
     created_at = parse_now(ensure_text(document.get("created_at"), "created_at"))
@@ -1771,7 +1785,7 @@ def _validate_proposal_shape(root: Path, proposal: Path, document: dict[str, Any
         if relative in seen:
             raise ContextOSError(f"proposal contains duplicate path: {relative}")
         seen.add(relative)
-        safe_repo_path(root, relative)
+        _transaction_target(root, relative, operation)
         if workflow != AGENT_LIFECYCLE_WORKFLOW:
             _validate_change_path(workspace, workflow, created_at, relative)
         if workflow == "setup" and change.get("replacement_approved") not in {True, False}:
@@ -1780,6 +1794,11 @@ def _validate_proposal_shape(root: Path, proposal: Path, document: dict[str, Any
 
 
 def _validate_agent_preflight(root: Path, document: dict[str, Any]) -> None:
+    if document.get("operation") == MATERIALIZE_OPERATION:
+        from .materializer import validate_materialization_preflight
+
+        validate_materialization_preflight(root, document)
+        return
     if document.get("source_git_head") != git_head(root):
         raise ContextOSError("refusing stale agent-config proposal; git HEAD changed")
     # Targets are also authorization inputs (the current workspace configuration
@@ -2112,7 +2131,7 @@ def _create_agent_journal(
     workflow = document["workflow"]
     entries: list[dict[str, Any]] = []
     for index, change in enumerate(document["changes"]):
-        path = safe_repo_path(root, change["path"])
+        path = _transaction_target(root, change["path"], document.get("operation"))
         before = backups[path]
         slot = _transaction_slot(index, change["path"])
         backup_relative = None
@@ -2249,8 +2268,21 @@ def _recover_agent_journal(
             or set(evidence) != {"authorization", "source_hashes"}
             or not isinstance(evidence.get("authorization"), dict)
             or not isinstance(evidence.get("source_hashes"), dict)
-            or manifest.get("invariants") != AGENT_MIGRATION_INVARIANTS
         ):
+            raise ContextOSError(f"invalid agent transaction evidence: {journal}")
+        if manifest.get("operation") == MATERIALIZE_OPERATION:
+            from .materializer import MATERIALIZE_INVARIANTS
+
+            authorization = evidence["authorization"]
+            if (
+                manifest.get("invariants") != MATERIALIZE_INVARIANTS
+                or authorization.get("policy") != "component-materialization-v1"
+                or not isinstance(authorization.get("recovery_policy"), dict)
+            ):
+                raise ContextOSError(
+                    f"invalid materialization transaction evidence: {journal}"
+                )
+        elif manifest.get("invariants") != AGENT_MIGRATION_INVARIANTS:
             raise ContextOSError(f"invalid agent transaction evidence: {journal}")
     else:
         if (
@@ -2298,7 +2330,7 @@ def _recover_agent_journal(
             raise ContextOSError(f"journal slot identity mismatch for {relative}")
         seen_paths.add(relative)
         seen_slots.add(slot)
-        target = safe_repo_path(root, relative)
+        target = _transaction_target(root, relative, manifest.get("operation"))
         if type(entry.get("existed")) is not bool:
             raise ContextOSError(f"invalid journal entry {index}: {journal}")
         mode = entry.get("mode")
@@ -2322,18 +2354,36 @@ def _recover_agent_journal(
             raise ContextOSError(f"invalid journal entry {index}: {journal}")
         receipt_entry = entry.get("receipt_entry")
         if workflow == AGENT_LIFECYCLE_WORKFLOW:
-            recovery_policy = {
-                "contextos.workspace.json": ("write", "workspace-config", "managed"),
-            }
-            if manifest.get("operation") in {
-                WORKSPACE_MIGRATION_OPERATION,
-                WORKSPACE_SETUP_OPERATION,
-            }:
-                recovery_policy["workspace.yaml"] = (
-                    "delete",
-                    "legacy-workspace-config",
-                    "migration-only",
-                )
+            if manifest.get("operation") == MATERIALIZE_OPERATION:
+                raw_policy = manifest["agent_evidence"]["authorization"][
+                    "recovery_policy"
+                ]
+                recovery_policy = {
+                    path: (
+                        item.get("action"), item.get("owner"), item.get("policy")
+                    )
+                    for path, item in raw_policy.items()
+                    if isinstance(path, str) and isinstance(item, dict)
+                }
+                if len(recovery_policy) != len(raw_policy):
+                    raise ContextOSError(
+                        f"invalid materialization recovery policy: {journal}"
+                    )
+            else:
+                recovery_policy = {
+                    "contextos.workspace.json": (
+                        "write", "workspace-config", "managed"
+                    ),
+                }
+                if manifest.get("operation") in {
+                    WORKSPACE_MIGRATION_OPERATION,
+                    WORKSPACE_SETUP_OPERATION,
+                }:
+                    recovery_policy["workspace.yaml"] = (
+                        "delete",
+                        "legacy-workspace-config",
+                        "migration-only",
+                    )
             if relative not in recovery_policy:
                 raise ContextOSError(f"journal path is not recoverable: {relative}")
             allowed_action, allowed_owner, allowed_policy = recovery_policy[relative]
@@ -3172,6 +3222,7 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
         publication_anchors: dict[Path, Path] = {}
         journal_path: Path | None = None
         receipt_published = False
+        materialization_payloads: dict[str, bytes] = {}
         staging_root = root / ".context-os" / "staging" / document["proposal_id"]
         receipt_path = root / ".context-os" / "receipts" / f"{document['proposal_id']}.json"
         _guard_local_artifact_path(root, staging_root)
@@ -3189,8 +3240,14 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
                     staging_root,
                 )
             staging_root.mkdir(parents=True)
+            if document.get("operation") == MATERIALIZE_OPERATION:
+                from .materializer import materialization_payloads as load_payloads
+
+                materialization_payloads = load_payloads(root, document)
             for change_index, change in enumerate(document["changes"]):
-                path = safe_repo_path(root, change["path"])
+                path = _transaction_target(
+                    root, change["path"], document.get("operation")
+                )
                 backups[path] = path.read_bytes() if path.exists() else None
                 backup_modes[path] = (
                     path.stat().st_mode & 0o7777 if path.exists() else None
@@ -3208,7 +3265,9 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
                     )
                     _write_exclusive_bytes(
                         stage,
-                        change["after_text"].encode("utf-8"),
+                        materialization_payloads[change["path"]]
+                        if document.get("operation") == MATERIALIZE_OPERATION
+                        else change["after_text"].encode("utf-8"),
                         root=root,
                         mode=target_mode,
                     )
@@ -3222,7 +3281,9 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
             for change in document["changes"]:
                 if change.get("action", "write") != "write":
                     continue
-                path = safe_repo_path(root, change["path"])
+                path = _transaction_target(
+                    root, change["path"], document.get("operation")
+                )
                 expected_after_raw = (
                     change["after_raw_sha256"]
                     if workflow == AGENT_LIFECYCLE_WORKFLOW
@@ -3249,7 +3310,9 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
                 # source and target immediately before the first mutation.
                 _validate_agent_preflight(root, document)
             for change in document["changes"]:
-                path = safe_repo_path(root, change["path"])
+                path = _transaction_target(
+                    root, change["path"], document.get("operation")
+                )
                 if workflow == AGENT_LIFECYCLE_WORKFLOW:
                     if raw_file_digest(path) != change["before_raw_sha256"]:
                         raise ContextOSError(
@@ -3352,7 +3415,7 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
                 "git_head_before": head_before,
                 "git_head_after": git_head(root),
                 "invariants_checked": (
-                    list(AGENT_MIGRATION_INVARIANTS)
+                    list(document["invariants"])
                     if workflow == AGENT_LIFECYCLE_WORKFLOW
                     else _content_invariants(workflow, document["changes"])
                 ),

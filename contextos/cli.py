@@ -35,6 +35,10 @@ from .kernel import (
     start_report,
     workspace_resolution_report,
 )
+from .materializer import (
+    create_composition_proposal,
+    create_materialization_proposal,
+)
 from .workspace_schema import WorkspaceConfigError, parse_agent_selection
 
 
@@ -177,24 +181,41 @@ def parser() -> argparse.ArgumentParser:
     plan_bundle = bundle_commands.add_parser(
         "plan", help="Print a deterministic read-only structural plan"
     )
-    plan_bundle.add_argument("--lock", type=Path, required=True)
-    plan_bundle.add_argument("--source", type=Path, required=True)
-    plan_bundle.add_argument("--expect-sha256", required=True)
-    plan_bundle.add_argument(
-        "--source-mode", choices=("git-index", "directory"), default="directory"
+    propose_bundle = bundle_commands.add_parser(
+        "propose", help="Create a digest-bound materialization proposal"
     )
-    plan_bundle.add_argument("--target", type=Path, required=True)
-    plan_bundle.add_argument("--workspace-config", type=Path, required=True)
-    plan_bundle.add_argument("--expect-config-sha256", required=True)
-    plan_bundle.add_argument("--components", required=True)
-    plan_bundle.add_argument("--current-lock", type=Path)
-    plan_bundle.add_argument("--current-source", type=Path)
-    plan_bundle.add_argument("--expect-current-sha256")
-    plan_bundle.add_argument(
-        "--current-source-mode", choices=("git-index", "directory"),
-        default="directory",
+    compose_bundle = bundle_commands.add_parser(
+        "compose", help="Create a first-install proposal for a clean target"
     )
-    plan_bundle.add_argument("--current-components")
+    apply_bundle = bundle_commands.add_parser(
+        "apply", help="Apply a materialization proposal to its explicit target"
+    )
+    apply_bundle.add_argument("--target", type=Path, required=True)
+    apply_bundle.add_argument("--proposal", type=Path, required=True)
+    apply_bundle.add_argument("--confirm", required=True)
+    apply_bundle.add_argument("--runtime", default="generic")
+    for command in (plan_bundle, propose_bundle, compose_bundle):
+        command.add_argument("--lock", type=Path, required=True)
+        command.add_argument("--source", type=Path, required=True)
+        command.add_argument("--expect-sha256", required=True)
+        command.add_argument(
+            "--source-mode", choices=("git-index", "directory"), default="directory"
+        )
+        command.add_argument("--target", type=Path, required=True)
+        command.add_argument("--workspace-config", type=Path, required=True)
+        command.add_argument("--expect-config-sha256", required=True)
+        command.add_argument("--components", required=True)
+        command.add_argument("--current-lock", type=Path)
+        command.add_argument("--current-source", type=Path)
+        command.add_argument("--expect-current-sha256")
+        command.add_argument(
+            "--current-source-mode", choices=("git-index", "directory"),
+            default="directory",
+        )
+        command.add_argument("--current-components")
+    propose_bundle.add_argument("--now", help="ISO-8601 timestamp for deterministic proposal IDs")
+    compose_bundle.add_argument("--workspace-config-input", type=Path, required=True)
+    compose_bundle.add_argument("--now", help="ISO-8601 timestamp for deterministic proposal IDs")
     return result
 
 
@@ -210,6 +231,14 @@ def component_selection(raw: str, field: str) -> list[str]:
 
 
 def _bundle_main(args: argparse.Namespace) -> int:
+    if args.bundle_command == "apply":
+        root = args.target.absolute().resolve()
+        proposal = args.proposal if args.proposal.is_absolute() else root / args.proposal
+        receipt_path, receipt = apply_proposal(
+            root, proposal, args.confirm, args.runtime
+        )
+        emit({"receipt": receipt_path.relative_to(root).as_posix(), **receipt})
+        return 0
     if args.bundle_command == "generate":
         lock = create_bundle_lock(
             args.source,
@@ -262,12 +291,78 @@ def _bundle_main(args: argparse.Namespace) -> int:
         current_components = component_selection(
             args.current_components, "current_components"
         )
+    desired_components = component_selection(args.components, "components")
+    if args.bundle_command == "compose":
+        if current is not None or current_components:
+            raise BundleError("compose: current bundle inputs are not allowed")
+        proposal_path, proposal = create_composition_proposal(
+            target_root=args.target,
+            workspace_config_path=args.workspace_config,
+            workspace_config_input_path=args.workspace_config_input,
+            expected_config_input_sha256=args.expect_config_sha256,
+            candidate=candidate,
+            desired_components=desired_components,
+            now=parse_now(args.now),
+        )
+        emit({
+            "proposal": proposal_path.relative_to(args.target.absolute()).as_posix(),
+            "proposal_id": proposal["proposal_id"],
+            "proposal_digest": proposal["proposal_digest"],
+            "plan_digest": proposal["authorization"]["plan"]["plan_digest"],
+            "changes": [
+                {
+                    "action": change["action"],
+                    "path": change["path"],
+                    "owner": change["authorization"]["owner"],
+                    "policy": change["authorization"]["policy"],
+                    "before_sha256_raw": change["before_raw_sha256"],
+                    "after_sha256_raw": change["after_raw_sha256"],
+                    "summary": change["diff"].strip(),
+                }
+                for change in proposal["changes"]
+            ],
+            "writes": True,
+            "applied": False,
+        })
+        return 0
+    if args.bundle_command == "propose":
+        proposal_path, proposal = create_materialization_proposal(
+            target_root=args.target,
+            workspace_config_path=args.workspace_config,
+            expected_config_sha256=args.expect_config_sha256,
+            candidate=candidate,
+            desired_components=desired_components,
+            current=current,
+            current_components=current_components,
+            now=parse_now(args.now),
+        )
+        emit({
+            "proposal": proposal_path.relative_to(args.target.absolute()).as_posix(),
+            "proposal_id": proposal["proposal_id"],
+            "proposal_digest": proposal["proposal_digest"],
+            "plan_digest": proposal["authorization"]["plan"]["plan_digest"],
+            "changes": [
+                {
+                    "action": change["action"],
+                    "path": change["path"],
+                    "owner": change["authorization"]["owner"],
+                    "policy": change["authorization"]["policy"],
+                    "before_sha256_raw": change["before_raw_sha256"],
+                    "after_sha256_raw": change["after_raw_sha256"],
+                    "summary": change["diff"].strip(),
+                }
+                for change in proposal["changes"]
+            ],
+            "writes": True,
+            "applied": False,
+        })
+        return 0
     plan = create_structural_plan(
         target_root=args.target,
         workspace_config_path=args.workspace_config,
         expected_config_sha256=args.expect_config_sha256,
         candidate=candidate,
-        desired_components=component_selection(args.components, "components"),
+        desired_components=desired_components,
         current=current,
         current_components=current_components,
     )

@@ -16,6 +16,11 @@
   README support claims, plus strict maintainer and conformance checks.
 
 ### Added
+- Digest-bound bundle composition and upgrade proposals that materialize binary
+  and text component files through the existing journal, receipt, recovery, and
+  rollback engine. Clean composition writes workspace configuration in the same
+  transaction; upgrades add, replace, or remove only ownership-authorized paths,
+  preserve seed content, and record ignored installed-bundle state.
 - Detached immutable bundle locks with Git-index-stable raw-byte identity,
   explicit offline digest verification, exact component compatibility, and a
   deterministic read-only structural planner that rejects stale, dirty,

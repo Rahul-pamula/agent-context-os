@@ -37,6 +37,7 @@ from .primitives import (
 from .workspace_schema import (
     WORKSPACE_SCHEMA_VERSION,
     WorkspaceConfigError,
+    render_workspace_config,
     strict_json_loads,
     validate_workspace_config,
     validate_workspace_path,
@@ -850,6 +851,105 @@ def create_structural_plan(
             "template": {"source": candidate.name, "version": candidate.version},
         },
         "current_components": current_ids,
+        "desired_components": desired_ids,
+        "actions": actions,
+    }
+    return {
+        **unsigned,
+        "plan_digest": sha256_bytes(canonical_json(unsigned).encode("utf-8")),
+    }
+
+
+def create_initial_structural_plan(
+    *,
+    target_root: Path,
+    workspace_config: dict[str, Any],
+    candidate: VerifiedBundle,
+    desired_components: Sequence[str],
+) -> dict[str, Any]:
+    """Plan a first materialization without requiring tracked target state first."""
+    target_root = _source_root(target_root, "target_root")
+    try:
+        if os.path.samefile(target_root, candidate.root):
+            _fail("target_root", "must be separate from the candidate source root")
+    except OSError as exc:
+        raise BundleError(f"cannot compare source and target roots: {exc}") from exc
+    try:
+        config = validate_workspace_config(
+            workspace_config, known_runtime_ids=_runtime_ids(candidate)
+        )
+    except WorkspaceConfigError as exc:
+        raise BundleError(str(exc)) from exc
+    if config["template"] != {
+        "source": candidate.name,
+        "version": candidate.version,
+    }:
+        _fail("workspace.template", "does not match the candidate bundle identity")
+    desired_ids = _component_closure(candidate.manifest, desired_components)
+    required_desired_ids = _configured_components(candidate, config["agents"])
+    if not set(required_desired_ids).issubset(desired_ids):
+        missing = sorted(
+            set(required_desired_ids) - set(desired_ids), key=portable_path_identity
+        )
+        _fail(
+            "desired_components",
+            "omits components required by configured agents: " + ", ".join(missing),
+        )
+    desired = _owned_records(candidate, desired_ids)
+    actions: list[dict[str, Any]] = []
+    for relative in sorted(desired, key=portable_path_identity):
+        after = desired[relative]
+        target = _safe_path(
+            target_root, relative, f"target.{relative}", missing_ok=True
+        )
+        observed = _snapshot(
+            target,
+            f"target.{relative}",
+            executable_hint=after["executable"],
+        )
+        if observed is not None and after["policy"] != "seed":
+            _fail(f"target.{relative}", "unowned target collides with a planned add")
+        action = "preserve-seed" if observed is not None else "add"
+        reason = (
+            "pre-existing seed path remains user-owned"
+            if observed is not None
+            else "selected component path is absent"
+        )
+        actions.append({
+            "path": relative,
+            "owner": after["owner"],
+            "policy": after["policy"],
+            "action": action,
+            "base": None,
+            "current": _snapshot_value(observed),
+            "desired": _snapshot_value(after),
+            "reason": reason,
+        })
+    _assert_bundle_current(candidate, "candidate_bundle")
+    for item in actions:
+        target = _safe_path(
+            target_root, item["path"], f"target.{item['path']}", missing_ok=True
+        )
+        observed = _snapshot(
+            target,
+            f"target.{item['path']}",
+            executable_hint=desired[item["path"]]["executable"],
+        )
+        if _snapshot_value(observed) != item["current"]:
+            _fail(f"target.{item['path']}", "changed while the plan was being created")
+    config_digest = sha256_bytes(render_workspace_config(config).encode("utf-8"))
+    unsigned = {
+        "schema_version": PLANNER_PROTOCOL_VERSION,
+        "candidate_bundle_sha256": candidate.digest,
+        "current_bundle_sha256": None,
+        "workspace_config_sha256_raw": config_digest,
+        "executable_modes_verified": {
+            "candidate_source": candidate.mode_verified,
+            "current_source": None,
+            "target": os.name != "nt",
+        },
+        "intended_workspace": config,
+        "current_components": [],
         "desired_components": desired_ids,
         "actions": actions,
     }
