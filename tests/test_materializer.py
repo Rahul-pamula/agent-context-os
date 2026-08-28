@@ -212,7 +212,10 @@ class MaterializerTest(unittest.TestCase):
         def fail_after_binary_replace(source: Path, destination: Path):
             nonlocal publications, injected
             result = original_publish(source, destination)
-            if destination.is_relative_to(self.target) and ".context-os" not in destination.parts:
+            if (
+                destination.is_relative_to(self.target.resolve())
+                and ".context-os" not in destination.parts
+            ):
                 publications += 1
                 if destination.name == "managed.bin" and not injected:
                     injected = True

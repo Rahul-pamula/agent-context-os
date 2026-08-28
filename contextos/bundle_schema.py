@@ -704,8 +704,10 @@ def create_structural_plan(
         _fail("candidate_bundle", "cannot mix components from different bundle names")
     expected_config_sha256 = _sha256(expected_config_sha256, "expected_config_sha256")
     try:
-        config_relative = workspace_config_path.absolute().relative_to(target_root).as_posix()
-    except ValueError as exc:
+        config_relative = (
+            workspace_config_path.absolute().resolve().relative_to(target_root).as_posix()
+        )
+    except (OSError, ValueError) as exc:
         raise BundleError("workspace_config_path: must remain inside target_root") from exc
     config_path = _safe_path(
         target_root, config_relative, "workspace_config_path", missing_ok=False
