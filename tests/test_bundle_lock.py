@@ -56,7 +56,7 @@ class BundleFixture:
     def __init__(
         self, root: Path, *, version: str, managed: bytes, addon: bool,
         runtime_addon: bool | None = None, include_seed: bool = True,
-        addon_policy: str = "managed",
+        addon_policy: str = "managed", source_mode: str = "directory",
     ) -> None:
         self.root = root
         (root / "components").mkdir(parents=True)
@@ -108,8 +108,41 @@ class BundleFixture:
         (root / "components/manifest.json").write_text(
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
         )
+        self.source_mode = source_mode
+        if source_mode == "git-index":
+            subprocess.run(
+                ["git", "init", "--quiet"], cwd=root, check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "fixture@example.invalid"],
+                cwd=root, check=True, capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Bundle Fixture"],
+                cwd=root, check=True, capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "core.autocrlf", "false"],
+                cwd=root, check=True, capture_output=True,
+            )
+            subprocess.run(
+                [
+                    "git", "config", "core.excludesFile",
+                    str(root / ".git/info/exclude"),
+                ],
+                cwd=root, check=True, capture_output=True,
+            )
+            subprocess.run(
+                ["git", "add", "--all"],
+                cwd=root, check=True, capture_output=True,
+            )
+            subprocess.run(
+                ["git", "commit", "--quiet", "-m", "fixture"], cwd=root,
+                check=True, capture_output=True,
+            )
         self.lock = create_bundle_lock(
-            root, name="fixture-template", version=version, source_mode="directory"
+            root, name="fixture-template", version=version, source_mode=source_mode
         )
         self.lock_path = root.parent / f"lock-{version}.json"
         self.lock_path.write_text(json.dumps(self.lock, indent=2) + "\n", encoding="utf-8")
@@ -119,7 +152,7 @@ class BundleFixture:
             self.lock_path,
             self.root,
             expected_sha256=self.lock["bundle_sha256"],
-            source_mode="directory",
+            source_mode=self.source_mode,
             role=role,
         )
 

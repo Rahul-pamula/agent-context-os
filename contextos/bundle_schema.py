@@ -76,6 +76,7 @@ class VerifiedBundle:
     manifest: dict[str, Any]
     runtimes: dict[str, dict[str, Any]]
     records: dict[str, dict[str, Any]]
+    verified_bytes: dict[str, bytes]
 
     @property
     def digest(self) -> str:
@@ -592,6 +593,7 @@ def verify_bundle(
         root=root, lock_path=lock_path, source_mode=source_mode, role=role,
         mode_verified=(source_mode == "git-index" or os.name != "nt"), lock=lock,
         manifest=manifest, runtimes=runtimes, records=records,
+        verified_bytes=verified_bytes,
     )
 
 

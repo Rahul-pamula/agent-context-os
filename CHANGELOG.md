@@ -84,6 +84,9 @@
 - First-class Codex onboarding with a root `AGENTS.md`, four explicit-invocation lifecycle skills under `.agents/skills/`, generated skill UI metadata, `--agent codex` setup support, portability tests, and a host-boundary guide.
 
 ### Fixed
+- Git-index materialization now stages the exact index blobs verified against
+  the bundle lock, so CRLF checkout transforms, clean/smudge filters, and
+  unrelated unstaged source edits cannot replace or invalidate approved bytes.
 - Skill validation now prunes ignored Context OS state and dependency
   `node_modules` trees while retaining strict checks for repository skill
   directories, so installed-runtime conformance cannot poison the contributor

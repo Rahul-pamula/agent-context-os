@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import io
 import hashlib
 import json
 import os
 import shutil
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
 from contextos.bundle_schema import BundleError
+from contextos.cli import main as cli_main
 from contextos.kernel import (
     ContextOSError,
     _recover_pending_agent_journals,
@@ -88,6 +91,17 @@ class MaterializerTest(unittest.TestCase):
         )
         return target, config_input
 
+    def git_candidate(self, *, version: str, managed: bytes) -> BundleFixture:
+        source = self.root / f"git-candidate-{version}"
+        source.mkdir()
+        return BundleFixture(
+            source,
+            version=version,
+            managed=managed,
+            addon=True,
+            source_mode="git-index",
+        )
+
     def compose(self, target: Path, config_input: Path):
         return create_composition_proposal(
             target_root=target,
@@ -117,6 +131,113 @@ class MaterializerTest(unittest.TestCase):
         )
         self.assertEqual("compose", proposal["authorization"]["mode"])
         self.assertEqual("component-materialize", receipt["operation"])
+
+    def test_git_index_upgrade_uses_verified_blobs_not_smudged_worktree(self) -> None:
+        fixture = self.git_candidate(version="3.0.0", managed=b"index binary\x00v3\n")
+        candidate = fixture.verify()
+        (fixture.root / "managed.bin").write_bytes(b"smudged working tree\r\n")
+        (fixture.root / "addon.txt").write_text(
+            "filtered working tree\n", encoding="utf-8"
+        )
+
+        proposal_path, proposal = create_materialization_proposal(
+            target_root=self.target,
+            workspace_config_path=self.config,
+            expected_config_sha256=digest(self.config),
+            candidate=candidate,
+            desired_components=["addon"],
+            current=self.current,
+            current_components=["core"],
+            now=NOW,
+        )
+        apply_proposal(
+            self.target, proposal_path, proposal["proposal_digest"], "generic"
+        )
+
+        self.assertEqual(b"index binary\x00v3\n", (self.target / "managed.bin").read_bytes())
+        self.assertEqual(
+            candidate.verified_bytes["addon.txt"],
+            (self.target / "addon.txt").read_bytes(),
+        )
+
+    def test_git_index_cli_compose_propose_and_apply_use_index_bytes(self) -> None:
+        fixture = self.git_candidate(version="3.0.0", managed=b"index line\n")
+        (fixture.root / "managed.bin").write_bytes(b"index line\r\n")
+        target = self.root / "cli-compose-target"
+        target.mkdir()
+        config_input = self.root / "cli-compose-workspace.json"
+        config_input.write_text(
+            json.dumps(workspace("fixture-template", "3.0.0"), indent=2) + "\n",
+            encoding="utf-8",
+        )
+        compose_output = io.StringIO()
+        with redirect_stdout(compose_output):
+            self.assertEqual(
+                0,
+                cli_main([
+                    "bundle", "compose",
+                    "--lock", str(fixture.lock_path),
+                    "--source", str(fixture.root),
+                    "--expect-sha256", fixture.lock["bundle_sha256"],
+                    "--source-mode", "git-index",
+                    "--target", str(target),
+                    "--workspace-config", str(target / "contextos.workspace.json"),
+                    "--workspace-config-input", str(config_input),
+                    "--expect-config-sha256", digest(config_input),
+                    "--components", "addon",
+                    "--now", NOW.isoformat(),
+                ]),
+            )
+        compose_report = json.loads(compose_output.getvalue())
+        apply_output = io.StringIO()
+        with redirect_stdout(apply_output):
+            self.assertEqual(
+                0,
+                cli_main([
+                    "bundle", "apply",
+                    "--target", str(target),
+                    "--proposal", compose_report["proposal"],
+                    "--confirm", compose_report["proposal_digest"],
+                ]),
+            )
+        self.assertEqual("component-materialize", json.loads(apply_output.getvalue())["operation"])
+        self.assertEqual(b"index line\n", (target / "managed.bin").read_bytes())
+
+        propose_output = io.StringIO()
+        with redirect_stdout(propose_output):
+            self.assertEqual(
+                0,
+                cli_main([
+                    "bundle", "propose",
+                    "--lock", str(fixture.lock_path),
+                    "--source", str(fixture.root),
+                    "--expect-sha256", fixture.lock["bundle_sha256"],
+                    "--source-mode", "git-index",
+                    "--target", str(self.target),
+                    "--workspace-config", str(self.config),
+                    "--expect-config-sha256", digest(self.config),
+                    "--components", "addon",
+                    "--current-lock", str(self.current_fixture.lock_path),
+                    "--current-source", str(self.current_fixture.root),
+                    "--expect-current-sha256", self.current_fixture.lock["bundle_sha256"],
+                    "--current-source-mode", "directory",
+                    "--current-components", "core",
+                    "--now", NOW.isoformat(),
+                ]),
+            )
+        self.assertTrue(json.loads(propose_output.getvalue())["proposal"].endswith(".json"))
+
+    def test_bundle_apply_rejects_non_materialization_proposal(self) -> None:
+        proposal = self.target / "not-materialization.json"
+        proposal.write_text('{"operation":"agent-config"}\n', encoding="utf-8")
+        errors = io.StringIO()
+        with redirect_stderr(errors):
+            status = cli_main([
+                "bundle", "apply", "--target", str(self.target),
+                "--proposal", str(proposal), "--confirm", "unused",
+            ])
+        self.assertEqual(2, status)
+        self.assertIn("only materialization proposals", errors.getvalue())
 
     def test_clean_composition_rejects_managed_collision(self) -> None:
         target, config_input = self.composition_input()

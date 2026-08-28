@@ -654,15 +654,14 @@ def materialization_payloads(root: Path, document: dict[str, Any]) -> dict[str, 
             record = candidate.records.get(relative)
             if record is None:
                 raise BundleError(f"candidate source record is missing: {relative}")
-            source = candidate.root.joinpath(*Path(relative).parts)
-            payload, _metadata = read_regular_file_snapshot(
-                source, subject=f"candidate source {relative}"
-            )
+            payload = candidate.verified_bytes.get(relative)
+            if payload is None:
+                raise BundleError(f"candidate verified payload is missing: {relative}")
             if (
                 len(payload) != record["size"]
                 or sha256_bytes(payload) != record["sha256_raw"]
             ):
-                raise BundleError(f"candidate source changed during materialization: {relative}")
+                raise BundleError(f"candidate verified payload is invalid: {relative}")
         if sha256_bytes(payload) != change["after_raw_sha256"]:
             raise BundleError(f"materialization payload hash is invalid: {change['path']}")
         payloads[change["path"]] = payload
