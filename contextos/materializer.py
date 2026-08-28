@@ -129,8 +129,8 @@ def _target_path(root: Path, relative: str) -> Path:
 
 def _workspace_config_relative(root: Path, path: Path) -> str:
     try:
-        relative = path.absolute().relative_to(root).as_posix()
-    except ValueError as exc:
+        relative = path.absolute().resolve().relative_to(root.resolve()).as_posix()
+    except (OSError, ValueError) as exc:
         raise BundleError("workspace_config_path: must remain inside target_root") from exc
     if relative != "contextos.workspace.json":
         raise BundleError(

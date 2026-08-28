@@ -160,7 +160,10 @@ def _source_root(root: Path, field: str) -> Path:
         _fail(field, f"cannot inspect local directory: {exc}")
     if not stat.S_ISDIR(metadata.st_mode):
         _fail(field, "must be an existing local directory")
-    return absolute
+    try:
+        return absolute.resolve()
+    except OSError as exc:
+        _fail(field, f"cannot resolve local directory identity: {exc}")
 
 
 def _safe_path(root: Path, relative: str, field: str, *, missing_ok: bool) -> Path:
