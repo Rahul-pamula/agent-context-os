@@ -481,8 +481,10 @@ def validate_bundle_lock(value: Any) -> dict[str, Any]:
     ordered = sorted(files, key=lambda item: portable_path_identity(item["path"]))
     if files != ordered:
         _fail("bundle.files", "must use portable path order")
-    identities_in_order = [portable_path_identity(item["path"]).split("/") for item in files]
-    for left, right in zip(identities_in_order, identities_in_order[1:]):
+    identities_by_segment = sorted(
+        portable_path_identity(item["path"]).split("/") for item in files
+    )
+    for left, right in zip(identities_by_segment, identities_by_segment[1:]):
         if len(left) < len(right) and right[:len(left)] == left:
             _fail("bundle.files", "must not contain a file/descendant path conflict")
     if manifest_path not in {item["path"] for item in files}:

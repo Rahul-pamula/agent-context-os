@@ -237,6 +237,26 @@ class BundleLockTest(unittest.TestCase):
         with self.assertRaisesRegex(BundleError, "file/descendant"):
             validate_bundle_lock(value)
 
+    def test_schema_rejects_interleaved_file_descendant_conflicts(self) -> None:
+        value = copy.deepcopy(self.fixture.lock)
+        managed = next(
+            item for item in value["bundle"]["files"]
+            if item["path"] == "managed.bin"
+        )
+        sibling = copy.deepcopy(managed)
+        sibling["path"] = "managed.bin.txt"
+        descendant = copy.deepcopy(managed)
+        descendant["path"] = "managed.bin/child"
+        value["bundle"]["files"].extend([sibling, descendant])
+        value["bundle"]["files"] = sorted(
+            value["bundle"]["files"], key=lambda item: item["path"].casefold()
+        )
+        value["bundle_sha256"] = hashlib.sha256(
+            canonical_json(value["bundle"]).encode("utf-8")
+        ).hexdigest()
+        with self.assertRaisesRegex(BundleError, "file/descendant"):
+            validate_bundle_lock(value)
+
     def test_git_index_disables_executable_and_network_configuration(self) -> None:
         completed = subprocess.CompletedProcess([], 0, stdout=b"", stderr=b"")
         with mock.patch.dict(os.environ, {"GIT_DIR": "redirected"}):
