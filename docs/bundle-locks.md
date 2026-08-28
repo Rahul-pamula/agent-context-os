@@ -90,13 +90,67 @@ user file already present at a seed path first introduced by the candidate. The
 candidate, current source, and destination must be explicit local paths, and
 source roots must be separate from the destination.
 
-Planning never writes. Export, materializing add/remove/upgrade, installed-lock
-state, second pre-mutation checks, transaction journals, receipts, and rollback
-belong to the materializer layer tracked separately in issue #72. Until that
-layer exists, a structural plan is review evidence, not authorization to copy or
-delete files. The materializer must bind this exact `plan_digest` inside the
-existing kernel proposal/transaction contract; the plan is not a second apply
-protocol.
+Planning never writes. Materialization turns that exact `plan_digest` into a
+reviewable proposal and uses the existing kernel transaction engine; it is not a
+second apply protocol. Proposal creation writes only ignored local evidence.
+Apply re-verifies candidate and current bundle bytes, the workspace input, the
+plan, every destination snapshot, and every payload before the first target
+mutation. Binary files remain byte-exact. The journal, receipt, rollback, and
+process-recovery behavior is shared with workspace and agent transactions.
+
+## Materializing a clean workspace
+
+Prepare a canonical workspace JSON file whose template name and version match
+the pinned candidate. The target directory must already exist, but its tracked
+configuration does not. Existing seed paths remain user-owned; an existing
+managed path is a collision and fails closed.
+
+```bash
+bash scripts/contextos.sh bundle compose \
+  --lock /path/to/contextos.bundle.lock.json \
+  --source /path/to/extracted-bundle \
+  --expect-sha256 <candidate-bundle-digest> \
+  --target /path/to/empty-target \
+  --workspace-config /path/to/empty-target/contextos.workspace.json \
+  --workspace-config-input /path/to/reviewed-workspace.json \
+  --expect-config-sha256 <workspace-input-raw-digest> \
+  --components core,codex-adapter
+
+bash scripts/contextos.sh bundle apply \
+  --target /path/to/empty-target \
+  --proposal .context-os/proposals/<proposal-id>.json \
+  --confirm <proposal-digest>
+```
+
+The explicit `bundle apply --target` route exists because a clean destination
+has no tracked marker for ordinary root discovery until the approved transaction
+publishes it.
+
+## Materializing an upgrade
+
+`bundle propose` consumes the exact current configuration and, when applicable,
+a verified current bundle plus the component closure actually installed. It can
+then add, replace, and remove pristine managed paths while preserving seeds.
+
+```bash
+bash scripts/contextos.sh bundle propose \
+  --lock /path/to/new/contextos.bundle.lock.json \
+  --source /path/to/new/extracted-bundle \
+  --expect-sha256 <candidate-bundle-digest> \
+  --target /path/to/workspace \
+  --workspace-config /path/to/workspace/contextos.workspace.json \
+  --expect-config-sha256 <current-config-raw-digest> \
+  --components core,codex-adapter \
+  --current-lock /path/to/old/contextos.bundle.lock.json \
+  --current-source /path/to/old/extracted-bundle \
+  --expect-current-sha256 <current-bundle-digest> \
+  --current-components core,codex-adapter
+```
+
+After confirmation, use either ordinary `apply` from a discoverable workspace
+or `bundle apply --target`. Successful materialization writes
+`.context-os/installed-bundle.json`, binding bundle identity, component closure,
+and plan digest without making local installation state tracked content.
 
 Protocol version 1 also fixes three boundaries for that materializer:
 
@@ -106,6 +160,6 @@ Protocol version 1 also fixes three boundaries for that materializer:
 - component ownership and managed/seed policy are immutable between ordinary
   upgrades; changing either requires a future signed migration contract and
   protocol version; and
-- `contextos.workspace.json` is an existing, digest-bound planner input. Fresh
-  workspace creation must establish it through the existing workspace-setup
-  transaction before bundle planning, rather than adding an unplanned write.
+- `contextos.workspace.json` is a digest-bound planner input during upgrades.
+  Fresh composition instead binds a separately reviewed input and publishes the
+  canonical tracked configuration inside the same materialization transaction.

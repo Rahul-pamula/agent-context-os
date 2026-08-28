@@ -100,6 +100,10 @@
                     "policy": "managed"
                 },
                 {
+                    "path": "contextos/materializer.py",
+                    "policy": "managed"
+                },
+                {
                     "path": "contextos/primitives.py",
                     "policy": "managed"
                 },
@@ -393,6 +397,10 @@
                 },
                 {
                     "path": "tests/test_bundle_lock.py",
+                    "policy": "development"
+                },
+                {
+                    "path": "tests/test_materializer.py",
                     "policy": "development"
                 },
                 {
