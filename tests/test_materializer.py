@@ -189,6 +189,11 @@ class MaterializerTest(unittest.TestCase):
                 ]),
             )
         compose_report = json.loads(compose_output.getvalue())
+        self.assertEqual("git-index", compose_report["source_mode"])
+        self.assertEqual(
+            fixture.lock["bundle"]["source_git_commit"],
+            compose_report["source_git_commit"],
+        )
         apply_output = io.StringIO()
         with redirect_stdout(apply_output):
             self.assertEqual(
@@ -225,7 +230,38 @@ class MaterializerTest(unittest.TestCase):
                     "--now", NOW.isoformat(),
                 ]),
             )
-        self.assertTrue(json.loads(propose_output.getvalue())["proposal"].endswith(".json"))
+        propose_report = json.loads(propose_output.getvalue())
+        self.assertTrue(propose_report["proposal"].endswith(".json"))
+        self.assertEqual("git-index", propose_report["source_mode"])
+        self.assertEqual(
+            fixture.lock["bundle"]["source_git_commit"],
+            propose_report["source_git_commit"],
+        )
+
+    def test_git_index_commit_after_proposal_fails_before_target_writes(self) -> None:
+        fixture = self.git_candidate(version="3.0.0", managed=b"index v3\n")
+        candidate = fixture.verify()
+        proposal_path, proposal = create_materialization_proposal(
+            target_root=self.target,
+            workspace_config_path=self.config,
+            expected_config_sha256=digest(self.config),
+            candidate=candidate,
+            desired_components=["addon"],
+            current=self.current,
+            current_components=["core"],
+            now=NOW,
+        )
+        before = (self.target / "managed.bin").read_bytes()
+        (fixture.root / "managed.bin").write_bytes(b"committed v4\n")
+        fixture.commit_all("change source after proposal")
+
+        with self.assertRaisesRegex(BundleError, "does not match the local Git HEAD"):
+            apply_proposal(
+                self.target, proposal_path, proposal["proposal_digest"], "generic"
+            )
+
+        self.assertEqual(before, (self.target / "managed.bin").read_bytes())
+        self.assertFalse((self.target / "addon.txt").exists())
 
     def test_bundle_apply_rejects_non_materialization_proposal(self) -> None:
         proposal = self.target / "not-materialization.json"

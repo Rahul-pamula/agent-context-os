@@ -27,6 +27,7 @@ from contextos.kernel import git_head
 from contextos.primitives import (
     SnapshotError,
     canonical_json as primitive_canonical_json,
+    git_environment,
     git_repository_identity,
 )
 
@@ -53,6 +54,16 @@ def workspace(source: str, version: str) -> dict:
 
 
 class BundleFixture:
+    def _git(self, *arguments: str) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.run(
+            ["git", *arguments], cwd=self.root, check=True,
+            capture_output=True, env=git_environment(),
+        )
+
+    def commit_all(self, message: str) -> None:
+        self._git("add", "--all")
+        self._git("commit", "--quiet", "-m", message)
+
     def __init__(
         self, root: Path, *, version: str, managed: bytes, addon: bool,
         runtime_addon: bool | None = None, include_seed: bool = True,
@@ -110,37 +121,14 @@ class BundleFixture:
         )
         self.source_mode = source_mode
         if source_mode == "git-index":
-            subprocess.run(
-                ["git", "init", "--quiet"], cwd=root, check=True,
-                capture_output=True,
+            self._git("init", "--quiet")
+            self._git("config", "user.email", "fixture@example.invalid")
+            self._git("config", "user.name", "Bundle Fixture")
+            self._git("config", "core.autocrlf", "false")
+            self._git(
+                "config", "core.excludesFile", str(root / ".git/info/exclude")
             )
-            subprocess.run(
-                ["git", "config", "user.email", "fixture@example.invalid"],
-                cwd=root, check=True, capture_output=True,
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "Bundle Fixture"],
-                cwd=root, check=True, capture_output=True,
-            )
-            subprocess.run(
-                ["git", "config", "core.autocrlf", "false"],
-                cwd=root, check=True, capture_output=True,
-            )
-            subprocess.run(
-                [
-                    "git", "config", "core.excludesFile",
-                    str(root / ".git/info/exclude"),
-                ],
-                cwd=root, check=True, capture_output=True,
-            )
-            subprocess.run(
-                ["git", "add", "--all"],
-                cwd=root, check=True, capture_output=True,
-            )
-            subprocess.run(
-                ["git", "commit", "--quiet", "-m", "fixture"], cwd=root,
-                check=True, capture_output=True,
-            )
+            self.commit_all("fixture")
         self.lock = create_bundle_lock(
             root, name="fixture-template", version=version, source_mode=source_mode
         )
