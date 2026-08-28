@@ -27,6 +27,7 @@ from contextos.kernel import git_head
 from contextos.primitives import (
     SnapshotError,
     canonical_json as primitive_canonical_json,
+    git_environment,
     git_repository_identity,
 )
 
@@ -53,10 +54,20 @@ def workspace(source: str, version: str) -> dict:
 
 
 class BundleFixture:
+    def _git(self, *arguments: str) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.run(
+            ["git", *arguments], cwd=self.root, check=True,
+            capture_output=True, env=git_environment(),
+        )
+
+    def commit_all(self, message: str) -> None:
+        self._git("add", "--all")
+        self._git("commit", "--quiet", "-m", message)
+
     def __init__(
         self, root: Path, *, version: str, managed: bytes, addon: bool,
         runtime_addon: bool | None = None, include_seed: bool = True,
-        addon_policy: str = "managed",
+        addon_policy: str = "managed", source_mode: str = "directory",
     ) -> None:
         self.root = root
         (root / "components").mkdir(parents=True)
@@ -108,8 +119,18 @@ class BundleFixture:
         (root / "components/manifest.json").write_text(
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
         )
+        self.source_mode = source_mode
+        if source_mode == "git-index":
+            self._git("init", "--quiet")
+            self._git("config", "user.email", "fixture@example.invalid")
+            self._git("config", "user.name", "Bundle Fixture")
+            self._git("config", "core.autocrlf", "false")
+            self._git(
+                "config", "core.excludesFile", str(root / ".git/info/exclude")
+            )
+            self.commit_all("fixture")
         self.lock = create_bundle_lock(
-            root, name="fixture-template", version=version, source_mode="directory"
+            root, name="fixture-template", version=version, source_mode=source_mode
         )
         self.lock_path = root.parent / f"lock-{version}.json"
         self.lock_path.write_text(json.dumps(self.lock, indent=2) + "\n", encoding="utf-8")
@@ -119,7 +140,7 @@ class BundleFixture:
             self.lock_path,
             self.root,
             expected_sha256=self.lock["bundle_sha256"],
-            source_mode="directory",
+            source_mode=self.source_mode,
             role=role,
         )
 

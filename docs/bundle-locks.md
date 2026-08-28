@@ -98,6 +98,16 @@ plan, every destination snapshot, and every payload before the first target
 mutation. Binary files remain byte-exact. The journal, receipt, rollback, and
 process-recovery behavior is shared with workspace and agent transactions.
 
+When `--source-mode git-index` is selected, compose, propose, and apply use the
+exact blobs in the trusted local Git index. Checkout newline conversion,
+clean/smudge filters, and unstaged working-tree edits are deliberately ignored;
+the CLI reports the source mode and bound Git commit so this is visible during
+review. A new commit between proposal and apply invalidates the proposal before
+target mutation. The warning against received or untrusted `.git` directories
+applies to materialization as well as `bundle check`. On Windows, Git-index
+source modes are verified, but the materialized target cannot preserve a POSIX
+executable bit; the plan records that destination limitation explicitly.
+
 ## Materializing a clean workspace
 
 Prepare a canonical workspace JSON file whose template name and version match

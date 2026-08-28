@@ -312,6 +312,8 @@ def _bundle_main(args: argparse.Namespace) -> int:
             "proposal_id": proposal["proposal_id"],
             "proposal_digest": proposal["proposal_digest"],
             "plan_digest": proposal["authorization"]["plan"]["plan_digest"],
+            "source_mode": candidate.source_mode,
+            "source_git_commit": candidate.lock["bundle"]["source_git_commit"],
             "changes": [
                 {
                     "action": change["action"],
@@ -344,6 +346,8 @@ def _bundle_main(args: argparse.Namespace) -> int:
             "proposal_id": proposal["proposal_id"],
             "proposal_digest": proposal["proposal_digest"],
             "plan_digest": proposal["authorization"]["plan"]["plan_digest"],
+            "source_mode": candidate.source_mode,
+            "source_git_commit": candidate.lock["bundle"]["source_git_commit"],
             "changes": [
                 {
                     "action": change["action"],
