@@ -36,6 +36,7 @@ from .kernel import (
     workspace_resolution_report,
 )
 from .materializer import (
+    MATERIALIZE_OPERATION,
     create_composition_proposal,
     create_materialization_proposal,
 )
@@ -234,6 +235,8 @@ def _bundle_main(args: argparse.Namespace) -> int:
     if args.bundle_command == "apply":
         root = args.target.absolute().resolve()
         proposal = args.proposal if args.proposal.is_absolute() else root / args.proposal
+        if read_json(proposal).get("operation") != MATERIALIZE_OPERATION:
+            raise BundleError("bundle apply accepts only materialization proposals")
         receipt_path, receipt = apply_proposal(
             root, proposal, args.confirm, args.runtime
         )

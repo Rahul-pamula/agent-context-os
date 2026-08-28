@@ -127,6 +127,18 @@ def _target_path(root: Path, relative: str) -> Path:
     return kernel.safe_repo_path(root, relative)
 
 
+def _workspace_config_relative(root: Path, path: Path) -> str:
+    try:
+        relative = path.absolute().relative_to(root).as_posix()
+    except ValueError as exc:
+        raise BundleError("workspace_config_path: must remain inside target_root") from exc
+    if relative != "contextos.workspace.json":
+        raise BundleError(
+            "workspace_config_path: must equal target_root/contextos.workspace.json"
+        )
+    return relative
+
+
 def _inline_ref(text: str) -> dict[str, Any]:
     return {"kind": "inline", "role": None, "path": None, "text": text}
 
@@ -326,10 +338,7 @@ def create_materialization_proposal(
         current_components=current_components,
     )
     _validate_installed_state(root, current, plan)
-    try:
-        config_relative = workspace_config_path.absolute().relative_to(root).as_posix()
-    except ValueError as exc:
-        raise BundleError("workspace_config_path: must remain inside target_root") from exc
+    config_relative = _workspace_config_relative(root, workspace_config_path)
     changes = _expected_changes(
         root,
         candidate=candidate,
@@ -358,7 +367,7 @@ def create_materialization_proposal(
     }
     source_hashes = {
         str(candidate.lock_path.absolute()): sha256_bytes(candidate.lock_path.read_bytes()),
-        str(workspace_config_path.absolute()): expected_config_sha256,
+        str(kernel.safe_repo_path(root, config_relative)): expected_config_sha256,
     }
     if current is not None:
         source_hashes[str(current.lock_path.absolute())] = sha256_bytes(
@@ -424,12 +433,10 @@ def create_composition_proposal(
         candidate=candidate,
         desired_components=desired_components,
     )
-    try:
-        config_relative = workspace_config_path.absolute().relative_to(root).as_posix()
-    except ValueError as exc:
-        raise BundleError("workspace_config_path: must remain inside target_root") from exc
+    config_relative = _workspace_config_relative(root, workspace_config_path)
     if kernel.raw_file_digest(kernel.safe_repo_path(root, config_relative)) is not None:
         raise BundleError("workspace_config_path: clean composition target already exists")
+    _validate_installed_state(root, None, plan)
     changes = _expected_changes(
         root,
         candidate=candidate,
@@ -512,6 +519,8 @@ def _materialization_context(
     config = authorization.get("workspace_config")
     if not isinstance(config, dict) or not isinstance(config.get("path"), str):
         raise BundleError("authorization.workspace_config is invalid")
+    if config["path"] != "contextos.workspace.json":
+        raise BundleError("materialization workspace config path is not canonical")
     if mode == "upgrade":
         if (
             set(config) != {"path", "expected_sha256"}

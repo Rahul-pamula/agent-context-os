@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -123,6 +124,27 @@ class MaterializerTest(unittest.TestCase):
         with self.assertRaisesRegex(BundleError, "collides with a planned add"):
             self.compose(target, config_input)
 
+    def test_clean_composition_requires_the_canonical_workspace_marker(self) -> None:
+        target, config_input = self.composition_input()
+        with self.assertRaisesRegex(BundleError, "must equal target_root"):
+            create_composition_proposal(
+                target_root=target,
+                workspace_config_path=target / "notes/workspace.json",
+                workspace_config_input_path=config_input,
+                expected_config_input_sha256=digest(config_input),
+                candidate=self.candidate,
+                desired_components=["addon"],
+                now=NOW,
+            )
+
+    def test_clean_composition_rejects_stale_installed_state_during_proposal(self) -> None:
+        target, config_input = self.composition_input()
+        state_path = target / INSTALLED_STATE_PATH
+        state_path.parent.mkdir()
+        state_path.write_text("{}\n", encoding="utf-8")
+        with self.assertRaisesRegex(BundleError, "explicit current bundle"):
+            self.compose(target, config_input)
+
     def test_clean_composition_input_drift_fails_without_target_writes(self) -> None:
         target, config_input = self.composition_input()
         proposal_path, proposal = self.compose(target, config_input)
@@ -179,24 +201,26 @@ class MaterializerTest(unittest.TestCase):
         }
         self.assertEqual(before, after)
 
-    def test_failure_after_first_publication_rolls_back_binary_and_add(self) -> None:
+    def test_failure_after_binary_publication_rolls_back_replace_and_add(self) -> None:
         proposal_path, proposal = self.propose()
         original_publish = __import__(
             "contextos.kernel", fromlist=["_publish_exclusive"]
         )._publish_exclusive
         publications = 0
+        injected = False
 
-        def fail_after_first(source: Path, destination: Path):
-            nonlocal publications
+        def fail_after_binary_replace(source: Path, destination: Path):
+            nonlocal publications, injected
             result = original_publish(source, destination)
             if destination.is_relative_to(self.target) and ".context-os" not in destination.parts:
                 publications += 1
-                if publications == 1:
+                if destination.name == "managed.bin" and not injected:
+                    injected = True
                     raise OSError("injected materialization failure")
             return result
 
         with mock.patch(
-            "contextos.kernel._publish_exclusive", side_effect=fail_after_first
+            "contextos.kernel._publish_exclusive", side_effect=fail_after_binary_replace
         ), self.assertRaisesRegex(ContextOSError, "rolled back"):
             apply_proposal(
                 self.target, proposal_path, proposal["proposal_digest"], "generic"
@@ -205,6 +229,7 @@ class MaterializerTest(unittest.TestCase):
         self.assertFalse((self.target / "addon.txt").exists())
         self.assertEqual("1.0.0", json.loads(self.config.read_text())["template"]["version"])
         self.assertFalse((self.target / INSTALLED_STATE_PATH).exists())
+        self.assertGreater(publications, 1)
 
     def test_materialized_component_removal_preserves_seed_and_local_state(self) -> None:
         proposal_path, proposal = self.propose()
@@ -267,6 +292,24 @@ class MaterializerTest(unittest.TestCase):
                 current_components=["addon"],
                 now=NOW.replace(minute=2),
             )
+
+    @unittest.skipUnless(os.name == "nt", "Windows case alias control")
+    def test_upgrade_normalizes_case_aliased_config_source_key(self) -> None:
+        proposal_path, proposal = create_materialization_proposal(
+            target_root=Path(str(self.target).lower()),
+            workspace_config_path=Path(str(self.config).lower()),
+            expected_config_sha256=digest(self.config),
+            candidate=self.candidate,
+            desired_components=["addon"],
+            current=self.current,
+            current_components=["core"],
+            now=NOW,
+        )
+
+        apply_proposal(
+            self.target, proposal_path, proposal["proposal_digest"], "generic"
+        )
+        self.assertEqual(b"binary\x00v2\n", (self.target / "managed.bin").read_bytes())
 
     def test_committed_materialization_journal_recovers_without_source_policy_widening(self) -> None:
         proposal_path, proposal = self.propose()
