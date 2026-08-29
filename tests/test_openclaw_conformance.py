@@ -18,20 +18,37 @@ LIFECYCLE_SKILLS = {
 
 
 class OpenClawDescriptorTest(unittest.TestCase):
-    def test_support_claims_stay_experimental_and_hook_free(self) -> None:
+    def test_support_claims_are_first_class_and_hook_free(self) -> None:
         surface = DESCRIPTOR["surfaces"]["cli"]
-        self.assertEqual("experimental", DESCRIPTOR["support_tier"])
-        self.assertEqual("experimental", surface["support_tier"])
+        self.assertEqual("first-class", DESCRIPTOR["support_tier"])
+        self.assertEqual("first-class", surface["support_tier"])
         self.assertEqual("unsupported", surface["capabilities"]["project_hooks"])
         self.assertEqual("unsupported", surface["capabilities"]["blocking_pre_tool_hook"])
         self.assertIsNone(surface["hook_output"])
 
-    def test_lifecycle_uses_stable_explicit_skill_invocation(self) -> None:
+    def test_lifecycle_uses_alias_bound_plugin_invocation(self) -> None:
         invocation = DESCRIPTOR["surfaces"]["cli"]["invocation"]
         self.assertEqual(
-            {name: f"/skill {name}" for name in ("setup", "start", "update", "end")},
+            {
+                name: f"/contextos <alias> {name}"
+                for name in ("setup", "start", "update", "end")
+            },
             invocation,
         )
+        self.assertEqual(
+            "adapter",
+            DESCRIPTOR["surfaces"]["cli"]["capabilities"]["explicit_invocation"],
+        )
+        next_steps = "\n".join(DESCRIPTOR["install"]["next_steps"])
+        self.assertIn("/contextos <alias> continue <session-key> <response>", next_steps)
+        self.assertIn("contextos.continue", next_steps)
+        self.assertIn("trusted shell", next_steps)
+        self.assertIn("plugin exposes no apply method", next_steps)
+        plugin_evidence = next(
+            source for source in DESCRIPTOR["evidence"]["sources"]
+            if source["id"] == "openclaw-plugin-conformance"
+        )
+        self.assertNotIn("proposal_apply", plugin_evidence["claims"])
 
     def test_repository_and_private_workspace_roles_are_distinct(self) -> None:
         sources = DESCRIPTOR["surfaces"]["cli"]["instruction_sources"]
@@ -50,13 +67,96 @@ class OpenClawDescriptorTest(unittest.TestCase):
     def test_guide_preserves_security_and_memory_boundaries(self) -> None:
         guide = (ROOT / "adapters/openclaw/README.md").read_text(encoding="utf-8")
         for required in (
-            "private workspace", "Copy all eight together", "skills.load.extraDirs",
-            "shell-execution authorization", "installs no hook or plugin",
+            "private workspace", "Synchronize all eight together", "skills.load.extraDirs",
+            "preserves unrelated skills", "Gateway `agent` RPC", "plugin-owned subagent",
+            "configured project alias", "operator-scoped Gateway methods",
+            "`contextos.continue`", "`lightContext: true`", "trusted shell",
+            "if the Gateway\nrestarts or reaches that bound",
+            "shell-execution authorization", "installs no project hook",
             "include all eight lifecycle skill names", "not synchronized",
             "doctor --lint --json", "Do not use `--fix`",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, guide)
+
+    def test_canonical_lifecycle_skills_enforce_the_host_execution_root(self) -> None:
+        required = (
+            "exact repository working directory supplied by the host",
+            "Do not substitute the\nprocess or tool working directory, an agent/private workspace",
+            "any parent or ancestor discovered by searching upward",
+            "stop and\nreport the problem without creating a payload or running the kernel",
+            "working directory\nexplicitly set to that root",
+        )
+        for name in ("context-setup", "context-start", "context-update", "context-end"):
+            skill = (ROOT / ".agents/skills" / name / "SKILL.md").read_text(
+                encoding="utf-8"
+            )
+            for phrase in required:
+                with self.subTest(skill=name, phrase=phrase):
+                    self.assertIn(phrase, skill)
+
+    def test_lifecycle_aliases_delegate_to_guarded_canonical_skills(self) -> None:
+        for name in ("setup", "start", "update", "end"):
+            skill = (ROOT / ".agents/skills" / name / "SKILL.md").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn(f"../context-{name}/SKILL.md", skill)
+            self.assertIn("do not duplicate or modify the workflow", skill)
+
+    def test_openclaw_guide_documents_trusted_cwd_and_containment_limit(self) -> None:
+        guide = (ROOT / "adapters/openclaw/README.md").read_text(encoding="utf-8")
+        for required in (
+            "plugin-owned subagent with the configured root as `cwd`",
+            "Do not use `openclaw acp client --cwd <repository>`",
+            "not OS-level\n  containment",
+            "There is no\n`contextos.apply` Gateway method",
+            "does not execute repository-writable scripts",
+            "bash scripts/contextos.sh apply <proposal>",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, guide)
+        self.assertNotIn("bashPath", guide)
+        self.assertNotIn("openclaw gateway call contextos.apply", guide)
+
+    def test_plugin_runtime_files_are_component_owned(self) -> None:
+        manifest = json.loads(
+            (ROOT / "components/manifest.json").read_text(encoding="utf-8")
+        )
+        component = next(
+            item for item in manifest["components"] if item["id"] == "openclaw-adapter"
+        )
+        owned = {item["path"]: item["policy"] for item in component["paths"]}
+        expected = {
+            "adapters/openclaw/plugin/index.js": "managed",
+            "adapters/openclaw/plugin/lib.js": "managed",
+            "adapters/openclaw/plugin/openclaw.plugin.json": "managed",
+            "adapters/openclaw/plugin/package.json": "managed",
+            "adapters/openclaw/plugin/plugin.test.mjs": "development",
+        }
+        for path, policy in expected.items():
+            with self.subTest(path=path):
+                self.assertEqual(policy, owned.get(path))
+
+    def test_shared_guides_use_the_plugin_command_surface(self) -> None:
+        for relative in (
+            "README.md",
+            "docs/commands-and-skills.md",
+            "docs/getting-started.md",
+            "AGENTS.md",
+            "scripts/setup.sh",
+        ):
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            with self.subTest(path=relative):
+                self.assertIn("/contextos <alias> setup", text)
+                self.assertNotIn("`/skill setup`", text)
+                self.assertNotIn("installs no hook or plugin", text)
+
+    def test_canonical_docs_do_not_describe_obsolete_experimental_openclaw(self) -> None:
+        for relative in ("AGENTS.md", "CHANGELOG.md"):
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            with self.subTest(path=relative):
+                self.assertNotIn("Experimental OpenClaw", text)
+                self.assertNotIn("experimental skills-first OpenClaw", text)
 
 
 @unittest.skipUnless(

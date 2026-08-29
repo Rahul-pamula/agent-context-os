@@ -2,7 +2,7 @@
 
 Context OS can begin with a blank interview or selected context from another
 assistant. The result is a small, reviewable repository that Claude Code,
-Codex, Hermes, and the experimental OpenClaw and Cursor adapters can use as
+Codex, Hermes, and OpenClaw, plus the experimental Cursor adapter, can use as
 shared state.
 
 ## Before you clone
@@ -86,7 +86,9 @@ digest-confirmed `apply`; disabling never deletes the bundled adapter.
 
 ### Start from your answers
 
-Launch the selected host from the repository root:
+Launch repository-discovery hosts from the repository root. OpenClaw is the
+exception: its external plugin resolves an operator-configured project alias,
+so its Gateway and private workspace do not need to start in the repository:
 
 ```bash
 claude
@@ -94,17 +96,23 @@ claude
 codex
 # or
 hermes
-# or, after following adapters/openclaw/README.md
-openclaw
+# or, after installing and configuring adapters/openclaw/plugin
+openclaw gateway run
 # or, open the repository in Cursor or start its Agent CLI here
 agent
 ```
 
 Run `/setup` in Claude Code or Hermes, `/context-setup` in Cursor, `$setup` in
-Codex, or `/skill setup` in OpenClaw. OpenClaw first requires the separate private-workspace and copied-skill
-steps in its [experimental adapter guide](../adapters/openclaw/README.md). The guided
+Codex, or `/contextos <alias> setup` through an authorized OpenClaw messaging
+surface. OpenClaw first requires the separate private-workspace, verified skill
+synchronization, plugin installation, and configured project-alias binding
+steps in its [adapter guide](../adapters/openclaw/README.md). The guided
 interview asks one question at a time, builds a deterministic proposal, and
 waits before applying the exact reviewed diff.
+For OpenClaw, continue each owned interview with
+`/contextos <alias> continue <session-key> <response>`. Independently review the
+proposal file and apply it with the documented trusted-shell kernel command;
+the plugin does not expose proposal application.
 
 Cursor has separate IDE and Agent CLI permission surfaces. Follow its
 [experimental adapter guide](../adapters/cursor/README.md); setup registers the
@@ -154,11 +162,11 @@ Commit and push only after the diff matches what you intend to preserve.
 
 ## Run the daily loop
 
-| Moment | Claude Code | Codex | Hermes | OpenClaw (experimental) | Cursor IDE/CLI (experimental) | Devin session (experimental) |
+| Moment | Claude Code | Codex | Hermes | OpenClaw | Cursor IDE/CLI (experimental) | Devin session (experimental) |
 |---|---|---|---|---|---|---|
-| Start work | `/start` | `$start` | `/start` | `/skill start` | `/context-start` | `@skills:context-start` |
-| Save progress without closing | `/update` | `$update` | `/update` | `/skill update` | `/context-update` | `@skills:context-update` |
-| End with a reviewed handoff | `/end` | `$end` | `/end` | `/skill end` | `/context-end` | `@skills:context-end` |
+| Start work | `/start` | `$start` | `/start` | `/contextos <alias> start` | `/context-start` | `@skills:context-start` |
+| Save progress without closing | `/update` | `$update` | `/update` | `/contextos <alias> update` | `/context-update` | `@skills:context-update` |
+| End with a reviewed handoff | `/end` | `$end` | `/end` | `/contextos <alias> end` | `/context-end` | `@skills:context-end` |
 
 The lifecycle kernel writes shared continuity to `state/` and `sessions/` only
 after exact-proposal approval, then emits a local receipt. Each host retains

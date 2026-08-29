@@ -15,7 +15,7 @@ A portable Git-backed context and workflow layer for agents like Claude Code, Co
 
 Chat history, project instructions, and copied prompts drift apart. Context OS puts the durable parts in plain Markdown: who you are, what you are working on, decisions already made, and the workflows you want an agent to follow.
 
-Claude Code, Codex, Hermes, and the experimental OpenClaw, Cursor, and Devin adapters
+Claude Code, Codex, Hermes, and OpenClaw, plus the experimental Cursor and Devin adapters,
 read the same repository state. A deterministic
 lifecycle kernel turns reviewed setup, checkpoint, and close requests into
 hash-checked proposals and receipts, without treating native memory as the
@@ -70,7 +70,7 @@ Then start your agent from the repository root:
 | New workspace in Claude Code | Run `/setup` |
 | New workspace in Codex | Run `$setup` |
 | New workspace in Hermes | Run `/setup` after exposing the repository skills |
-| New workspace in OpenClaw | Follow the [experimental adapter](adapters/openclaw/README.md), then run `/skill setup` |
+| New workspace in OpenClaw | Follow the [OpenClaw adapter](adapters/openclaw/README.md), then run `/contextos <alias> setup` through an authorized operator surface |
 | New workspace in Cursor | Follow the separate [experimental IDE and CLI paths](adapters/cursor/README.md), then run `/context-setup` |
 | New cloud session in Devin | Complete the [managed-account checks](adapters/devin/README.md), then run `@skills:context-setup` |
 | Existing context in another assistant | Follow the [migration guide](docs/migration-guide.md), then use the selected material during setup |
@@ -83,7 +83,7 @@ The setup interview fills the identity, first project, workflows, and weekly sta
 ![A start session in Claude Code: state files load and a session briefing comes back, using sample data from the included example musician project](docs/assets/start-demo.gif)
 
 `/start` in Claude Code or Hermes, `/context-start` in Cursor, `$start` in Codex,
-`/skill start` in OpenClaw, and `@skills:context-start` in a Devin session read your state,
+`/contextos <alias> start` in OpenClaw, and `@skills:context-start` in a Devin session read your state,
 priorities, decisions, blockers, and recent handoff. The result is grounded in
 files rather than reconstructed from chat.
 
@@ -95,12 +95,17 @@ At the end, `/end` or `$end` proposes a handoff for review before it updates `se
 
 Start small. Use the core loop for a week, add one active project, then turn a repeated task into a skill when the repetition is clear.
 
-| Moment | Claude Code | Codex | Hermes | OpenClaw (experimental) | Cursor IDE/CLI (experimental) | Devin session (experimental) | Shared result |
+| Moment | Claude Code | Codex | Hermes | OpenClaw | Cursor IDE/CLI (experimental) | Devin session (experimental) | Shared result |
 |---|---|---|---|---|---|---|---|
-| First run or major refresh | `/setup` | `$setup` | `/setup` | `/skill setup` | `/context-setup` | `@skills:context-setup` | Reviewed context proposal |
-| Start work | `/start` | `$start` | `/start` | `/skill start` | `/context-start` | `@skills:context-start` | Read-only continuity inventory and briefing |
-| Save a checkpoint | `/update` | `$update` | `/update` | `/skill update` | `/context-update` | `@skills:context-update` | Hash-checked update and receipt |
-| Finish work | `/end` | `$end` | `/end` | `/skill end` | `/context-end` | `@skills:context-end` | Hash-checked handoff, decisions, and receipt |
+| First run or major refresh | `/setup` | `$setup` | `/setup` | `/contextos <alias> setup` | `/context-setup` | `@skills:context-setup` | Reviewed context proposal |
+| Start work | `/start` | `$start` | `/start` | `/contextos <alias> start` | `/context-start` | `@skills:context-start` | Read-only continuity inventory and briefing |
+| Save a checkpoint | `/update` | `$update` | `/update` | `/contextos <alias> update` | `/context-update` | `@skills:context-update` | Hash-checked update and receipt |
+| Finish work | `/end` | `$end` | `/end` | `/contextos <alias> end` | `/context-end` | `@skills:context-end` | Hash-checked handoff, decisions, and receipt |
+
+OpenClaw setup, update, and end can require multiple operator turns. Resume the
+owned workflow with `/contextos <alias> continue <session-key> <response>`, then
+apply the independently reviewed proposal from a trusted shell; the OpenClaw
+plugin itself exposes no apply command.
 
 The namespaced `$context-setup`, `$context-start`, `$context-update`, and
 `$context-end` invocations remain available for compatibility.
@@ -129,7 +134,7 @@ The guide covers ChatGPT, Claude, Gemini Apps, Gemini CLI, and a generic path fo
 | Cursor | experimental | Separate IDE and CLI onboarding through root AGENTS.md and project Agent Skills, without hook, memory, or rule-conflict claims |
 | Devin | experimental | Experimental cloud-session lifecycle through repository AGENTS.md and Agent Skills, with Devin Review and all account-managed state kept separate |
 | Hermes Agent | first-class | Shared lifecycle through portable skills, advisory hooks, MCP, and separate Hermes-native memory |
-| OpenClaw | experimental | Skills-first lifecycle support with copied portable skills, separate private memory, and no project-hook claim |
+| OpenClaw | first-class | External-plugin multi-turn lifecycle with alias-bound lightweight subagents, copied portable skills, separate private memory, and trusted-shell kernel apply |
 <!-- runtime-support:end -->
 
 Compatibility paths that are not registered runtime adapters:
@@ -142,11 +147,11 @@ Compatibility paths that are not registered runtime adapters:
 
 ## One source, explicit host adapters
 
-| Capability | Shared | Claude Code | Codex | Hermes | OpenClaw (experimental) | Cursor IDE/CLI (experimental) | Devin session (experimental) |
+| Capability | Shared | Claude Code | Codex | Hermes | OpenClaw | Cursor IDE/CLI (experimental) | Devin session (experimental) |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Identity, project, state, and session files | Yes | Reads | Reads | Reads | Reads | Reads | Reads |
 | Deterministic proposal/apply and receipts | Yes | Adapter | Native skill calls | Installed skill calls | Copied skill calls | Native skill calls | Native skill calls |
-| Lifecycle vocabulary | Semantics | `/setup` etc. | `$setup` etc. | `/setup` etc. | `/skill setup` etc. | `/context-setup` etc. | `@skills:context-setup` etc. |
+| Lifecycle vocabulary | Semantics | `/setup` etc. | `$setup` etc. | `/setup` etc. | `/contextos <alias> setup` etc. | `/context-setup` etc. | `@skills:context-setup` etc. |
 | Project hooks | Event contract only | `.claude/` | `.codex/` | Optional adapter | Not claimed | Not claimed | Not claimed |
 | Native memory | No | Claude auto-memory | Outside contract | `MEMORY.md` / `USER.md` | Private workspace | Outside contract | Account-managed; not synchronized |
 
@@ -179,7 +184,7 @@ contextos/                 Deterministic lifecycle kernel
 .claude/hooks/             Claude Code-only safety and session hooks
 .codex/hooks.json          Codex lifecycle advisory adapter
 adapters/hermes/           Hermes installation and optional hook adapter
-adapters/openclaw/         Experimental OpenClaw skills-first adapter
+adapters/openclaw/         First-class OpenClaw plugin and skills adapter
 adapters/cursor/           Experimental Cursor IDE and CLI adapter
 adapters/devin/            Experimental Devin session and Review adapter
 runtimes/                  Machine-readable capability manifests
@@ -243,7 +248,7 @@ behavior of an installed agent version or an external service.
 | Import useful context from another system | [Migration guide](docs/migration-guide.md) |
 | Use the repository in Codex | [Codex onboarding](docs/codex-onboarding.md) |
 | Use the repository in Hermes Agent | [Memory across agents](docs/memory-across-agents.md) and the Hermes section of [AGENTS.md](AGENTS.md) |
-| Use the repository in OpenClaw | [Experimental OpenClaw adapter](adapters/openclaw/README.md) |
+| Use the repository in OpenClaw | [OpenClaw adapter](adapters/openclaw/README.md) |
 | Use the repository in Cursor | [Experimental Cursor IDE and CLI adapter](adapters/cursor/README.md) |
 | Keep claude.ai projects aligned | [Claude projects sync](docs/claude-projects-sync.md) |
 | See every command and portable skill | [Commands and skills](docs/commands-and-skills.md) |

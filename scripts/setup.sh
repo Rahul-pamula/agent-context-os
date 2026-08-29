@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "$REPO_ROOT"
 
-SETUP_USAGE="Usage: bash scripts/setup.sh [--agents claude,codex,cursor,devin,openclaw|auto|none] [--agent auto|RUNTIME|none]"
+SETUP_USAGE="Usage: bash scripts/setup.sh [--agents claude,codex,cursor,devin,hermes,openclaw|auto|none] [--agent auto|RUNTIME|none]"
 AGENT_SELECTION_KIND=""
 AGENT_SELECTION_RAW=""
 while [ "$#" -gt 0 ]; do
@@ -614,10 +614,12 @@ case "$SELECTED_AGENT" in
       "$CONTEXTOS_PYTHON_CMD" -m contextos install --runtime openclaw >/dev/null
     fi
     echo "  1. Create or choose a private OpenClaw workspace outside this repository."
-    echo "  2. Copy all eight lifecycle skills from .agents/skills/ into that"
-    echo "     workspace's .agents/skills/ directory."
-    printf '  3. cd %q && openclaw\n' "$REPO_ROOT"
-    echo "  4. Type: /skill setup"
+    echo "  2. Synchronize and verify all eight lifecycle skills with:"
+    echo "     python adapters/openclaw/sync_skills.py sync --workspace <private-workspace>"
+    echo "     python adapters/openclaw/sync_skills.py check --workspace <private-workspace>"
+    echo "  3. From the reviewed source commit, package and install adapters/openclaw/plugin."
+    echo "  4. Bind a project alias to this canonical root in the plugin config."
+    echo "  5. Invoke: /contextos <alias> setup"
     echo "     Native OpenClaw memory stays in the private workspace."
     echo "     See adapters/openclaw/README.md for configuration and limits."
     echo "     Setup does not launch OpenClaw because it cannot verify that private"

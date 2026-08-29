@@ -2,22 +2,24 @@
   "schema_version": 2,
   "runtime": "openclaw",
   "display_name": "OpenClaw",
-  "support_tier": "experimental",
-  "support_summary": "Skills-first lifecycle support with copied portable skills, separate private memory, and no project-hook claim",
+  "support_tier": "first-class",
+  "support_summary": "External-plugin multi-turn lifecycle with alias-bound lightweight subagents, copied portable skills, separate private memory, and trusted-shell kernel apply",
   "components": ["core", "portable-skills", "agents-instructions", "openclaw-adapter"],
   "install": {
     "mode": "skill-copy-to-private-workspace",
     "next_steps": [
       "Create or choose a private OpenClaw workspace outside this repository.",
-      "Copy all eight lifecycle skill directories from this repository's .agents/skills directory into the private workspace's .agents/skills directory.",
-      "Run OpenClaw from the repository directory and invoke lifecycle skills explicitly with /skill setup, /skill start, /skill update, or /skill end."
+      "Run python adapters/openclaw/sync_skills.py sync --workspace <private-workspace> from the exact repository commit you intend to use, then verify it with the check command.",
+      "Package and install adapters/openclaw/plugin from the exact reviewed commit, then bind a project alias to an absolute canonical root in plugins.entries.context-os.config.",
+      "Invoke /contextos <alias> setup, start, update, or end as an authorized operator, and resume questions with /contextos <alias> continue <session-key> <response>; automation preserves the random ownership token returned by contextos.run for contextos.continue, contextos.wait, and contextos.result.",
+      "After independently reviewing the exact proposal path, digest, and stored diffs, apply it from a trusted shell with bash scripts/contextos.sh apply <proposal> --confirm <digest> --runtime openclaw; the plugin exposes no apply method."
     ]
   },
   "onboarding_doc": "adapters/openclaw/README.md",
   "surfaces": {
     "cli": {
       "kind": "cli",
-      "support_tier": "experimental",
+      "support_tier": "first-class",
       "instruction_sources": [
         {"scope": "repository", "role": "canonical", "path": "AGENTS.md", "precedence": 100},
         {"scope": "workspace", "role": "persona", "path": "SOUL.md", "precedence": 90},
@@ -29,21 +31,21 @@
         {"scope": "workspace", "role": "skills", "path": ".agents/skills", "precedence": 90}
       ],
       "invocation": {
-        "setup": "/skill setup",
-        "start": "/skill start",
-        "update": "/skill update",
-        "end": "/skill end"
+        "setup": "/contextos <alias> setup",
+        "start": "/contextos <alias> start",
+        "update": "/contextos <alias> update",
+        "end": "/contextos <alias> end"
       },
       "capabilities": {
         "agent_skills": "native",
-        "explicit_invocation": "native",
+        "explicit_invocation": "adapter",
         "project_hooks": "unsupported",
         "blocking_pre_tool_hook": "unsupported",
         "mcp": "native",
         "native_memory": "native",
         "proposal_apply": "adapter",
         "skill_allowlists": "native",
-        "execution_authorization": "native"
+        "execution_authorization": "advisory"
       },
       "hook_output": null,
       "binary_probes": [
@@ -53,6 +55,8 @@
       ],
       "conformance_tests": [
         "tests/test_openclaw_conformance.py",
+        "tests/test_openclaw_live_harness.py",
+        "adapters/openclaw/plugin/plugin.test.mjs",
         "tests/test_contextos_kernel.py"
       ],
       "evidence": [
@@ -62,13 +66,14 @@
         "openclaw-exec-approvals",
         "openclaw-doctor",
         "openclaw-mcp",
+        "openclaw-plugin-conformance",
         "openclaw-kernel",
         "openclaw-conformance"
       ]
     }
   },
   "evidence": {
-    "checked_on": "2026-08-27",
+    "checked_on": "2026-08-28",
     "tested_versions": [
       {"surface": "cli", "version": "OpenClaw 2026.7.1-2 (0790d9f)"}
     ],
@@ -110,6 +115,12 @@
         "claims": ["mcp"]
       },
       {
+        "id": "openclaw-plugin-conformance",
+        "type": "conformance",
+        "location": "adapters/openclaw/plugin/plugin.test.mjs",
+        "claims": ["explicit_invocation", "invocation", "support"]
+      },
+      {
         "id": "openclaw-kernel",
         "type": "conformance",
         "location": "tests/test_contextos_kernel.py",
@@ -119,7 +130,7 @@
         "id": "openclaw-conformance",
         "type": "conformance",
         "location": "tests/test_openclaw_conformance.py",
-        "claims": ["support", "skill_sources", "instruction_sources", "invocation"]
+        "claims": ["support", "skill_sources", "instruction_sources", "invocation", "execution_authorization"]
       }
     ]
   }

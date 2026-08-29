@@ -150,6 +150,11 @@ fallback_python=$(
 )
 [ "$fallback_python" = "python" ] || fail "Python resolver did not fall back from python3 to python"
 
+bytecode_policy=$(
+  "$resolved_bash" -c 'source "$1"; printf "%s" "$PYTHONDONTWRITEBYTECODE"' _ "$ROOT/scripts/python-env.sh"
+)
+[ "$bytecode_policy" = "1" ] || fail "Python resolver does not disable repository bytecode writes"
+
 # An explicit CONTEXTOS_PYTHON is an instruction, not a hint. A working override
 # must win, and a broken one must fail loudly instead of silently resolving to a
 # different interpreter than the one that was asked for.
@@ -269,7 +274,7 @@ if "$CONTEXTOS_PYTHON_CMD" tests/validate-openai-metadata.py --command "$duplica
 fi
 
 help_output=$(bash scripts/setup.sh --help)
-grep -Fq -- '--agents claude,codex,cursor,devin,openclaw|auto|none' <<<"$help_output" || fail "setup help does not describe multi-agent selection"
+grep -Fq -- '--agents claude,codex,cursor,devin,hermes,openclaw|auto|none' <<<"$help_output" || fail "setup help does not describe multi-agent selection"
 grep -Fq -- '--agent auto|RUNTIME|none' <<<"$help_output" || fail "setup help omits the singleton compatibility alias"
 grep -Fq 'Setup does not launch OpenClaw' scripts/setup.sh \
   || fail "OpenClaw setup omits the private-workspace launch boundary"
@@ -278,6 +283,11 @@ test -n "$openclaw_setup_case" \
   || fail "OpenClaw setup case could not be inspected for launch behavior"
 if grep -Eq '(^|[[:space:]])exec[[:space:]]+openclaw([[:space:]]|$)' <<<"$openclaw_setup_case"; then
   fail "setup can launch OpenClaw before private-workspace configuration is verified"
+fi
+grep -Fq '/contextos <alias> setup' <<<"$openclaw_setup_case" \
+  || fail "OpenClaw setup omits the plugin command surface"
+if grep -Fq 'Gateway agent RPC cwd' <<<"$openclaw_setup_case" || grep -Fq '/skill setup' <<<"$openclaw_setup_case"; then
+  fail "OpenClaw setup still prints the rejected pre-plugin invocation path"
 fi
 grep -Fq 'Setup does not launch Cursor' scripts/setup.sh \
   || fail "Cursor setup omits the separate-surface launch boundary"

@@ -46,7 +46,7 @@ this is guidance, not a host-enforced gate. The `$context-setup`, `$context-star
 - `.claude/` contains Claude Code commands, hooks, settings, and memory adapters.
 - `.codex/hooks.json` maps Codex events to the same read-only policy checks.
 - `adapters/hermes/` documents optional Hermes hooks and skill installation.
-- `adapters/openclaw/` documents experimental skills-first OpenClaw support.
+- `adapters/openclaw/` documents first-class external-plugin OpenClaw support.
 - `adapters/cursor/` documents separate experimental Cursor IDE and CLI support.
 - `adapters/devin/` documents experimental Devin cloud-session and Review support.
 - Runtime manifests under `runtimes/` declare support instead of implying parity.
@@ -66,13 +66,12 @@ this is guidance, not a host-enforced gate. The `$context-setup`, `$context-star
 
 ## OpenClaw
 
-- Keep OpenClaw's private workspace and native memory outside this repository.
-- Copy all four short lifecycle aliases and all four `context-*` cores into the
-  private workspace's `.agents/skills/`; refresh copied skills after changes.
-- Run OpenClaw from the repository directory so root `AGENTS.md` is included,
-  then invoke `/skill setup`, `/skill start`, `/skill update`, or `/skill end`.
-- This adapter installs no hook or plugin; skill allowlists do not replace
-  execution authorization. See `adapters/openclaw/README.md`.
+- Keep private memory outside this repository. After reviewing its source commit,
+  sync all eight skills and install this adapter's local external plugin.
+- Bind an alias to this canonical root, then invoke
+  `/contextos <alias> setup`, `start`, `update`, or `end` and its owned continuation.
+- The plugin exposes no apply method. Review the stored proposal, then apply its
+  exact digest per `adapters/openclaw/README.md`; allowlists are not authorization.
 
 ## Cursor
 
