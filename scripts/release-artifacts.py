@@ -214,6 +214,22 @@ def build_artifacts(source: Path, output_dir: Path, *, version: str, tag: str, c
         instructions = _offline_instructions(version, tag, commit, names, lock["bundle_sha256"])
         instructions_path = staging / names["instructions"]
         instructions_path.write_bytes(instructions)
+        runtime_evidence = []
+        records = {record["path"]: record for record in lock["bundle"]["files"]}
+        for path in sorted(
+            (path for path in verified.verified_bytes if path.startswith("runtimes/")
+             and path.endswith(".json") and path != "runtimes/schema.json"),
+            key=portable_path_identity,
+        ):
+            descriptor = json.loads(verified.verified_bytes[path].decode("utf-8"))
+            runtime_evidence.append({
+                "path": path,
+                "sha256_raw": records[path]["sha256_raw"],
+                "runtime": descriptor["runtime"],
+                "support_tier": descriptor["support_tier"],
+                "support_summary": descriptor["support_summary"],
+                "tested_versions": descriptor["evidence"]["tested_versions"],
+            })
         provenance = {
             "schema_version": 1,
             "release": {
@@ -245,9 +261,7 @@ def build_artifacts(source: Path, output_dir: Path, *, version: str, tag: str, c
                 "filename": names["instructions"],
                 "sha256": _sha256_bytes(instructions),
             },
-            "runtime_evidence": {
-                "hermes": "experimental: deterministic adapter/kernel conformance; installed-client model inference not verified"
-            },
+            "runtime_evidence": runtime_evidence,
         }
         provenance_bytes = _json_bytes(provenance)
         (staging / names["provenance"]).write_bytes(provenance_bytes)
@@ -333,11 +347,8 @@ def verify_artifacts(artifacts: Path, extract_to: Path, *, version: str, tag: st
         raise ReleaseArtifactError("provenance generator identity does not match")
     if type(source.get("commit_epoch")) is not int or source["commit_epoch"] < 0:
         raise ReleaseArtifactError("provenance commit epoch is invalid")
-    expected_runtime_evidence = {
-        "hermes": "experimental: deterministic adapter/kernel conformance; installed-client model inference not verified"
-    }
-    if provenance.get("runtime_evidence") != expected_runtime_evidence:
-        raise ReleaseArtifactError("provenance runtime-evidence qualification does not match")
+    if not isinstance(provenance.get("runtime_evidence"), list):
+        raise ReleaseArtifactError("provenance runtime evidence must be an array")
     lock_path = artifacts / names["lock"]
     lock = load_bundle_lock(lock_path)
     if lock["bundle"]["name"] != TEMPLATE_NAME or lock["bundle"]["version"] != version or lock["bundle"]["source_git_commit"] != commit:
@@ -373,6 +384,7 @@ def verify_artifacts(artifacts: Path, extract_to: Path, *, version: str, tag: st
     expected_members = [f"{prefix}/{item['path']}" for item in lock["bundle"]["files"]]
     extract_root = extract_to / prefix
     extract_to.mkdir(parents=True)
+    runtime_evidence: list[dict[str, Any]] = []
     try:
         with tarfile.open(artifacts / names["archive"], mode="r:") as archive:
             members = archive.getmembers()
@@ -395,9 +407,21 @@ def verify_artifacts(artifacts: Path, extract_to: Path, *, version: str, tag: st
                 data = payload.read()
                 if _sha256_bytes(data) != record["sha256_raw"]:
                     raise ReleaseArtifactError(f"archive payload mismatch: {member.name}")
+                if record["path"].startswith("runtimes/") and record["path"].endswith(".json") and record["path"] != "runtimes/schema.json":
+                    descriptor = json.loads(data.decode("utf-8"))
+                    runtime_evidence.append({
+                        "path": record["path"],
+                        "sha256_raw": record["sha256_raw"],
+                        "runtime": descriptor["runtime"],
+                        "support_tier": descriptor["support_tier"],
+                        "support_summary": descriptor["support_summary"],
+                        "tested_versions": descriptor["evidence"]["tested_versions"],
+                    })
                 destination.write_bytes(data)
                 if os.name != "nt":
                     destination.chmod(expected_mode)
+        if provenance["runtime_evidence"] != runtime_evidence:
+            raise ReleaseArtifactError("provenance runtime evidence does not match locked descriptors")
         verified = verify_bundle(
             lock_path, extract_root, expected_sha256=lock["bundle_sha256"],
             source_mode="directory", retain_paths=(),

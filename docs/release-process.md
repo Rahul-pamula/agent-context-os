@@ -53,8 +53,8 @@ The workflow then fails closed through these gates:
 4. verify the same Actions candidate in separate Linux and Windows extraction
    jobs, including execution of `python -m contextos bundle check` from the
    extracted archive;
-5. only after both candidate jobs pass, create the exact tag and stage all five
-   assets in an unpublished draft;
+5. only after both candidate jobs pass, create or confirm the exact lightweight
+   tag through the GitHub API and stage all five assets in an unpublished draft;
 6. download those staged release assets—not the Actions copies—and verify them
    again in separate Linux and Windows directories; and
 7. only after both staged-asset jobs pass, recheck `main`, tag, draft state,
@@ -70,8 +70,9 @@ executable bits. That is an explicit limitation, not a skipped success.
 - Before the tag exists, publish nothing; retain bounded Actions diagnostics and
   rerun only against the same commit.
 - After the tag exists, never move or force-replace it. A failed staged release
-  remains a draft for inspection. Do not automatically overwrite assets or
-  delete forensic evidence.
+  remains a draft for inspection. A rerun may resume only when both the tag and
+  every downloaded draft asset are byte-identical to the same candidate; do not
+  overwrite assets or delete forensic evidence automatically.
 - If deterministic source or artifact verification fails after the tag exists,
   retire that version and fix the problem in a patch release.
 - After publication, tags and assets are immutable. Correct errors with a notice

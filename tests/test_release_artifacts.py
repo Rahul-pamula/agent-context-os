@@ -211,7 +211,23 @@ class ReleaseArtifactTest(unittest.TestCase):
         )
         self.assertLess(workflow.index("stage-draft:"), workflow.index("publish:"))
         self.assertNotIn("always()", workflow)
-        self.assertEqual(workflow.count("contents: write"), 2)
+        self.assertEqual(workflow.count("contents: write"), 4)
+        self.assertIn('-f "ref=refs/tags/$TAG"', workflow)
+        self.assertIn("--verify-tag", workflow)
+        self.assertNotIn('--target "$RELEASE_COMMIT"', workflow)
+        publish = workflow.split("  publish:", 1)[1]
+        self.assertLess(
+            publish.index('gh release download "$TAG"'),
+            publish.index('gh release edit "$TAG" --draft=false'),
+        )
+        self.assertLess(
+            publish.index("scripts/release-artifacts.py verify"),
+            publish.index('gh release edit "$TAG" --draft=false'),
+        )
+        self.assertLess(
+            publish.index('item["digest"] == "sha256:"'),
+            publish.index('gh release edit "$TAG" --draft=false'),
+        )
         action_references = [
             line.strip().split("uses: ", 1)[1].split(" #", 1)[0]
             for line in workflow.splitlines() if "uses: actions/" in line

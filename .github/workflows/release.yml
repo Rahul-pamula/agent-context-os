@@ -179,24 +179,55 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.13'
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: v0.12.0-candidate-${{ inputs.commit }}
           path: ${{ runner.temp }}/assets
 
-      - name: Recheck main and stage the exact assets as a draft
+      - name: Recheck and verify the candidate before staging
+        run: |
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$RELEASE_COMMIT"
+          python scripts/release-artifacts.py verify \
+            --artifacts "$RUNNER_TEMP/assets" \
+            --extract-to "$RUNNER_TEMP/stage-candidate" \
+            --version "$VERSION" \
+            --tag "$TAG" \
+            --commit "$RELEASE_COMMIT" \
+            > "$RUNNER_TEMP/stage-candidate.json"
+
+      - name: Create or confirm the exact tag, then stage the draft
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$RELEASE_COMMIT"
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "tag already exists: $TAG" >&2
+          REMOTE_TAG=$(git ls-remote origin "refs/tags/$TAG" | cut -f1)
+          if [[ -z "$REMOTE_TAG" ]]; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$TAG" \
+              -f "sha=$RELEASE_COMMIT" >/dev/null
+          elif [[ "$REMOTE_TAG" != "$RELEASE_COMMIT" ]]; then
+            echo "tag $TAG points to $REMOTE_TAG, expected $RELEASE_COMMIT" >&2
             exit 1
           fi
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "release already exists: $TAG" >&2
-            exit 1
+          test "$(git ls-remote origin "refs/tags/$TAG" | cut -f1)" = "$RELEASE_COMMIT"
+
+          if gh release view "$TAG" --json isDraft,isPrerelease > "$RUNNER_TEMP/existing-release.json" 2>/dev/null; then
+            python -c 'import json, os, pathlib; value=json.loads(pathlib.Path(os.environ["RUNNER_TEMP"] + "/existing-release.json").read_text()); assert value == {"isDraft": True, "isPrerelease": False}'
+            gh release download "$TAG" --dir "$RUNNER_TEMP/existing-assets"
+            python scripts/release-artifacts.py verify \
+              --artifacts "$RUNNER_TEMP/existing-assets" \
+              --extract-to "$RUNNER_TEMP/existing-extracted" \
+              --version "$VERSION" \
+              --tag "$TAG" \
+              --commit "$RELEASE_COMMIT" \
+              > "$RUNNER_TEMP/existing-verification.json"
+            diff --recursive --brief "$RUNNER_TEMP/assets" "$RUNNER_TEMP/existing-assets"
+            exit 0
           fi
+
           gh release create "$TAG" \
             "$RUNNER_TEMP/assets/$ASSET_STEM.tar" \
             "$RUNNER_TEMP/assets/$ASSET_STEM.bundle.lock.json" \
@@ -204,16 +235,22 @@ jobs:
             "$RUNNER_TEMP/assets/$ASSET_STEM.OFFLINE-VERIFY.md" \
             "$RUNNER_TEMP/assets/SHA256SUMS" \
             --draft \
-            --target "$RELEASE_COMMIT" \
+            --verify-tag \
             --title "Context OS v0.12.0" \
             --notes-file docs/releases/v0.12.0.md
-          test "$(git ls-remote origin refs/tags/$TAG | cut -f1)" = "$RELEASE_COMMIT"
+          for attempt in 1 2 3 4 5; do
+            gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null | grep -Fx true && exit 0
+            sleep 2
+          done
+          echo "draft release did not become readable" >&2
+          exit 1
 
   verify-draft-linux:
     needs: stage-draft
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # GitHub exposes draft releases only to tokens with push access.
+      contents: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -242,7 +279,8 @@ jobs:
     needs: stage-draft
     runs-on: windows-latest
     permissions:
-      contents: read
+      # GitHub exposes draft releases only to tokens with push access.
+      contents: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -275,7 +313,16 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Recheck the exact draft, tag, assets, and immutable-release policy
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.13'
+
+      - name: Re-download and verify the exact draft immediately before publication
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -285,15 +332,33 @@ jobs:
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             "repos/$GITHUB_REPOSITORY/immutable-releases" \
             --jq '.enabled' | grep -Fx true
-          gh api "repos/$GITHUB_REPOSITORY/releases" \
-            --jq '.[] | select(.tag_name == env.TAG) | [.draft, .prerelease, (.assets | map(.name) | sort)]' \
+          gh release verify --help >/dev/null
+          gh release download "$TAG" --dir "$RUNNER_TEMP/final-assets"
+          python scripts/release-artifacts.py verify \
+            --artifacts "$RUNNER_TEMP/final-assets" \
+            --extract-to "$RUNNER_TEMP/final-extracted" \
+            --version "$VERSION" \
+            --tag "$TAG" \
+            --commit "$RELEASE_COMMIT" \
+            > "$RUNNER_TEMP/final-verification.json"
+          gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
+            --jq '{draft, prerelease, assets: [.assets[] | {name, size, digest}]}' \
             > "$RUNNER_TEMP/release-state.json"
-          python -c 'import json, os, pathlib; value=json.loads(pathlib.Path(os.environ["RUNNER_TEMP"] + "/release-state.json").read_text()); expected=sorted([os.environ["ASSET_STEM"] + suffix for suffix in [".tar", ".bundle.lock.json", ".provenance.json", ".OFFLINE-VERIFY.md"]] + ["SHA256SUMS"]); assert value == [True, False, expected]'
+          python -c 'import hashlib, json, os, pathlib; root=pathlib.Path(os.environ["RUNNER_TEMP"] + "/final-assets"); value=json.loads(pathlib.Path(os.environ["RUNNER_TEMP"] + "/release-state.json").read_text()); remote={item["name"]: item for item in value["assets"]}; local={path.name: path for path in root.iterdir() if path.is_file()}; assert value["draft"] is True and value["prerelease"] is False and set(remote) == set(local); assert all(item["size"] == local[name].stat().st_size and item["digest"] == "sha256:" + hashlib.sha256(local[name].read_bytes()).hexdigest() for name, item in remote.items())'
 
       - name: Publish the verified draft and require immutability
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release edit "$TAG" --draft=false --latest
-          test "$(gh release view "$TAG" --json isImmutable --jq .isImmutable)" = true
-          gh release verify "$TAG"
+          for attempt in 1 2 3 4 5 6; do
+            IMMUTABLE=$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .immutable 2>/dev/null || true)
+            if [[ "$IMMUTABLE" == "true" ]] && gh release verify "$TAG"; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "published release did not expose a valid immutable attestation" >&2
+          exit 1
