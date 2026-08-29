@@ -124,8 +124,9 @@ containment or identity checks.
   first. Direct callers and CLI callers share one canonical readiness contract.
 - Strict lifecycle reads and hooks fail closed when a path changes identity or
   becomes link-like after canonicalization. `doctor` remains diagnostic: a
-  late race produces a structured `unknown`/warning result rather than a
-  traceback or a followed link.
+  late race produces structured results rather than a traceback or followed
+  link. Initialization and freshness become `unknown` warnings; a required
+  state file that becomes link-like remains a failing check.
 - Discovery never falls through an invalid nearer marker or climbs past a
   nested Git boundary to capture an outer ContextRoot.
 

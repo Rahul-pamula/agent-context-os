@@ -2566,7 +2566,7 @@ with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_tar
     def test_doctor_normalizes_an_unresolved_root(self) -> None:
         unresolved = self.root / "nested" / ".."
 
-        report = doctor(unresolved)
+        report = doctor(unresolved, today=NOW.date())
 
         self.assertIn(report["status"], {"pass", "warn"})
         self.assertTrue(any(
