@@ -4,9 +4,9 @@ Context OS separates repository intent from machine-local runtime state and
 per-operation evidence:
 
 All locations below are beneath the v0.12 `ContextRoot`. v0.12 uses the
-colocated root contract
-(`KernelRoot == ContextRoot == nominal WorkingRoot`); it does not store or
-infer an external application-repository binding. See
+root contract (`ContextRoot == nominal WorkingRoot`), with KernelRoot also
+colocated on the normal full-template wrapper path; it does not store or infer
+an external application-repository binding. See
 [the root contract](root-contract.md).
 
 | Layer | Location | Meaning |

@@ -197,7 +197,27 @@ class RootDiscoveryTest(unittest.TestCase):
         self.assertEqual(nested, discover_root(nested))
         self.assertEqual(expected, start_report(nested, NOW)["git_head"])
 
+        outer_before = tracked.read_bytes()
+        (nested / "sessions").mkdir()
+        (nested / "runtimes").mkdir()
+        (nested / "components").mkdir()
+        shutil.copyfile(ROOT / "runtimes/codex.json", nested / "runtimes/codex.json")
+        shutil.copyfile(
+            ROOT / "components/manifest.json", nested / "components/manifest.json"
+        )
+        proposal_path, proposal = create_proposal(
+            nested, "update", {"progress": ["Nested context"]}, NOW
+        )
+        receipt_path, receipt = apply_proposal(
+            nested, proposal_path, proposal["proposal_digest"], "codex"
+        )
+        self.assertEqual(outer_before, tracked.read_bytes())
+        self.assertTrue(receipt_path.is_relative_to(nested / ".context-os/receipts"))
+        self.assertEqual(expected, receipt["git_head_before"])
+        self.assertEqual(expected, receipt["git_head_after"])
+
         subprocess.run(["git", "init", "--quiet"], cwd=nested, check=True)
+        self.assertIsNone(start_report(nested, NOW)["git_head"])
         subprocess.run(
             ["git", "add", "contextos.workspace.json"], cwd=nested, check=True
         )
@@ -226,11 +246,6 @@ class RootDiscoveryTest(unittest.TestCase):
 
         self.assertNotEqual(expected, nested_expected)
         self.assertEqual(nested_expected, start_report(nested, NOW)["git_head"])
-
-    def test_context_root_without_git_reports_no_commit_evidence(self) -> None:
-        self.write_json(self.root)
-
-        self.assertIsNone(start_report(self.root, NOW)["git_head"])
 
     def test_invalid_inner_json_never_falls_back_to_legacy_or_outer_root(self) -> None:
         self.write_json(self.root)

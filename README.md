@@ -63,11 +63,13 @@ local registration separately. `agent enable` (or `agent add`) creates an
 additive proposal; `agent disable` creates the only proposal allowed to shrink
 the set. Neither operation deletes bundled adapter files.
 
-Then start your agent from the repository root. In v0.12 this is intentionally
-one colocated lifecycle working path: the product kernel, durable context, and
-nominal active work share a root. A containing Git worktree may supply read-only
-commit evidence, but a separate application-repository attachment is not yet a
-supported lifecycle path; see the [root contract](docs/root-contract.md).
+Then start your agent from the repository root. In the normal v0.12
+full-template wrapper path, the product kernel, durable context, and nominal
+active work share one root. A core-only JSON workspace may use an already-loaded
+trusted kernel, and a containing Git worktree may supply read-only commit
+evidence, but neither gains context mutation authority. A separate
+application-repository attachment is not yet a supported lifecycle path; see
+the [root contract](docs/root-contract.md).
 
 | Starting point | Next action |
 |---|---|
