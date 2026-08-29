@@ -9,7 +9,7 @@ import stat
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Iterator, Sequence
 
 from .component_schema import (
     COMPONENT_MANIFEST_SCHEMA_VERSION,
@@ -274,8 +274,11 @@ def _git_index(root: Path) -> dict[str, tuple[str, bool]]:
             metadata, raw_path = entry.split(b"\t", 1)
             mode, oid, stage = metadata.split(b" ")
             path = raw_path.decode("utf-8")
+            oid_text = oid.decode("ascii")
         except (ValueError, UnicodeDecodeError):
             _fail("source_mode", "Git index returned an invalid record")
+        if not GIT_COMMIT_RE.fullmatch(oid_text):
+            _fail("source_mode", "Git index returned an invalid object identifier")
         if stage != b"0":
             _fail("source_mode", f"Git index has unresolved stages for {path}")
         if mode not in {b"100644", b"100755"}:
@@ -285,25 +288,79 @@ def _git_index(root: Path) -> dict[str, tuple[str, bool]]:
             )
         if path in entries:
             _fail("source_mode", f"Git index returned duplicate path {path!r}")
-        entries[path] = (oid.decode("ascii"), mode == b"100755")
+        entries[path] = (oid_text, mode == b"100755")
     return entries
 
 
-def _git_blob(root: Path, oid: str, field: str) -> bytes:
+def _git_blobs(
+    root: Path, requests: Sequence[tuple[str, str, bool, int | None]],
+) -> Iterator[tuple[str, bytes, bool]]:
+    """Stream index blobs through one bounded ``git cat-file --batch`` process."""
     import subprocess
 
     try:
-        result = subprocess.run(
-            [*git_command(root), "cat-file", "blob", oid], check=True,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=git_environment(),
+        process = subprocess.Popen(
+            [*git_command(root), "cat-file", "--batch"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            env=git_environment(),
         )
-    except (OSError, subprocess.CalledProcessError) as exc:
-        detail = (
-            exc.stderr.decode("utf-8", errors="replace").strip()
-            if isinstance(exc, subprocess.CalledProcessError) else str(exc)
-        )
-        _fail(field, f"cannot read local Git blob: {detail}")
-    return result.stdout
+    except OSError as exc:
+        _fail("source_mode", f"cannot start local Git blob reader: {exc}")
+    if process.stdin is None or process.stdout is None:
+        process.kill()
+        process.wait()
+        _fail("source_mode", "local Git blob reader has invalid pipes")
+    completed = False
+    try:
+        for relative, oid, executable, expected_size in requests:
+            field = f"source.{relative}"
+            try:
+                process.stdin.write(oid.encode("ascii") + b"\n")
+                process.stdin.flush()
+                header = process.stdout.readline()
+            except (OSError, UnicodeError) as exc:
+                _fail(field, f"cannot query local Git blob: {exc}")
+            parts = header.rstrip(b"\n").split(b" ")
+            if len(parts) != 3 or parts[0] != oid.encode("ascii") or parts[1] != b"blob":
+                detail = header.decode("utf-8", errors="replace").strip()
+                _fail(field, f"local Git blob reader returned an invalid record: {detail}")
+            if re.fullmatch(rb"0|[1-9][0-9]*", parts[2]) is None:
+                _fail(field, "local Git blob reader returned an invalid size")
+            size = int(parts[2])
+            if expected_size is not None and size != expected_size:
+                _fail(field, "local Git blob reader size does not match the bundle lock")
+            data = process.stdout.read(size)
+            if len(data) != size:
+                _fail(field, "local Git blob reader returned a truncated payload")
+            if process.stdout.read(1) != b"\n":
+                _fail(field, "local Git blob reader returned invalid framing")
+            yield relative, data, executable
+        process.stdin.close()
+        try:
+            trailer = process.stdout.read()
+            return_code = process.wait()
+        except OSError as exc:
+            _fail("source_mode", f"cannot finish local Git blob reader: {exc}")
+        if return_code != 0:
+            detail = trailer.decode("utf-8", errors="replace").strip()
+            _fail("source_mode", f"local Git blob reader failed: {detail}")
+        if trailer:
+            _fail("source_mode", "local Git blob reader returned trailing output")
+        completed = True
+    finally:
+        if not completed and process.poll() is None:
+            try:
+                process.kill()
+                process.wait()
+            except OSError:
+                pass
+        for pipe in (process.stdin, process.stdout):
+            if pipe.closed:
+                continue
+            try:
+                pipe.close()
+            except OSError:
+                pass
 
 
 def _git_repository_identity(root: Path) -> str:
@@ -316,26 +373,27 @@ def _git_repository_identity(root: Path) -> str:
 
 
 def _source_entries(
-    root: Path, paths: Iterable[str], *, source_mode: str,
-) -> dict[str, tuple[bytes, bool]]:
+    root: Path, records: dict[str, dict[str, Any] | None], *, source_mode: str,
+) -> Iterator[tuple[str, bytes, bool]]:
     if source_mode not in {"directory", "git-index"}:
         _fail("source_mode", "must equal 'directory' or 'git-index'")
-    result: dict[str, tuple[bytes, bool]] = {}
     if source_mode == "git-index":
         index = _git_index(root)
-        for relative in paths:
+        requests: list[tuple[str, str, bool, int | None]] = []
+        for relative, record in records.items():
             if relative not in index:
                 _fail(f"source.{relative}", "is absent from the local Git index")
             oid, executable = index[relative]
-            result[relative] = (_git_blob(root, oid, f"source.{relative}"), executable)
-        return result
-    for relative in paths:
+            requests.append((
+                relative, oid, executable,
+                record["size"] if record is not None else None,
+            ))
+        yield from _git_blobs(root, requests)
+        return
+    for relative in records:
         path = _safe_path(root, relative, f"source.{relative}", missing_ok=False)
         data, metadata = _read_snapshot(path, f"source.{relative}")
-        result[relative] = (
-            data, bool(stat.S_IMODE(metadata.st_mode) & 0o111),
-        )
-    return result
+        yield relative, data, bool(stat.S_IMODE(metadata.st_mode) & 0o111)
 
 
 def _validated_runtimes(
@@ -379,7 +437,12 @@ def create_bundle_lock(
         _git_repository_identity(root) if source_mode == "git-index" else None
     )
     manifest_relative = "components/manifest.json"
-    source = _source_entries(root, [manifest_relative], source_mode=source_mode)
+    source = {
+        path: (data, executable)
+        for path, data, executable in _source_entries(
+            root, {manifest_relative: None}, source_mode=source_mode
+        )
+    }
     try:
         manifest_value = strict_json_loads(
             source[manifest_relative][0].decode("utf-8"), source=manifest_relative
@@ -397,9 +460,12 @@ def create_bundle_lock(
             _fail("source_root", "owned paths absent from Git index: " + ", ".join(absent[:20]))
     all_components = [item["id"] for item in manifest["components"]]
     paths = resolved_component_paths(manifest, all_components)
-    source = _source_entries(
-        root, (item["path"] for item in paths), source_mode=source_mode
-    )
+    source = {
+        path: (data, executable)
+        for path, data, executable in _source_entries(
+            root, {item["path"]: None for item in paths}, source_mode=source_mode
+        )
+    }
     _validated_runtimes(
         {path: data for path, (data, _) in source.items()}, manifest, root=root
     )
@@ -536,8 +602,16 @@ def _validate_compatibility(lock: dict[str, Any], role: str) -> None:
 def verify_bundle(
     lock_path: Path, source_root: Path, *, expected_sha256: str,
     source_mode: str = "directory", role: str = "candidate",
+    retain_paths: Iterable[str] | None = None,
 ) -> VerifiedBundle:
-    """Verify one caller-pinned lock and all of its local bytes without fetching."""
+    """Verify all bytes, retaining either every payload or only requested paths.
+
+    Verification streams one source payload at a time. With ``retain_paths`` the
+    peak raw-payload-buffer bound is the retained set plus the manifest/runtime
+    descriptor bytes needed for schema validation plus the current and
+    preceding source payloads during generator handoff. Text normalization and
+    directory snapshot assembly have separate transient allocations.
+    """
     expected_sha256 = _sha256(expected_sha256, "expected_sha256")
     lock_path = lock_path.absolute()
     lock = load_bundle_lock(lock_path)
@@ -553,18 +627,40 @@ def verify_bundle(
         if actual_commit != locked_commit:
             _fail("bundle.source_git_commit", "does not match the local Git HEAD commit")
     records = {item["path"]: item for item in lock["bundle"]["files"]}
-    source = _source_entries(root, records, source_mode=source_mode)
-    verified_bytes: dict[str, bytes] = {}
-    for relative, record in records.items():
-        data, executable = source[relative]
-        if len(data) != record["size"] or sha256_bytes(data) != record["sha256_raw"]:
-            _fail(f"source.{relative}", "raw bytes do not match the bundle lock")
-        if _text_lf_digest(data) != record["sha256_text_lf"]:
-            _fail(f"source.{relative}", "text normalization does not match the bundle lock")
-        if (source_mode == "git-index" or os.name != "nt") and executable != record["executable"]:
-            _fail(f"source.{relative}", "executable mode does not match the bundle lock")
-        verified_bytes[relative] = data
+    requested = set(records) if retain_paths is None else set(retain_paths)
+    unknown = requested - set(records)
+    if unknown:
+        _fail("retain_paths", "contains paths absent from the bundle: " + ", ".join(sorted(unknown)))
     manifest_relative = lock["bundle"]["component_manifest_path"]
+    schema_paths = {manifest_relative}
+    if role == "candidate":
+        schema_paths.update(
+            path for path in records
+            if len(PurePosixPath(path).parts) == 2
+            and PurePosixPath(path).parts[0] == "runtimes"
+            and path.endswith(".json")
+            and path != "runtimes/schema.json"
+        )
+    retained_during_validation = requested | schema_paths
+    verified_bytes: dict[str, bytes] = {}
+    source_entries = _source_entries(root, records, source_mode=source_mode)
+    try:
+        for relative, data, executable in source_entries:
+            record = records[relative]
+            if len(data) != record["size"] or sha256_bytes(data) != record["sha256_raw"]:
+                _fail(f"source.{relative}", "raw bytes do not match the bundle lock")
+            if _text_lf_digest(data) != record["sha256_text_lf"]:
+                _fail(f"source.{relative}", "text normalization does not match the bundle lock")
+            if (source_mode == "git-index" or os.name != "nt") and executable != record["executable"]:
+                _fail(f"source.{relative}", "executable mode does not match the bundle lock")
+            if relative in retained_during_validation:
+                verified_bytes[relative] = data
+    finally:
+        source_entries.close()
+    if source_mode == "git-index":
+        locked_commit = lock["bundle"]["source_git_commit"]
+        if _git_repository_identity(root) != locked_commit:
+            _fail("bundle.source_git_commit", "changed during Git-index verification")
     try:
         manifest_value = strict_json_loads(
             verified_bytes[manifest_relative].decode("utf-8"), source=manifest_relative
@@ -589,6 +685,13 @@ def verify_bundle(
         _validated_runtimes(verified_bytes, manifest, root=root)
         if role == "candidate" else {}
     )
+    missing_retained = requested - set(verified_bytes)
+    if missing_retained:
+        _fail(
+            "source_mode",
+            "did not verify requested paths: " + ", ".join(sorted(missing_retained)),
+        )
+    verified_bytes = {path: verified_bytes[path] for path in requested}
     return VerifiedBundle(
         root=root, lock_path=lock_path, source_mode=source_mode, role=role,
         mode_verified=(source_mode == "git-index" or os.name != "nt"), lock=lock,
@@ -678,6 +781,7 @@ def _assert_bundle_current(bundle: VerifiedBundle, field: str) -> None:
         verify_bundle(
             bundle.lock_path, bundle.root, expected_sha256=bundle.digest,
             source_mode=bundle.source_mode, role=bundle.role,
+            retain_paths=(),
         )
     except BundleError as exc:
         raise BundleError(f"{field}: source or lock became stale: {exc}") from exc

@@ -108,6 +108,45 @@ applies to materialization as well as `bundle check`. On Windows, Git-index
 source modes are verified, but the materialized target cannot preserve a POSIX
 executable bit; the plan records that destination limitation explicitly.
 
+Git-index verification uses one `git cat-file --batch` child process per bundle
+verification, independent of the number of locked files. Payload verification
+is streaming: at most the current and immediately preceding source payload are
+live in addition to payloads the caller explicitly asks to retain. During
+candidate schema validation, the component manifest and runtime descriptor
+payloads are also retained; current bundle validation retains only the
+component manifest. Thus the explicit logical raw-buffer bound is:
+
+```text
+retained requested payload bytes
++ retained schema payload bytes not already requested
++ two times the largest single locked payload bytes
+```
+
+The last term bounds the payload currently being verified plus the preceding
+loop payload, which remains live until the next generator result is unpacked;
+it may double-count requested or schema payloads. Text decoding and LF
+normalization, directory-source snapshot assembly, parsed JSON objects, lock
+and plan metadata, filesystem snapshots, and interpreter overhead are outside
+this raw-buffer metric. Proposal planning requests no bundle payload retention.
+Apply retains only candidate bundle payloads referenced by write changes; those
+verified bytes are released when transaction staging completes.
+
+Maintainers can report the current full-component compose and upgrade bounds on
+Linux or Windows with:
+
+```bash
+python scripts/measure-bundle-materialization.py --check
+```
+
+The JSON report includes Git subprocess counts, elapsed wall time, the logical
+payload peak and bound, observed staging-payload retention, and Python's traced
+allocation peak. The upgrade measurement changes one managed bundle path so
+its retained-payload observation is nonzero. CI checks process batching and
+exact subprocess counts on
+both platforms, but records time and memory without platform-sensitive
+thresholds because shared-runner measurements are not stable correctness
+signals. Exact subset-retention tests enforce the payload policy separately.
+
 ## Materializing a clean workspace
 
 Prepare a canonical workspace JSON file whose template name and version match

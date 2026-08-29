@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -19,6 +20,7 @@ from contextos.bundle_schema import (
     create_structural_plan,
     validate_bundle_lock,
     verify_bundle,
+    _git_blobs,
     _git_index,
     _safe_path,
 )
@@ -297,6 +299,135 @@ class BundleLockTest(unittest.TestCase):
         self.assertEqual("1", environment["GIT_NO_LAZY_FETCH"])
         self.assertEqual("1", environment["GIT_NO_REPLACE_OBJECTS"])
         self.assertEqual("0", environment["GIT_OPTIONAL_LOCKS"])
+
+    def test_git_index_verification_uses_one_batch_process_for_all_files(self) -> None:
+        git_source = self.root / "git-source"
+        git_source.mkdir()
+        fixture = BundleFixture(
+            git_source, version="1.0.0", managed=b"binary\x00v1\r\n", addon=True,
+            source_mode="git-index",
+        )
+        self.assertGreater(len(fixture.lock["bundle"]["files"]), 1)
+
+        real_popen = subprocess.Popen
+        real_run = subprocess.run
+        with (
+            mock.patch("subprocess.Popen", wraps=real_popen) as popen,
+            mock.patch("subprocess.run", wraps=real_run) as run,
+        ):
+            verified = fixture.verify()
+
+        self.assertEqual(set(verified.records), set(verified.verified_bytes))
+        batch_calls = [
+            call for call in popen.call_args_list
+            if call.args[0][-2:] == ["cat-file", "--batch"]
+        ]
+        self.assertEqual(1, len(batch_calls))
+        per_blob_popen_calls = [
+            call for call in popen.call_args_list
+            if any(
+                call.args[0][index:index + 2] == ["cat-file", "blob"]
+                for index in range(len(call.args[0]) - 1)
+            )
+        ]
+        self.assertEqual([], per_blob_popen_calls)
+        per_blob_calls = [
+            call for call in run.call_args_list
+            if any(
+                call.args[0][index:index + 2] == ["cat-file", "blob"]
+                for index in range(len(call.args[0]) - 1)
+            )
+        ]
+        self.assertEqual([], per_blob_calls)
+
+    def test_git_index_retain_paths_bounds_results_but_verifies_every_blob(self) -> None:
+        git_source = self.root / "git-retain-source"
+        git_source.mkdir()
+        fixture = BundleFixture(
+            git_source, version="1.0.0", managed=b"binary\x00v1\r\n", addon=True,
+            source_mode="git-index",
+        )
+
+        retained = verify_bundle(
+            fixture.lock_path, fixture.root,
+            expected_sha256=fixture.lock["bundle_sha256"],
+            source_mode="git-index", retain_paths=("managed.bin", "seed.txt"),
+        )
+        self.assertEqual(
+            {"managed.bin": b"binary\x00v1\r\n", "seed.txt": b"seed\n"},
+            retained.verified_bytes,
+        )
+        unretained = verify_bundle(
+            fixture.lock_path, fixture.root,
+            expected_sha256=fixture.lock["bundle_sha256"],
+            source_mode="git-index", retain_paths=(),
+        )
+        self.assertEqual({}, unretained.verified_bytes)
+
+        (git_source / "managed.bin").write_bytes(b"binary\x00v2\r\n")
+        fixture.commit_all("tamper fixture")
+        rebound = copy.deepcopy(fixture.lock)
+        rebound["bundle"]["source_git_commit"] = fixture._git(
+            "rev-parse", "HEAD"
+        ).stdout.decode("ascii").strip()
+        rebound["bundle_sha256"] = hashlib.sha256(
+            canonical_json(rebound["bundle"]).encode("utf-8")
+        ).hexdigest()
+        fixture.lock_path.write_text(
+            json.dumps(rebound, indent=2) + "\n", encoding="utf-8"
+        )
+        with self.assertRaisesRegex(BundleError, "raw bytes"):
+            verify_bundle(
+                fixture.lock_path, fixture.root,
+                expected_sha256=rebound["bundle_sha256"],
+                source_mode="git-index", retain_paths=(),
+            )
+
+    def test_git_batch_reader_rejects_malformed_and_truncated_records(self) -> None:
+        class BatchProcess:
+            def __init__(self, output: bytes, *, returncode: int = 0) -> None:
+                self.stdin = io.BytesIO()
+                self.stdout = io.BytesIO(output)
+                self.returncode = returncode
+
+            def poll(self) -> int:
+                return self.returncode
+
+            def kill(self) -> None:
+                self.returncode = -9
+
+            def wait(self) -> int:
+                return self.returncode
+
+        oid = "a" * 40
+        cases = [
+            (f"{oid} tree 3\nabc\n".encode(), "invalid record", 3),
+            (f"{'b' * 40} blob 3\nabc\n".encode(), "invalid record", 3),
+            (f"{oid} missing\n".encode(), "invalid record", 3),
+            (f"{oid} blob -1\n".encode(), "invalid size", 3),
+            (f"{oid} blob 4\nabc\n".encode(), "size does not match", 3),
+            (f"{oid} blob 3\nab".encode(), "truncated payload", 3),
+            (f"{oid} blob 3\nabc!".encode(), "invalid framing", 3),
+        ]
+        for output, message, expected_size in cases:
+            with self.subTest(message=message):
+                process = BatchProcess(output)
+                with mock.patch("subprocess.Popen", return_value=process):
+                    with self.assertRaisesRegex(BundleError, message):
+                        list(_git_blobs(
+                            self.source,
+                            [("managed.bin", oid, False, expected_size)],
+                        ))
+
+        process = BatchProcess(b"fatal batch failure", returncode=1)
+        with mock.patch("subprocess.Popen", return_value=process):
+            with self.assertRaisesRegex(BundleError, "fatal batch failure"):
+                list(_git_blobs(self.source, []))
+
+        process = BatchProcess(b"unexpected trailing output")
+        with mock.patch("subprocess.Popen", return_value=process):
+            with self.assertRaisesRegex(BundleError, "trailing output"):
+                list(_git_blobs(self.source, []))
 
     def test_git_identity_disables_repository_fsmonitor_for_every_command(self) -> None:
         (self.source / ".git").mkdir()

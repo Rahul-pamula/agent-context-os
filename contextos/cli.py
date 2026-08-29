@@ -262,6 +262,7 @@ def _bundle_main(args: argparse.Namespace) -> int:
     candidate = verify_bundle(
         args.lock, args.source, expected_sha256=args.expect_sha256,
         source_mode=args.source_mode,
+        retain_paths=(),
     )
     if args.bundle_command == "check":
         emit({
@@ -298,6 +299,7 @@ def _bundle_main(args: argparse.Namespace) -> int:
             expected_sha256=args.expect_current_sha256,
             source_mode=args.current_source_mode,
             role="current",
+            retain_paths=(),
         )
         current_components = component_selection(
             args.current_components, "current_components"
