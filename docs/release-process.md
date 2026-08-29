@@ -54,12 +54,14 @@ The workflow then fails closed through these gates:
    jobs, including execution of `python -m contextos bundle check` from the
    extracted archive;
 5. only after both candidate jobs pass, create or confirm the exact lightweight
-   tag through the GitHub API and stage all five assets in an unpublished draft;
+   tag through the GitHub API, stage all five assets in an unpublished draft,
+   and carry that draft's immutable numeric release ID through every later job;
 6. download those staged release assets—not the Actions copies—and verify them
    again in separate Linux and Windows directories; and
 7. only after both staged-asset jobs pass, recheck `main`, tag, draft state,
-   exact asset names, and immutability policy, publish the draft, and require
-   GitHub's immutable release attestation to verify.
+   exact asset names and server-reported digests, and immutability policy,
+   publish that exact numeric release ID, and require GitHub's immutable release
+   attestation to verify.
 
 Linux must report executable-mode verification as `true`. Windows must report
 it as `false`, because directory sources there do not expose portable POSIX

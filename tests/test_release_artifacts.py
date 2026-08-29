@@ -207,7 +207,7 @@ class ReleaseArtifactTest(unittest.TestCase):
             "needs: [verify-candidate-linux, verify-candidate-windows]", workflow
         )
         self.assertIn(
-            "needs: [verify-draft-linux, verify-draft-windows]", workflow
+            "needs: [stage-draft, verify-draft-linux, verify-draft-windows]", workflow
         )
         self.assertLess(workflow.index("stage-draft:"), workflow.index("publish:"))
         self.assertNotIn("always()", workflow)
@@ -218,16 +218,19 @@ class ReleaseArtifactTest(unittest.TestCase):
         publish = workflow.split("  publish:", 1)[1]
         self.assertLess(
             publish.index('gh release download "$TAG"'),
-            publish.index('gh release edit "$TAG" --draft=false'),
+            publish.index('gh api --method PATCH'),
         )
         self.assertLess(
             publish.index("scripts/release-artifacts.py verify"),
-            publish.index('gh release edit "$TAG" --draft=false'),
+            publish.index('gh api --method PATCH'),
         )
         self.assertLess(
             publish.index('item["digest"] == "sha256:"'),
-            publish.index('gh release edit "$TAG" --draft=false'),
+            publish.index('gh api --method PATCH'),
         )
+        self.assertIn("release_id: ${{ steps.stage.outputs.release_id }}", workflow)
+        self.assertIn('"repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"', publish)
+        self.assertNotIn('releases/tags/$TAG', publish)
         action_references = [
             line.strip().split("uses: ", 1)[1].split(" #", 1)[0]
             for line in workflow.splitlines() if "uses: actions/" in line

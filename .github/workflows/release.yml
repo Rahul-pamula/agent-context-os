@@ -170,6 +170,8 @@ jobs:
   stage-draft:
     needs: [verify-candidate-linux, verify-candidate-windows]
     runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.stage.outputs.release_id }}
     permissions:
       contents: write
     steps:
@@ -200,6 +202,7 @@ jobs:
             > "$RUNNER_TEMP/stage-candidate.json"
 
       - name: Create or confirm the exact tag, then stage the draft
+        id: stage
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -225,25 +228,33 @@ jobs:
               --commit "$RELEASE_COMMIT" \
               > "$RUNNER_TEMP/existing-verification.json"
             diff --recursive --brief "$RUNNER_TEMP/assets" "$RUNNER_TEMP/existing-assets"
-            exit 0
+          else
+            gh release create "$TAG" \
+              "$RUNNER_TEMP/assets/$ASSET_STEM.tar" \
+              "$RUNNER_TEMP/assets/$ASSET_STEM.bundle.lock.json" \
+              "$RUNNER_TEMP/assets/$ASSET_STEM.provenance.json" \
+              "$RUNNER_TEMP/assets/$ASSET_STEM.OFFLINE-VERIFY.md" \
+              "$RUNNER_TEMP/assets/SHA256SUMS" \
+              --draft \
+              --verify-tag \
+              --title "Context OS v0.12.0" \
+              --notes-file docs/releases/v0.12.0.md
+            READY=false
+            for attempt in 1 2 3 4 5; do
+              if gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null | grep -Fx true; then
+                READY=true
+                break
+              fi
+              sleep 2
+            done
+            if [[ "$READY" != "true" ]]; then
+              echo "draft release did not become readable" >&2
+              exit 1
+            fi
           fi
-
-          gh release create "$TAG" \
-            "$RUNNER_TEMP/assets/$ASSET_STEM.tar" \
-            "$RUNNER_TEMP/assets/$ASSET_STEM.bundle.lock.json" \
-            "$RUNNER_TEMP/assets/$ASSET_STEM.provenance.json" \
-            "$RUNNER_TEMP/assets/$ASSET_STEM.OFFLINE-VERIFY.md" \
-            "$RUNNER_TEMP/assets/SHA256SUMS" \
-            --draft \
-            --verify-tag \
-            --title "Context OS v0.12.0" \
-            --notes-file docs/releases/v0.12.0.md
-          for attempt in 1 2 3 4 5; do
-            gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null | grep -Fx true && exit 0
-            sleep 2
-          done
-          echo "draft release did not become readable" >&2
-          exit 1
+          RELEASE_ID=$(gh release view "$TAG" --json databaseId --jq .databaseId)
+          [[ "$RELEASE_ID" =~ ^[0-9]+$ ]]
+          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
 
   verify-draft-linux:
     needs: stage-draft
@@ -264,7 +275,9 @@ jobs:
       - name: Download and verify the staged release assets
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.stage-draft.outputs.release_id }}
         run: |
+          test "$(gh release view "$TAG" --json databaseId --jq .databaseId)" = "$RELEASE_ID"
           gh release download "$TAG" --dir "$RUNNER_TEMP/draft-assets"
           python scripts/release-artifacts.py verify \
             --artifacts "$RUNNER_TEMP/draft-assets" \
@@ -295,7 +308,9 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.stage-draft.outputs.release_id }}
         run: |
+          if ((gh release view "$env:TAG" --json databaseId --jq .databaseId) -ne $env:RELEASE_ID) { throw "Draft release ID mismatch" }
           gh release download "$env:TAG" --dir "$env:RUNNER_TEMP/draft-assets"
           python scripts/release-artifacts.py verify `
             --artifacts "$env:RUNNER_TEMP/draft-assets" `
@@ -308,7 +323,7 @@ jobs:
           if ($value.executable_modes_verified -ne $false -or $value.writes -ne $false) { throw "Staged Windows asset verification mismatch" }
 
   publish:
-    needs: [verify-draft-linux, verify-draft-windows]
+    needs: [stage-draft, verify-draft-linux, verify-draft-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -325,6 +340,7 @@ jobs:
       - name: Re-download and verify the exact draft immediately before publication
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.stage-draft.outputs.release_id }}
         run: |
           test "$(git ls-remote https://github.com/$GITHUB_REPOSITORY.git refs/heads/main | cut -f1)" = "$RELEASE_COMMIT"
           test "$(git ls-remote https://github.com/$GITHUB_REPOSITORY.git refs/tags/$TAG | cut -f1)" = "$RELEASE_COMMIT"
@@ -333,6 +349,7 @@ jobs:
             "repos/$GITHUB_REPOSITORY/immutable-releases" \
             --jq '.enabled' | grep -Fx true
           gh release verify --help >/dev/null
+          test "$(gh release view "$TAG" --json databaseId --jq .databaseId)" = "$RELEASE_ID"
           gh release download "$TAG" --dir "$RUNNER_TEMP/final-assets"
           python scripts/release-artifacts.py verify \
             --artifacts "$RUNNER_TEMP/final-assets" \
@@ -342,7 +359,7 @@ jobs:
             --commit "$RELEASE_COMMIT" \
             > "$RUNNER_TEMP/final-verification.json"
           gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
-            "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
+            "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
             --jq '{draft, prerelease, assets: [.assets[] | {name, size, digest}]}' \
             > "$RUNNER_TEMP/release-state.json"
           python -c 'import hashlib, json, os, pathlib; root=pathlib.Path(os.environ["RUNNER_TEMP"] + "/final-assets"); value=json.loads(pathlib.Path(os.environ["RUNNER_TEMP"] + "/release-state.json").read_text()); remote={item["name"]: item for item in value["assets"]}; local={path.name: path for path in root.iterdir() if path.is_file()}; assert value["draft"] is True and value["prerelease"] is False and set(remote) == set(local); assert all(item["size"] == local[name].stat().st_size and item["digest"] == "sha256:" + hashlib.sha256(local[name].read_bytes()).hexdigest() for name, item in remote.items())'
@@ -350,11 +367,15 @@ jobs:
       - name: Publish the verified draft and require immutability
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.stage-draft.outputs.release_id }}
         run: |
-          gh release edit "$TAG" --draft=false --latest
+          gh api --method PATCH -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+            -F draft=false \
+            -f make_latest=true >/dev/null
           for attempt in 1 2 3 4 5 6; do
             IMMUTABLE=$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
-              "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .immutable 2>/dev/null || true)
+              "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq .immutable 2>/dev/null || true)
             if [[ "$IMMUTABLE" == "true" ]] && gh release verify "$TAG"; then
               exit 0
             fi
