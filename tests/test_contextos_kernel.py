@@ -1527,8 +1527,7 @@ with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_tar
         )
         self.assertEqual("pass", initialization["status"])
 
-    @unittest.skipIf(os.name == "nt", "POSIX symlink-root regression")
-    def test_direct_reports_and_cli_normalize_a_symlinked_root(self) -> None:
+    def test_direct_reports_and_cli_normalize_a_linked_root(self) -> None:
         canonical_report = start_report(self.root.resolve(), NOW)
         canonical_hook = hook_report(
             self.root.resolve(), "session-start", {}, today=NOW.date()
@@ -1536,9 +1535,9 @@ with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_tar
         with tempfile.TemporaryDirectory() as external:
             linked_root = Path(external) / "linked-root"
             try:
-                linked_root.symlink_to(self.root.resolve(), target_is_directory=True)
+                make_directory_link(linked_root, self.root.resolve())
             except OSError:
-                self.skipTest("directory symlink creation is unavailable")
+                self.skipTest("directory link creation is unavailable")
 
             self.assertEqual(canonical_report, start_report(linked_root, NOW))
             self.assertEqual(
@@ -1820,6 +1819,8 @@ with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_tar
         )
         self.assertEqual("warn", initialization["status"])
         self.assertEqual("warn", freshness["status"])
+        self.assertIn("unknown", initialization["detail"])
+        self.assertIn("could not inspect", freshness["detail"])
 
     def test_doctor_degrades_post_label_state_swap_to_unknown(self) -> None:
         original = __import__(
@@ -1861,8 +1862,12 @@ with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_tar
                     report = doctor(self.root, today=NOW.date())
             finally:
                 if swapped:
-                    state.rmdir() if os.name == "nt" else state.unlink()
-                    outside.rename(state)
+                    if os.name == "nt" and state.exists():
+                        state.rmdir()
+                    elif state.is_symlink():
+                        state.unlink()
+                    if outside.exists() and not state.exists():
+                        outside.rename(state)
 
         initialization = next(
             item for item in report["checks"] if item["name"] == "initialization-state"
@@ -1872,7 +1877,7 @@ with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_tar
         )
         self.assertEqual("warn", initialization["status"])
         self.assertIn("unknown", initialization["detail"])
-        self.assertIn("state changed during diagnosis", initialization["detail"])
+        self.assertIn("could not be revalidated", initialization["detail"])
         self.assertEqual("warn", freshness["status"])
         self.assertIn("unknown", freshness["detail"])
         self.assertNotEqual("pass", report["status"])

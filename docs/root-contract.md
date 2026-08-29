@@ -118,10 +118,10 @@ for containment or identity checks.
 
 - In v0.12, CLI discovery returns the canonical ContextRoot and nominal
   WorkingRoot; full-template wrapper execution also loads KernelRoot there.
-- Direct Python `start_report` and `hook_report` calls normalize the exact
-  supplied root to the same canonical ContextRoot spelling before workspace
-  resolution; they do not search upward. The CLI performs discovery first.
-  Direct callers and CLI callers share one canonical readiness contract.
+- Direct Python `start_report`, `hook_report`, and `doctor` calls normalize the
+  exact supplied root to the same canonical ContextRoot spelling before
+  workspace resolution; they do not search upward. The CLI performs discovery
+  first. Direct callers and CLI callers share one canonical readiness contract.
 - Strict lifecycle reads and hooks fail closed when a path changes identity or
   becomes link-like after canonicalization. `doctor` remains diagnostic: a
   late race produces a structured `unknown`/warning result rather than a

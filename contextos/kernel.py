@@ -3832,7 +3832,7 @@ def _initialization_state(
         try:
             _guard_local_state_path(workspace.root, path)
             state[relative] = _state_freshness(path, today, threshold)
-        except ContextOSError:
+        except ContextOSError as exc:
             if not tolerate_unsafe:
                 raise
             state[relative] = {
@@ -3842,6 +3842,7 @@ def _initialization_state(
                 "stale_after_days": threshold,
                 "freshness_status": "unknown",
                 "stale": None,
+                "unavailable_reason": str(exc),
             }
     gate = (state_dir_relative / INITIALIZATION_FILE).as_posix()
     return _is_initialized(state[gate]), state
@@ -4261,32 +4262,36 @@ def doctor(
             initialized, initialization_files = _initialization_state(
                 workspace, effective_today, tolerate_unsafe=True
             )
-            initialization_detail = (
-                "ready"
-                if initialized
-                else (
-                    f"recovery required; {gate} carries a future **Last Updated:** "
-                    "date; "
-                    + FUTURE_DATE_NEXT_ACTION
-                    if initialization_files[gate]["freshness_status"] == "future"
-                    else (
+            gate_state = initialization_files[gate]
+            initialization_detail = "ready"
+            if not initialized:
+                if gate_state.get("unavailable_reason"):
+                    initialization_detail = (
+                        f"initialization state is unknown; cannot inspect {gate}: "
+                        f"{gate_state['unavailable_reason']}"
+                    )
+                elif gate_state["freshness_status"] == "future":
+                    initialization_detail = (
+                        f"recovery required; {gate} carries a future "
+                        f"**Last Updated:** date; {FUTURE_DATE_NEXT_ACTION}"
+                    )
+                else:
+                    initialization_detail = (
                         f"guided setup required; {gate} carries no real "
                         "**Last Updated:** date"
                     )
-                )
-            )
         except ContextOSError as exc:
             add(
                 "initialization-state",
                 "warn",
-                f"initialization state is unknown because state changed during "
-                f"diagnosis: {exc}",
+                f"initialization state is unknown because state could not be "
+                f"revalidated during diagnosis: {exc}",
             )
             add(
                 "state-freshness",
                 "warn",
-                f"state freshness is unknown because state changed during "
-                f"diagnosis: {exc}",
+                f"state freshness is unknown because state could not be "
+                f"revalidated during diagnosis: {exc}",
             )
         else:
             add(
@@ -4299,12 +4304,18 @@ def doctor(
                 for path, item in initialization_files.items()
                 if item["freshness_status"] == "future"
             ]
+            unavailable = {
+                path: str(item["unavailable_reason"])
+                for path, item in initialization_files.items()
+                if item.get("unavailable_reason")
+            }
             unusable = [
                 path
                 for path, item in initialization_files.items()
                 if item["freshness_status"] in {"missing", "unknown"}
+                and path not in unavailable
             ]
-            unresolved = future + unusable
+            unresolved = future + list(unavailable) + unusable
             freshness_details = []
             if future:
                 freshness_details.append(
@@ -4313,6 +4324,14 @@ def doctor(
             if unusable:
                 freshness_details.append(
                     "no usable **Last Updated:** date in: " + ", ".join(unusable)
+                )
+            if unavailable:
+                freshness_details.append(
+                    "could not inspect: "
+                    + "; ".join(
+                        f"{path}: {reason}"
+                        for path, reason in unavailable.items()
+                    )
                 )
             add(
                 "state-freshness",
