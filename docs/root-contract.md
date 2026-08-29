@@ -113,19 +113,20 @@ composition.
 
 ## Resolution and canonicalization
 
-Before v0.12 release, every public lifecycle/report entrypoint must canonicalize
-its root exactly once before using it for containment or identity checks.
+The public readiness entrypoints canonicalize their root before using it for
+containment or identity checks.
 
 - In v0.12, CLI discovery returns the canonical ContextRoot and nominal
   WorkingRoot; full-template wrapper execution also loads KernelRoot there.
-- Public Python lifecycle/report functions that accept a raw root path must
-  normalize it to the same canonical ContextRoot spelling before workspace
-  resolution. Direct callers and CLI callers are one contract, not separate
-  safety tiers. Issue #113 implements and tests this release requirement.
+- Direct Python `start_report`, `hook_report`, and `doctor` calls normalize the
+  exact supplied root to the same canonical ContextRoot spelling before
+  workspace resolution; they do not search upward. The CLI performs discovery
+  first. Direct callers and CLI callers share one canonical readiness contract.
 - Strict lifecycle reads and hooks fail closed when a path changes identity or
   becomes link-like after canonicalization. `doctor` remains diagnostic: a
-  late race produces a structured `unknown`/warning result rather than a
-  traceback or a followed link.
+  late race produces structured results rather than a traceback or followed
+  link. Initialization and freshness become `unknown` warnings; a required
+  state file that becomes link-like remains a failing check.
 - Discovery never falls through an invalid nearer marker or climbs past a
   nested Git boundary to capture an outer ContextRoot.
 
