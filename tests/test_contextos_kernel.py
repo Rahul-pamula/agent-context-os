@@ -1652,7 +1652,6 @@ with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_tar
                 "# External\n\n**Last Updated:** 2026-08-23\n", encoding="utf-8"
             )
             current = self.root / "state/current.md"
-            original_current = current.read_bytes()
             current.unlink()
             try:
                 current.symlink_to(outside)
@@ -2584,6 +2583,7 @@ with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_tar
                 "# External\n\n**Last Updated:** 2026-08-23\n", encoding="utf-8"
             )
             current = self.root / "state/current.md"
+            original_current = current.read_bytes()
             original_guard = __import__(
                 "contextos.kernel", fromlist=["_guard_local_state_path"]
             )._guard_local_state_path
