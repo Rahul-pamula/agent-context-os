@@ -152,7 +152,10 @@ class RootDiscoveryTest(unittest.TestCase):
             create_agent_activation_proposal(self.root, "codex", True, NOW)
         with self.assertRaisesRegex(ContextOSError, "missing runtime manifest"):
             install_runtime(self.root, "codex")
-        with mock.patch("sys.stdin", new=io.StringIO("{}")):
+        hook_output = io.StringIO()
+        with mock.patch("sys.stdin", new=io.StringIO("{}")), mock.patch(
+            "sys.stdout", new=hook_output
+        ):
             self.assertEqual(
                 0,
                 cli_main([
@@ -160,12 +163,33 @@ class RootDiscoveryTest(unittest.TestCase):
                     "--runtime", "codex",
                 ]),
             )
+        self.assertEqual("", hook_output.getvalue())
         self.assertEqual(before, snapshot())
         marker.write_text(root_config(canonical=False), encoding="utf-8")
         before_repair = snapshot()
         with self.assertRaisesRegex(ContextOSError, "invalid component manifest"):
             create_workspace_migration_proposal(self.root, (), NOW)
         self.assertEqual(before_repair, snapshot())
+
+        (self.root / "components").mkdir()
+        (self.root / "components/manifest.json").write_text(
+            json.dumps({
+                "schema_version": 1,
+                "extensible_paths": [],
+                "extensible_roots": [],
+                "components": [{
+                    "id": "other",
+                    "description": "Valid fixture without the required core component.",
+                    "depends_on": [],
+                    "paths": [{"path": "other.txt", "policy": "managed"}],
+                }],
+            }) + "\n",
+            encoding="utf-8",
+        )
+        before_closure = snapshot()
+        with self.assertRaisesRegex(ContextOSError, "unknown components: core"):
+            create_workspace_migration_proposal(self.root, (), NOW)
+        self.assertEqual(before_closure, snapshot())
         self.assertFalse(target.exists())
 
     def test_valid_noncanonical_json_is_still_a_root(self) -> None:

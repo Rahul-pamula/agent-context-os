@@ -136,6 +136,33 @@ The explicit `bundle apply --target` route exists because a clean destination
 has no tracked marker for ordinary root discovery until the approved transaction
 publishes it.
 
+## Materializing a marker-only root
+
+A marker-only root already has `contextos.workspace.json`, so it is not a clean
+target and `bundle compose` must not be used. The marker's `template.source`
+and `template.version` must exactly match the verified candidate bundle. Create
+the materialization proposal without any `--current-*` inputs, review it, then
+apply it through the explicit target route:
+
+```bash
+bash scripts/contextos.sh bundle propose \
+  --lock /path/to/contextos.bundle.lock.json \
+  --source /path/to/extracted-bundle \
+  --expect-sha256 <candidate-bundle-digest> \
+  --target /path/to/marker-only-workspace \
+  --workspace-config /path/to/marker-only-workspace/contextos.workspace.json \
+  --expect-config-sha256 <current-config-raw-digest> \
+  --components core
+
+bash scripts/contextos.sh bundle apply \
+  --target /path/to/marker-only-workspace \
+  --proposal .context-os/proposals/<proposal-id>.json \
+  --confirm <proposal-digest>
+```
+
+The pinned candidate bundle supplies product authority for this installation
+boundary. The already-loaded executable package and writable marker do not.
+
 ## Materializing an upgrade
 
 `bundle propose` consumes the exact current configuration and, when applicable,

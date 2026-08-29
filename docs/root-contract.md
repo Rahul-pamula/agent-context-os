@@ -58,8 +58,9 @@ detached-bundle materialization is the separate explicit-destination
 installation boundary that may create the product closure. For a marker-only
 target, its tracked `template.source` and `template.version` must already match
 the verified candidate bundle exactly; use `bundle propose` without current
-bundle inputs, then review and run `bundle apply`. The clean-target `bundle
-compose` command is not the marker-only path because the marker already exists.
+bundle inputs, then review and run `bundle apply`. The clean-target
+`bundle compose` command is not the marker-only path because the marker already
+exists.
 v0.12 exposes no KernelRoot path field, and the origin of imported code grants
 no lifecycle authority.
 

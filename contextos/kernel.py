@@ -721,13 +721,20 @@ def _agent_source_hashes(root: Path) -> dict[str, str]:
 
 def _selection_components(root: Path, agents: Sequence[str]) -> list[str]:
     component_path = safe_repo_path(root, "components/manifest.json")
-    manifest = load_component_manifest(
-        component_path, root=root, check_paths=False
-    )
-    requested: set[str] = {"core"}
-    for runtime in agents:
-        requested.update(runtime_manifest(root, runtime, check_paths=False)["components"])
-    return component_closure(manifest, sorted(requested))
+    try:
+        manifest = load_component_manifest(
+            component_path, root=root, check_paths=False
+        )
+        requested: set[str] = {"core"}
+        for runtime in agents:
+            requested.update(
+                runtime_manifest(root, runtime, check_paths=False)["components"]
+            )
+        return component_closure(manifest, sorted(requested))
+    except (ComponentManifestError, OSError, UnicodeError) as exc:
+        raise ContextOSError(
+            f"invalid component manifest: {component_path} ({exc})"
+        ) from exc
 
 
 def _agent_change(

@@ -156,6 +156,26 @@ class MaterializerTest(unittest.TestCase):
         self.assertTrue((target / "components/manifest.json").is_file())
         self.assertTrue((target / INSTALLED_STATE_PATH).is_file())
 
+    def test_marker_only_materialization_names_candidate_identity_mismatch(self) -> None:
+        target = self.root / "mismatched-marker-target"
+        target.mkdir()
+        config = target / "contextos.workspace.json"
+        marker = workspace("fixture-template", "1.0.0")
+        marker["agents"] = []
+        config.write_text(json.dumps(marker, indent=2) + "\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(BundleError, "candidate bundle identity"):
+            create_materialization_proposal(
+                target_root=target,
+                workspace_config_path=config,
+                expected_config_sha256=digest(config),
+                candidate=self.candidate,
+                desired_components=["core"],
+                current=None,
+                current_components=(),
+                now=NOW,
+            )
+
     def test_git_index_upgrade_uses_verified_blobs_not_smudged_worktree(self) -> None:
         fixture = self.git_candidate(version="3.0.0", managed=b"index binary\x00v3\n")
         candidate = fixture.verify()
