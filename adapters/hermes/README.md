@@ -1,5 +1,10 @@
 # Hermes adapter
 
+This adapter is experimental in v0.12. Deterministic repository, kernel, skill,
+and hook conformance passes, but the installed Hermes 0.20.5 client did not
+complete model inference during the retained live run. That attempt is not
+counted as installed-client conformance.
+
 Run `bash scripts/contextos.sh install --runtime hermes` from the repository root.
 Expose `.agents/skills/` as an external Hermes skill directory, or install the
 four short aliases together with their four `context-*` cores. Hermes copies

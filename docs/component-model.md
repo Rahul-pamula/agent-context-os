@@ -5,11 +5,10 @@ make up Context OS. Runtime descriptors name component IDs; the component graph
 resolves those IDs to one deterministic dependency closure and one owner for
 every checked-in path.
 
-This inventory is metadata, not a materializer. It does not copy, delete,
-upgrade, or rewrite a workspace. Those operations require the later
-configuration and transaction layers described in the multi-agent design epic.
-Detached immutable source identity and read-only composition planning are
-defined in [`bundle-locks.md`](bundle-locks.md).
+The inventory remains metadata rather than executable authority. Materialization
+is implemented by the detached-bundle planner/materializer and the shared
+transaction engine; see [`bundle-locks.md`](bundle-locks.md) and
+[`workspace-configuration.md`](workspace-configuration.md).
 
 ## Path policies
 
@@ -86,9 +85,9 @@ untracked owned files, duplicate owners, and any unclassified tracked source
 file. `components/schema.json` is generated from the Python contract and must
 stay current.
 
-## Clean-composition prerequisites
+## Materialization guarantees
 
-Before a later command may materialize a selected component set, it must also:
+The shipped low-level materializer:
 
 1. record the selected runtimes and components in workspace-local
    configuration;
@@ -97,12 +96,12 @@ Before a later command may materialize a selected component set, it must also:
 4. produce an exact add/change/remove plan with immutable source hashes;
 5. require digest-bound approval and use the transaction lock and receipts;
 6. preserve existing `seed` paths and arbitrary files below extensible roots;
-7. define how generated whole-file artifacts and maintainer-only conformance
-   evidence behave in a slim workspace; and
-8. validate the resulting selected runtime closure without assuming every
-   adapter or the development test tree is present;
-9. make shared instruction and documentation links closure-aware so a slim
-    workspace neither points at omitted adapter docs nor describes hooks that
-    were not selected.
+7. keeps generated whole-file artifacts and maintainer-only conformance evidence
+   outside the released component closure; and
+8. validates the selected runtime closure without treating the development test
+   tree as a workspace output.
 
-Until those guarantees ship, the catalog is intentionally read-only inventory.
+The v0.12 release supports the full-template, full-component closure. Durable
+slim-profile intent, reconciliation, and closure-aware documentation require
+workspace schema v2; the lower-level component-selection interfaces are shipped
+substrate, not a v0.12 slim-workspace support claim.
