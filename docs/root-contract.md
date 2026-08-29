@@ -11,13 +11,20 @@ does not have to reinterpret existing proposals, receipts, or safety claims.
 
 | Role | Owns | Lifecycle access |
 |---|---|---|
-| **KernelRoot** | Versioned product assets: `contextos/`, executable wrappers, runtime and component manifests, schemas, shipped adapter/skill templates, and immutable bundle sources | Read product authority and execute the kernel. Lifecycle setup/update/end never mutate KernelRoot-owned paths. |
-| **ContextRoot** | Tracked workspace intent and durable context: routing, identity, projects, state, sessions, tasks, plus local `.context-os/` inputs, proposals, locks, staging, journals, receipts, host state, and installed-bundle state | The only mutation authority for lifecycle setup/update/end. Transaction targets and journal entries are ContextRoot-relative. |
+| **KernelRoot** | Authoritative executable product assets: `contextos/`, executable wrappers, runtime and component manifests, schemas, and immutable bundle sources and locks | Read product authority and execute the kernel. Lifecycle setup/update/end never mutate these KernelRoot-owned authority paths. |
+| **ContextRoot** | Tracked workspace intent, materialized repository instructions and portable skill bodies, and durable context: routing, identity, projects, state, sessions, and tasks; plus local `.context-os/` inputs, proposals, locks, staging, journals, receipts, host state, and installed-bundle state | The only mutation authority for lifecycle setup/update/end. Transaction targets and journal entries are ContextRoot-relative. |
 | **WorkingRoot** | The application repository whose files, repository identity, status, and history describe the work being performed | Read-only evidence for Context OS lifecycle. Application edits remain ordinary host/tool actions outside lifecycle proposal/apply. |
 
 Role ownership is stronger than physical containment. In a future split mode,
 the canonical roots must be distinct and non-overlapping: none may be nested
 beneath another. The v0.12 colocated mode is the only overlap exception.
+Component policy and root role answer different questions: `managed` records
+bundle upgrade/customization policy, not runtime immutability. In colocated
+v0.12, materialized `AGENTS.md`, `CLAUDE.md`, and `.agents/skills/**` are
+ContextRoot instruction paths that the explicitly reviewed setup allowlist may
+personalize even though the component manifest also manages their upgrade
+provenance. Kernel code, wrappers, schemas, manifests, and bundle authority are
+not on that setup allowlist.
 
 ## v0.12 compatibility decision
 
@@ -27,17 +34,22 @@ v0.12 supports one colocated repository:
 KernelRoot == ContextRoot == WorkingRoot == canonical discovered root
 ```
 
-The existing `--root` option explicitly selects that colocated root. Without
-it, the CLI discovers the nearest valid `contextos.workspace.json`, or the
-legacy compound marker, and stops at a nested `.git` boundary. The shell
-wrapper resolves its own parent and changes into that directory before running
-the kernel. Host skills require the exact host-supplied directory containing
-`AGENTS.md` and `scripts/contextos.sh`.
+The existing `--root` option supplies the starting path for colocated-root
+discovery; it does not require its argument itself to be the root. Discovery
+ascends from that path to the nearest valid `contextos.workspace.json` or legacy
+compound marker and stops at a nested `.git` boundary. Without `--root`, the
+starting path is process cwd. The shell wrapper resolves its own parent and
+changes into that directory before running the kernel. Host skills require the
+exact host-supplied directory containing `AGENTS.md` and `scripts/contextos.sh`.
+Future split-mode role options must identify their exact role roots and must not
+inherit this upward-search compatibility behavior.
 
 Consequences that must be stated rather than inferred:
 
 - `start.git_head`, proposal `source_git_head`, and receipt Git evidence all
-  describe this one repository.
+  describe the Git repository containing this one discovered root. A legacy or
+  non-top-level ContextRoot may therefore report an enclosing Git worktree's
+  HEAD; v0.12 does not expose a second application-repository identity.
 - Starting an agent in an unrelated application repository and reaching into a
   separate Context OS repository is not a supported v0.12 lifecycle path.
 - `--root` never combines its argument with process cwd, a skill installation
@@ -51,8 +63,8 @@ composition.
 
 ## Resolution and canonicalization
 
-Each root is canonicalized exactly once before it is used for containment or
-identity checks.
+Before v0.12 release, every public lifecycle/report entrypoint must canonicalize
+its root exactly once before using it for containment or identity checks.
 
 - In v0.12, CLI discovery returns the canonical colocated root.
 - Public Python lifecycle/report functions that accept a raw root path must
@@ -66,10 +78,12 @@ identity checks.
 - Discovery never falls through an invalid nearer marker or climbs past a
   nested Git boundary to capture an outer ContextRoot.
 
-KernelRoot will eventually come from the trusted installation or wrapper,
-ContextRoot from an explicit option or validated local binding, and WorkingRoot
-from an explicit host working directory or argument. KernelRoot location and
-process cwd must never be implicit authority for ContextRoot.
+In split mode, KernelRoot will come from the trusted installation or wrapper,
+ContextRoot from an exact explicit option or validated local binding, and
+WorkingRoot from an exact explicit host working directory or argument. In that
+mode, KernelRoot location and process cwd must never be implicit authority for
+ContextRoot. The v0.12 cwd-based discovery compatibility described above is the
+deliberate exception.
 
 ## Legacy linked-path boundary
 
@@ -134,7 +148,7 @@ fixtures. Each row names a must-fire behavior and its must-not-fire complement.
 
 | Surface | Must fire | Must not fire |
 |---|---|---|
-| Compatibility | `--root R` resolves all three roles to canonical `R` and existing commands/receipts remain valid | `--root` combines `R` with cwd or installed product paths |
+| Compatibility | `--root R` starts discovery at `R`, resolves all three roles to the nearest canonical colocated root, and keeps existing commands/receipts valid | `--root` combines its result with cwd or installed product paths; future exact role options search upward |
 | Context discovery | Nearest valid marker wins | Invalid inner marker falls outward, or discovery crosses nested `.git` |
 | Canonicalization | Equivalent permitted entrypoints produce one canonical identity for CLI and direct API calls | Link/reparse swaps or alias changes redirect a role after validation |
 | Start | Reads ContextRoot continuity and, in split mode, separately reports WorkingRoot identity/status/history | Writes any root, reads context state from WorkingRoot, or presents KernelRoot commits as user work |

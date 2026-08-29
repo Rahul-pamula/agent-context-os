@@ -48,7 +48,10 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument(
         "--root",
         type=Path,
-        help="v0.12 colocated Context OS root (KernelRoot, ContextRoot, and WorkingRoot)",
+        help=(
+            "v0.12 discovery start for the nearest colocated Context OS root "
+            "(KernelRoot, ContextRoot, and WorkingRoot)"
+        ),
     )
     result.add_argument("--version", action="version", version=__version__)
     commands = result.add_subparsers(dest="command", required=True)

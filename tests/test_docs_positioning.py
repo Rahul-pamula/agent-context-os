@@ -6,6 +6,8 @@ import sys
 import unittest
 from pathlib import Path
 
+from contextos.cli import parser as contextos_parser
+
 # Shell out to the interpreter running these tests, never a bare "python3".
 #
 # On Windows "python3" resolves to the Microsoft Store App Execution Alias — a
@@ -60,6 +62,11 @@ class DocumentationPositioningTests(unittest.TestCase):
         self.assertIn("The only mutation authority", contract)
         self.assertIn("not a supported v0.12 lifecycle path", contract)
         self.assertIn("no tracked pointer", contract)
+        self.assertIn("supplies the starting path", contract)
+        self.assertIn("managed` records", contract)
+        self.assertIn("enclosing Git worktree", contract)
+        self.assertIn("deliberate exception", contract)
+        self.assertIn("discovery start", contextos_parser().format_help())
 
         for path in (
             "README.md",
