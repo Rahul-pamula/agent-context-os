@@ -729,7 +729,11 @@ def create_structural_plan(
     except (UnicodeError, WorkspaceConfigError) as exc:
         raise BundleError(str(exc)) from exc
     if config["template"] != {"source": authority.name, "version": authority.version}:
-        _fail("workspace.template", "does not match the current bundle identity")
+        authority_role = "current" if current is not None else "candidate"
+        _fail(
+            "workspace.template",
+            f"does not match the {authority_role} bundle identity",
+        )
     desired_ids = _component_closure(candidate.manifest, desired_components)
     required_desired_ids = _configured_components(candidate, config["agents"])
     if not set(required_desired_ids).issubset(desired_ids):

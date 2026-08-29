@@ -680,9 +680,14 @@ def _agent_lifecycle_authorization(
     _reject_config_aliases(root, relative)
     safe_repo_path(root, relative)
     component_path = safe_repo_path(root, "components/manifest.json")
-    manifest = load_component_manifest(
-        component_path, root=root, check_paths=False
-    )
+    try:
+        manifest = load_component_manifest(
+            component_path, root=root, check_paths=False
+        )
+    except (ComponentManifestError, OSError, UnicodeError) as exc:
+        raise ContextOSError(
+            f"invalid component manifest: {component_path} ({exc})"
+        ) from exc
     declared_owner = workspace_path_owner(manifest, relative)
     if declared_owner != expected[relative]["owner"]:
         raise ContextOSError(
@@ -716,13 +721,20 @@ def _agent_source_hashes(root: Path) -> dict[str, str]:
 
 def _selection_components(root: Path, agents: Sequence[str]) -> list[str]:
     component_path = safe_repo_path(root, "components/manifest.json")
-    manifest = load_component_manifest(
-        component_path, root=root, check_paths=False
-    )
-    requested: set[str] = {"core"}
-    for runtime in agents:
-        requested.update(runtime_manifest(root, runtime, check_paths=False)["components"])
-    return component_closure(manifest, sorted(requested))
+    try:
+        manifest = load_component_manifest(
+            component_path, root=root, check_paths=False
+        )
+        requested: set[str] = {"core"}
+        for runtime in agents:
+            requested.update(
+                runtime_manifest(root, runtime, check_paths=False)["components"]
+            )
+        return component_closure(manifest, sorted(requested))
+    except (ComponentManifestError, OSError, UnicodeError) as exc:
+        raise ContextOSError(
+            f"invalid component manifest: {component_path} ({exc})"
+        ) from exc
 
 
 def _agent_change(
@@ -3210,6 +3222,10 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
     expected_digest = validate_proposal(document)
     if confirmation != expected_digest:
         raise ContextOSError("--confirm must exactly match the proposal_digest")
+    if runtime == "generic" and not is_agent_workflow:
+        raise ContextOSError(
+            "generic runtime is reserved for agent-config and materialization proposals"
+        )
     validate_execution_runtime(root, runtime)
     with transaction_lock(root):
         # A completed crash journal has priority over every later lifecycle

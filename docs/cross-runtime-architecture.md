@@ -7,9 +7,11 @@ models, tool names, or native memory.
 The [root contract](root-contract.md) defines product assets (`KernelRoot`),
 durable lifecycle state (`ContextRoot`), and the nominal application working
 directory (`WorkingRoot`). v0.12 colocates them on its normal full-template
-wrapper path; core-only CLI discovery may use an already-loaded trusted
-KernelRoot without granting it context authority. External project attachment
-requires a later versioned binding contract.
+wrapper path. A marker-only root may use already-loaded code for discovery,
+reports, diagnosis, direct provider-neutral hooks, and proposal publication,
+but named runtime execution and mutation require the colocated trusted product
+closure. Verified detached-bundle materialization is the separate bootstrap boundary.
+External project attachment requires a later versioned binding contract.
 
 ## Layers
 

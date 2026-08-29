@@ -4,10 +4,11 @@
 reserved for the external-project attachment milestone.
 
 Context OS uses three root roles. The normal v0.12 full-template wrapper path
-colocates them; a core-only JSON ContextRoot may instead run through an already
-loaded trusted kernel installation. Their ownership and authority are defined
-separately now so a later attachment flow does not have to reinterpret existing
-proposals, receipts, or safety claims.
+colocates them. A minimal marker-only JSON ContextRoot can be discovered and
+inspected by already-loaded Context OS code, but that code's installation
+location is not runtime/component authorization. Their ownership and authority
+are defined separately now so a later attachment flow does not have to
+reinterpret existing proposals, receipts, or safety claims.
 
 ## Root roles
 
@@ -20,8 +21,8 @@ proposals, receipts, or safety claims.
 Role ownership is stronger than physical containment. In a future attachment
 mode, the canonical roots must be distinct and non-overlapping: none may be
 nested beneath another. v0.12 permits the full-template colocation below and a
-CLI-only core workspace to use the already loaded trusted kernel without
-turning that installation into ContextRoot or WorkingRoot authority.
+marker-only workspace to use the already loaded executable package without
+turning that installation into product, ContextRoot, or WorkingRoot authority.
 Component policy and root role answer different questions: `managed` records
 bundle upgrade/customization policy, not runtime immutability. In colocated
 v0.12, materialized `AGENTS.md`, `CLAUDE.md`, and `.agents/skills/**` are
@@ -45,18 +46,29 @@ ContextRoot == nominal WorkingRoot == canonical discovered root
 ```
 
 On the normal full-template path, `scripts/contextos.sh` loads the kernel from
-that same root, so `KernelRoot == ContextRoot` as well. A core-only JSON
-workspace is CLI-discoverable without product files; there, KernelRoot is the
-origin of the already loaded trusted `contextos` package and is not discovered
-from `--root`. v0.12 exposes no KernelRoot path field. This executable-source
-exception is not external application attachment and grants no lifecycle write
-authority outside ContextRoot.
+that same root, so `KernelRoot == ContextRoot` as well. A full-template
+core-only profile (`agents: []`) still has this colocated product closure. A
+minimal marker-only JSON root is narrower: already-loaded code may discover,
+report, diagnose, run direct provider-neutral hooks, and publish content
+proposals there, but it may not apply those proposals or mutate agent/runtime
+configuration until trusted runtime/component descriptors are colocated.
+`generic` execution is reserved for authenticated agent-config and
+materialization proposals, not descriptor-free content apply. Verified
+detached-bundle materialization is the separate explicit-destination
+installation boundary that may create the product closure. For a marker-only
+target, its tracked `template.source` and `template.version` must already match
+the verified candidate bundle exactly; use `bundle propose` without current
+bundle inputs, then review and run `bundle apply`. The clean-target
+`bundle compose` command is not the marker-only path because the marker already
+exists.
+v0.12 exposes no KernelRoot path field, and the origin of imported code grants
+no lifecycle authority.
 
 `GitEvidenceScope` is a documentation-only evidence source, not a fourth
 authority root or a v0.12 path/identity field. It is the nearest valid containing
 Git worktree, when one exists, used only for existing commit evidence. It is
-absent when the nearest valid containing worktree has no existing commit, or
-when none exists; evidence never falls outward past a nearer worktree. It
+absent when the nearest repository is unborn, absent, invalid, or Git cannot
+execute; evidence never falls outward past a nearer repository. It
 normally equals the discovered root, but an intentionally nested ContextRoot
 makes it an ancestor of the nominal WorkingRoot. That compatibility case does
 not authorize lifecycle mutation outside ContextRoot.
@@ -71,14 +83,15 @@ from its wrapper directory and changes there before running the kernel. In the
 v0.12 full-template colocated mode, host lifecycle skills require the exact
 host-supplied directory containing
 `AGENTS.md` and `scripts/contextos.sh`. That is an adapter heuristic, not
-ContextRoot discovery: a core-only JSON workspace remains CLI-discoverable
+ContextRoot discovery: a marker-only JSON workspace remains CLI-discoverable
 without those files, and split mode must replace the heuristic. Future
 split-mode role options must identify their exact role roots and must not inherit
 this upward-search compatibility behavior.
 
 Consequences that must be stated rather than inferred:
 
-- `start.git_head`, proposal `source_git_head`, and receipt Git evidence all
+- `start.git_head`, proposal `source_git_head` when that field is present, and
+  receipt Git evidence all
   describe `GitEvidenceScope`, the nearest containing Git worktree. A legacy or
   non-top-level ContextRoot may therefore report an enclosing
   Git worktree's HEAD; the nominal WorkingRoot remains the discovered path and
@@ -173,8 +186,12 @@ Lifecycle setup/update/end obey these invariants:
    restore only ContextRoot targets.
 3. WorkingRoot state may be bound as read-only evidence, but it never grants
    mutation authority and never replaces ContextRoot target hashes.
-4. KernelRoot product assets supply trusted code and schemas; ContextRoot
-   content cannot shadow them to widen authorization.
+4. On the v0.12 full-template path, colocated product files supply executable
+   code, schemas, and runtime/component authorization. Marker-only content
+   cannot borrow authority from the installed package: named-runtime apply,
+   agent configuration, and runtime registration fail until the trusted product
+   closure is colocated. Verified detached-bundle materialization supplies its
+   own pinned authority at the separate installation boundary.
 5. Materializing a bundle is a separately named installation/composition
    boundary with an explicit reviewed destination. It is not a setup/update/end
    lifecycle write to an attached WorkingRoot.
@@ -201,13 +218,14 @@ fixtures. Each row names a must-fire behavior and its must-not-fire complement.
 
 | Surface | Must fire | Must not fire |
 |---|---|---|
-| Compatibility | `--root R` starts discovery at `R`, resolves ContextRoot and the nominal WorkingRoot to the nearest canonical root, keeps full-template wrapper KernelRoot colocated while permitting a trusted already-loaded kernel for core-only CLI use, attributes existing Git commit fields to `GitEvidenceScope`, and keeps existing commands/receipts valid | A supplied discovery start falls back to cwd or installed product paths; an installed KernelRoot gains ContextRoot authority; an enclosing Git worktree gains lifecycle mutation authority or is presented as ContextRoot-authored work; future exact role options search upward |
+| Compatibility | `--root R` starts discovery at `R`, resolves ContextRoot and the nominal WorkingRoot to the nearest canonical root, keeps full-template wrapper KernelRoot colocated while permitting already-loaded code to inspect a marker-only root, attributes existing Git commit fields to `GitEvidenceScope`, and keeps existing commands/receipts valid | A supplied discovery start falls back to cwd or installed product paths; an installed package grants product or ContextRoot authority; an enclosing Git worktree gains lifecycle mutation authority or is presented as ContextRoot-authored work; future exact role options search upward |
+| Marker-only bootstrap | Discovery, start, diagnosis, direct provider-neutral hooks, and content proposal publication remain read/local-publication surfaces; `bundle propose` without current-bundle inputs may materialize a matching verified product closure at its explicit destination | Descriptor-free content apply, agent configuration, runtime registration, or a named provider hook/apply succeeds; `bundle compose` is presented as accepting an existing marker, or bundle authority is inferred from installed code or writable ContextRoot content |
 | Context discovery | Nearest valid marker wins | Invalid inner marker falls outward, or discovery crosses nested `.git` |
 | Canonicalization | Equivalent permitted entrypoints produce one canonical identity for CLI and direct API calls | Link/reparse swaps or alias changes redirect a role after validation |
 | Start | Reads ContextRoot continuity and, in split mode, separately reports WorkingRoot identity/status/history | Writes any root, reads context state from WorkingRoot, or presents KernelRoot commits as user work |
 | Propose | Publishes reviewed proposal state only beneath ContextRoot | Absolute, escaping, unresolved link-like, canonical-config linked, KernelRoot, or WorkingRoot targets reach publication; the documented pre-JSON internal-link exception is resolved before target calculation |
 | Apply/recovery | Changes and restores only ContextRoot-relative targets under the existing digest, lock, journal, and receipt protocol | Crafted or legacy artifacts cause KernelRoot/WorkingRoot mutation |
-| Runtime registration | Reads runtime/component authority from KernelRoot and records local state beneath ContextRoot | Installation modifies WorkingRoot or lets ContextRoot shadow product authority |
+| Runtime registration | In v0.12 full-template mode, reads colocated trusted runtime/component descriptors and records local state beneath ContextRoot | Marker-only registration borrows descriptors from the installed package, or registration writes host state before descriptor validation |
 | Doctor | Diagnoses each role independently and stays total across late races | Executes runtime probes, follows links, mutates a root, or hides an unexecuted check as green |
 | Hooks | Resolves protected ContextRoot paths against the declared role | Treats an ordinary WorkingRoot-relative source path as ContextRoot-relative |
 | Binding | Explicit identity match permits a local binding and explicit rebind handles a move | cwd, copied marker, stale path, or matching remote name alone authorizes use |
@@ -215,24 +233,24 @@ fixtures. Each row names a must-fire behavior and its must-not-fire complement.
 
 ## Implementation surface inventory
 
-Distinct-root work must update these surfaces together rather than creating a
-second ad hoc root path:
+When #116 implements distinct-root execution, it will update these surfaces
+together rather than creating a second ad hoc root path:
 
-- `contextos/cli.py`: unambiguous role options; `--root` remains the v0.12
+- `contextos/cli.py` will add unambiguous role options; `--root` will remain the v0.12
   colocated compatibility form.
-- `contextos/kernel.py`: typed root resolution; ContextRoot workspace and
+- `contextos/kernel.py` will add typed root resolution; ContextRoot workspace and
   transaction guards; role-qualified Git evidence, reports, hooks, receipts,
   and recovery.
-- `scripts/contextos.sh` and hook wrappers: load KernelRoot assets without
+- `scripts/contextos.sh` and hook wrappers will load KernelRoot assets without
   replacing the caller's WorkingRoot or discovering ContextRoot from cwd.
-- `.agents/skills/context-*` and runtime adapters: execute in WorkingRoot while
+- `.agents/skills/context-*` and runtime adapters will execute in WorkingRoot while
   invoking an explicit/bound ContextRoot through KernelRoot.
-- `adapters/openclaw/plugin/lib.js`: replace its colocated root alias with exact
+- `adapters/openclaw/plugin/lib.js` will replace its colocated root alias with exact
   ContextRoot and WorkingRoot bindings while preserving ownership,
   continuation, and no-plugin-apply boundaries.
-- runtime/component/bundle validation: read product authority from KernelRoot;
+- runtime/component/bundle validation will read product authority from KernelRoot;
   never from writable context or application content.
-- materialization: distinguish creation/reconciliation of a ContextRoot from
+- materialization will distinguish creation/reconciliation of a ContextRoot from
   lifecycle activity inside an attached application repository.
 
 Issue #116 owns that implementation and its Windows/Linux Claude-to-Codex
