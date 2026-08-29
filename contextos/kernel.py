@@ -105,6 +105,10 @@ SETUP_NEXT_ACTION = (
     "Run the explicit setup workflow (bash scripts/setup.sh, then the $context-setup "
     "skill) before starting a session."
 )
+FUTURE_DATE_NEXT_ACTION = (
+    "Check the system clock, then run the explicit setup workflow to replace the "
+    "future-dated **Last Updated:** value in state/current.md before starting a session."
+)
 class ContextOSError(RuntimeError):
     pass
 
@@ -3663,19 +3667,33 @@ def render_hook_payload(
 def _state_freshness(path: Path, today: date, threshold: int) -> dict[str, Any]:
     updated = None
     age = None
-    if path.exists():
+    exists = False
+    raw: bytes | None = None
+    try:
+        raw, _metadata = read_regular_file_snapshot(
+            path, subject=f"state freshness file {path.name}"
+        )
+        exists = True
+    except SnapshotError as exc:
+        if isinstance(exc.__cause__, FileNotFoundError):
+            exists = False
+        elif isinstance(exc.__cause__, PermissionError):
+            exists = True
+        else:
+            raise ContextOSError(str(exc)) from exc
+    if raw is not None:
         try:
-            match = LAST_UPDATED_RE.search(path.read_text(encoding="utf-8"))
+            match = LAST_UPDATED_RE.search(raw.decode("utf-8"))
             if match and REAL_DATE_RE.fullmatch(match.group(1).strip()):
                 candidate = match.group(1).strip()
                 parsed = datetime.strptime(candidate, "%Y-%m-%d").date()
                 updated = candidate
                 age = (today - parsed).days
-        except (OSError, UnicodeError, ValueError):
+        except (UnicodeError, ValueError):
             # Diagnostics and advisory hooks must report unreadable or invalid
             # state as unknown rather than crashing on the file they diagnose.
             pass
-    if not path.exists():
+    if not exists:
         status = "missing"
     elif age is None:
         status = "unknown"
@@ -3686,7 +3704,7 @@ def _state_freshness(path: Path, today: date, threshold: int) -> dict[str, Any]:
     else:
         status = "fresh"
     return {
-        "exists": path.exists(),
+        "exists": exists,
         "last_updated": updated,
         "age_days": age,
         "stale_after_days": threshold,
@@ -3695,7 +3713,7 @@ def _state_freshness(path: Path, today: date, threshold: int) -> dict[str, Any]:
     }
 
 
-def _is_initialized(workspace: Workspace, today: date | None = None) -> bool:
+def _is_initialized(freshness: dict[str, Any]) -> bool:
     """Single readiness predicate shared by start, doctor, and the session hook.
 
     Only current.md gates readiness. weekly-priorities.md and blockers.md are
@@ -3703,25 +3721,47 @@ def _is_initialized(workspace: Workspace, today: date | None = None) -> bool:
     requiring a real date on all three would report an initialized workspace as
     needing setup forever. Their freshness is still reported separately.
     """
-    current = workspace.state_dir / INITIALIZATION_FILE
-    freshness = _state_freshness(
-        current,
-        today if today is not None else utc_now().date(),
-        STATE_THRESHOLDS[INITIALIZATION_FILE],
-    )
     return freshness["freshness_status"] in {"fresh", "stale"}
 
 
 def _initialization_state(
-    workspace: Workspace, today: date
+    workspace: Workspace, today: date, *, tolerate_unsafe: bool = False
 ) -> tuple[bool, dict[str, dict[str, Any]]]:
-    state = {
-        relative_path(workspace.root, workspace.state_dir / filename): _state_freshness(
-            workspace.state_dir / filename, today, threshold
-        )
-        for filename, threshold in STATE_THRESHOLDS.items()
-    }
-    return _is_initialized(workspace, today), state
+    state: dict[str, dict[str, Any]] = {}
+    state_dir_relative = _guard_local_state_path(
+        workspace.root, workspace.state_dir
+    )
+    for filename, threshold in STATE_THRESHOLDS.items():
+        path = workspace.state_dir / filename
+        relative = (state_dir_relative / filename).as_posix()
+        try:
+            _guard_local_state_path(workspace.root, path)
+            state[relative] = _state_freshness(path, today, threshold)
+        except ContextOSError:
+            if not tolerate_unsafe:
+                raise
+            state[relative] = {
+                "exists": False,
+                "last_updated": None,
+                "age_days": None,
+                "stale_after_days": threshold,
+                "freshness_status": "unknown",
+                "stale": None,
+            }
+    gate = (state_dir_relative / INITIALIZATION_FILE).as_posix()
+    return _is_initialized(state[gate]), state
+
+
+def _initialization_next_action(
+    workspace: Workspace, state: dict[str, dict[str, Any]]
+) -> str:
+    state_dir_relative = _guard_local_state_path(
+        workspace.root, workspace.state_dir
+    )
+    gate = (state_dir_relative / INITIALIZATION_FILE).as_posix()
+    if state[gate]["freshness_status"] == "future":
+        return FUTURE_DATE_NEXT_ACTION
+    return SETUP_NEXT_ACTION
 
 
 def start_report(root: Path, now: datetime) -> dict[str, Any]:
@@ -3732,7 +3772,9 @@ def start_report(root: Path, now: datetime) -> dict[str, Any]:
         "schema_version": SCHEMA_VERSION,
         "generated_at": now.isoformat(),
         "initialized": initialized,
-        "next_action": None if initialized else SETUP_NEXT_ACTION,
+        "next_action": (
+            None if initialized else _initialization_next_action(workspace, files)
+        ),
         "state": files,
         "latest_session": relative_path(root, sessions[0]) if sessions else None,
         "task_file": relative_path(root, workspace.task_file),
@@ -3740,12 +3782,41 @@ def start_report(root: Path, now: datetime) -> dict[str, Any]:
     }
 
 
-def _guard_local_state_path(root: Path, path: Path) -> None:
-    current = root
+def _guard_local_state_path(root: Path, path: Path) -> Path:
+    anchor = root
     try:
         relative = path.relative_to(root)
     except ValueError as exc:
-        raise ContextOSError(f"local state path escapes workspace: {path}") from exc
+        if os.name != "nt":
+            raise ContextOSError(f"local state path escapes workspace: {path}") from exc
+
+        # Windows may expose the same directory through an 8.3 spelling and a
+        # canonical long spelling. Identify an equivalent existing ancestor
+        # without resolving the candidate path, then perform the normal
+        # no-follow walk from that spelling.
+        for candidate_anchor in path.parents:
+            if _is_link_like(candidate_anchor):
+                raise ContextOSError(
+                    "local state path must not traverse a symlink or reparse point: "
+                    f"{path}"
+                )
+            try:
+                same_root = os.path.samefile(root, candidate_anchor)
+            except FileNotFoundError:
+                continue
+            except OSError as identity_error:
+                raise ContextOSError(
+                    "cannot establish local state path containment for "
+                    f"{path}: {identity_error}"
+                ) from identity_error
+            if same_root:
+                anchor = candidate_anchor
+                relative = path.relative_to(candidate_anchor)
+                break
+        else:
+            raise ContextOSError(f"local state path escapes workspace: {path}") from exc
+
+    current = anchor
     for part in relative.parts:
         current /= part
         if _is_link_like(current):
@@ -3753,6 +3824,7 @@ def _guard_local_state_path(root: Path, path: Path) -> None:
                 "local state path must not traverse a symlink or reparse point: "
                 f"{relative.as_posix()}"
             )
+    return relative
 
 
 def _local_json(path: Path, *, root: Path) -> dict[str, Any]:
@@ -4049,13 +4121,18 @@ def doctor(
         workspace.state_dir / filename for filename in STATE_THRESHOLDS
     ]
     state_path_errors: dict[Path, str] = {}
+    state_path_labels: dict[Path, str] = {}
     for path in dict.fromkeys([*required_paths, *freshness_paths]):
         try:
-            _guard_local_state_path(root, path)
+            state_path_labels[path] = _guard_local_state_path(root, path).as_posix()
         except ContextOSError as exc:
             state_path_errors[path] = str(exc)
+            try:
+                state_path_labels[path] = path.relative_to(root).as_posix()
+            except ValueError:
+                state_path_labels[path] = path.name
     for path in required_paths:
-        rel = path.relative_to(root).as_posix()
+        rel = state_path_labels[path]
         error = state_path_errors.get(path)
         add(
             f"file:{rel}",
@@ -4063,11 +4140,11 @@ def doctor(
             error or rel,
         )
     unsafe_freshness = [
-        path.relative_to(root).as_posix()
+        state_path_labels[path]
         for path in freshness_paths
         if path in state_path_errors
     ]
-    gate = (workspace.state_dir / INITIALIZATION_FILE).relative_to(root).as_posix()
+    gate = state_path_labels[workspace.state_dir / INITIALIZATION_FILE]
     if unsafe_freshness:
         add(
             "initialization-state",
@@ -4082,26 +4159,46 @@ def doctor(
         )
     else:
         initialized, initialization_files = _initialization_state(
-            workspace, effective_today
+            workspace, effective_today, tolerate_unsafe=True
         )
         add(
             "initialization-state",
             "pass" if initialized else "warn",
             "ready"
             if initialized
-            else f"guided setup required; {gate} carries no real **Last Updated:** date",
+            else (
+                f"recovery required; {gate} carries a future **Last Updated:** date; "
+                + _initialization_next_action(workspace, initialization_files)
+                if initialization_files[gate]["freshness_status"] == "future"
+                else f"guided setup required; {gate} carries no real **Last Updated:** date"
+            ),
         )
-        unresolved = [
+        future = [
             path
             for path, item in initialization_files.items()
-            if item["freshness_status"] in {"missing", "unknown", "future"}
+            if item["freshness_status"] == "future"
         ]
+        unusable = [
+            path
+            for path, item in initialization_files.items()
+            if item["freshness_status"] in {"missing", "unknown"}
+        ]
+        unresolved = future + unusable
+        freshness_details = []
+        if future:
+            freshness_details.append(
+                "future **Last Updated:** date in: " + ", ".join(future)
+            )
+        if unusable:
+            freshness_details.append(
+                "no usable **Last Updated:** date in: " + ", ".join(unusable)
+            )
         add(
             "state-freshness",
             "pass" if not unresolved else "warn",
             "all tracked state files carry a real date"
             if not unresolved
-            else f"no usable **Last Updated:** date in: {', '.join(unresolved)}",
+            else "; ".join(freshness_details),
         )
 
     local_hosts = {"schema_version": HOST_STATE_SCHEMA_VERSION, "hosts": {}}
@@ -4778,12 +4875,27 @@ def _hook_targets(payload: dict[str, Any]) -> set[str]:
     return targets
 
 
-def hook_report(root: Path, event: str, payload: dict[str, Any]) -> dict[str, Any]:
+def hook_report(
+    root: Path,
+    event: str,
+    payload: dict[str, Any],
+    *,
+    today: date | None = None,
+) -> dict[str, Any]:
     findings: list[dict[str, str]] = []
     workspace = load_workspace(root)
     if event == "session-start":
-        if not _is_initialized(workspace):
-            findings.append({"severity": "advisory", "message": f"Context OS is not initialized. {SETUP_NEXT_ACTION}"})
+        initialized, initialization_files = _initialization_state(
+            workspace, today if today is not None else utc_now().date()
+        )
+        if not initialized:
+            findings.append({
+                "severity": "advisory",
+                "message": (
+                    "Context OS is not initialized. "
+                    + _initialization_next_action(workspace, initialization_files)
+                ),
+            })
         lock = root / ".context-os" / "apply.lock"
         if lock.exists():
             findings.append({"severity": "warning", "message": f"A lifecycle apply lock exists at {lock}. Run context-os doctor before writing."})
