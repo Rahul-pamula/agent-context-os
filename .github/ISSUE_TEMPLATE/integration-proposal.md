@@ -18,7 +18,7 @@ IMPORTANT: This is a metadata-only catalog change.
 - Do NOT authenticate to the integration.
 - Do NOT call/use the integration.
 No external account, credential, installation, or live integration call is required.
-Please use first-party documentation/evidence for all fields.
+Please provide first-party documentation/evidence for all verified fields. Unverified fields must be explicitly disclosed.
 -->
 
 ## Job it closes
@@ -40,11 +40,12 @@ maintaining durable context in a git repo.
 - `source_url`:
 - `kind`: <!-- mcp_server | skill_catalog | workspace_template | resource_catalog | agent_extension | connector | editor_guide | local_workspace -->
 - `supported_agents`: <!-- claude_code | codex | cursor | gemini_cli | opencode | generic - list only what you verified -->
-- `maturity`: <!-- verified if you checked the fields yourself; listed if you could not -->
+- `maturity`: <!-- verified | listed | experimental -->
 - `last_verified`: <!-- YYYY-MM-DD -->
 
 ## Installation
 
+- `automatic`: false
 - `scope`: <!-- none | project | user | project_or_user -->
 - `prerequisites`:
 
@@ -84,7 +85,7 @@ The catalog must describe the full surface; it does not disable tools or enforce
 
 ## Evidence & Health
 
-- `evidence`: <!-- Links to first-party documentation -->
+- `evidence`: <!-- Links to first-party documentation for verified fields -->
 - `health_check`:
 
 ## Uninstall
@@ -95,7 +96,7 @@ The catalog must describe the full surface; it does not disable tools or enforce
 ## What you could not verify
 
 <!--
-Required. "Nothing" is an acceptable answer, but an empty section is not.
+Required for listed or experimental entries. "Nothing" is an acceptable answer, but an empty section is not.
 Unverified per-client setup matrices, undocumented delete tools, and unclear
 maintenance status all belong here rather than being quietly asserted.
 -->

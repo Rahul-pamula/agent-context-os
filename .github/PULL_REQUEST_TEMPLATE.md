@@ -15,7 +15,7 @@
 ### Integrations (if adding to catalog)
 - [ ] Full-surface capabilities are declared, including `read`
 - [ ] Data boundary is fully disclosed
-- [ ] Every field is supported by first-party evidence (no live installation or testing used)
+- [ ] Every verified field is supported by first-party evidence, and unverified fields are explicitly disclosed (no live installation or testing used)
 - [ ] `last_verified` is the personally checked date
 - [ ] Confirmation gates and risk tags are derived from capabilities
 - [ ] `references/integrations.md` was regenerated via script
