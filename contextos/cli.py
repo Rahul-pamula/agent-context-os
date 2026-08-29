@@ -45,7 +45,15 @@ from .workspace_schema import WorkspaceConfigError, parse_agent_selection
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="context-os", description="Deterministic Context OS lifecycle kernel")
-    result.add_argument("--root", type=Path, help="Context OS repository root")
+    result.add_argument(
+        "--root",
+        type=Path,
+        help=(
+            "v0.12 discovery start for the nearest Context OS root "
+            "(ContextRoot and nominal WorkingRoot; also KernelRoot for the "
+            "full-template wrapper path)"
+        ),
+    )
     result.add_argument("--version", action="version", version=__version__)
     commands = result.add_subparsers(dest="command", required=True)
 

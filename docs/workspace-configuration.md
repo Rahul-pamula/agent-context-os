@@ -3,6 +3,12 @@
 Context OS separates repository intent from machine-local runtime state and
 per-operation evidence:
 
+All locations below are beneath the v0.12 `ContextRoot`. v0.12 uses the
+root contract (`ContextRoot == nominal WorkingRoot`), with KernelRoot also
+colocated on the normal full-template wrapper path; it does not store or infer
+an external application-repository binding. See
+[the root contract](root-contract.md).
+
 | Layer | Location | Meaning |
 |---|---|---|
 | Tracked workspace intent | `contextos.workspace.json` | Selected runtime set, full-template mode, repository paths, and template source |
@@ -53,6 +59,11 @@ UNC and absolute paths, backslashes, dot segments, Windows device aliases,
 `.git`, `.context-os`, and symlink traversal fail closed. The current defaults
 remain `state`, `sessions`, and `TODO.md`; migration does not silently move the
 task file to `state/tasks.md`.
+
+Path syntax validity is not write authorization. Update/end proposal
+publication, apply, and recovery also reject configured state/session targets
+under the protected product and host-control namespaces enumerated in the
+[root contract](root-contract.md). Benign custom directories remain supported.
 
 The generated structural schema is `workspace/schema.json`.
 `contextos.workspace_schema` remains authoritative for registry membership,
@@ -167,6 +178,18 @@ containing `.context-os/staging/<proposal-id>` namespace is then disposable, but
 remove it only with a tool or filesystem that does not change shared-inode
 attributes. Journal paths remain subject to the recovery classifications above.
 
+An upgrade can expose a crash-left journal created by an older version whose
+configured target is now a protected product or host-control namespace. Current
+automatic recovery intentionally retains that journal and refuses to touch the
+target. Stop new applies and keep the evidence intact. Archive a complete copy
+of the journal outside the active `.context-os/journals/` directory, then use an
+explicitly reviewed incident-recovery procedure to restore the target's
+presence, bytes, and mode from an independently verified source. Only after
+verifying the restored target may that one named active journal be removed and
+`doctor` rerun. If the target cannot be independently restored and verified,
+retain the journal and escalate; do not rename it inside the active journal
+directory or delete it to unblock apply.
+
 ## Agent activation lifecycle
 
 List every bundled runtime while keeping tracked activation and machine-local
@@ -250,20 +273,34 @@ intent with these rules:
 
 ## Root discovery
 
+In this section, `root` means the v0.12 colocated ContextRoot selected by the
+CLI. `--root` does not designate a separate application WorkingRoot.
+
 `contextos.workspace.json` is the provider-neutral root marker. A valid tracked
-configuration is sufficient even for a minimal core-only workspace with no
+configuration is sufficient even for a minimal marker-only workspace with no
 `AGENTS.md`, runtime adapter, or materialized state paths. Discovery validates
 the nearest JSON marker before accepting it; malformed, aliased, symlinked, or
 non-file markers fail at that directory instead of falling through to an outer
 workspace.
+
+A marker-only root is not the same as a core-only profile. `agents: []` defines
+the profile and remains fully supported in a materialized full-template
+workspace. Marker-only describes a bootstrap root that lacks product
+descriptors: it supports discovery, reports, diagnosis, direct provider-neutral
+hooks, and proposal publication, while apply and agent/runtime configuration
+fail until verified detached-bundle materialization installs the product
+closure. The marker's `template.source` and `template.version` must exactly
+match the candidate bundle. Use `bundle propose` without current-bundle inputs;
+`bundle compose` is only for a clean target where the marker does not exist.
 
 Existing clones remain discoverable through the legacy compound marker:
 `AGENTS.md` plus either a `state/` directory or `workspace.yaml`. Discovery
 chooses the nearest recognized root. After evaluating a directory, it stops at
 an exact `.git` file, directory, or symlink, so an unconfigured nested repository
 cannot accidentally inherit an outer repository's Context OS state. Pass an
-explicit `--root` only when deliberately operating on an outer workspace. A
-discovery start may be a real directory, regular file, or link-like entrypoint.
+explicit `--root` to choose the discovery start when cwd is not the intended
+starting point; the argument itself need not be the root. A discovery start may
+be a real directory, regular file, or link-like entrypoint.
 Internal links and entrypoints such as `current -> repo` remain compatible when
 their resolved start stays inside the nearest lexical `.git` boundary. A link
 that escapes that boundary fails before an outer workspace can be selected;

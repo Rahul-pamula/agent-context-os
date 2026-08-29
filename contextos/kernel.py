@@ -99,6 +99,26 @@ LAST_UPDATED_RE = re.compile(r"^\*\*Last Updated:\*\*\s*(.+?)\s*$", re.MULTILINE
 REAL_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 SETUP_ROOTS = {"identity", "projects", "state"}
 SETUP_FILES = {"ROUTING.md", "TODO.md", "CLAUDE.md", "AGENTS.md"}
+SETUP_SKILL_PREFIX = (".agents", "skills")
+# Content lifecycle configuration must not turn executable product authority into
+# state/session storage.  Keep this distinct from generic workspace-path
+# validation: bundle and component schemas legitimately name these directories,
+# and pre-JSON workspace configuration remains readable for compatibility.
+LIFECYCLE_PRODUCT_ROOTS = {
+    ".agents",
+    ".claude",
+    ".codex",
+    ".cursor",
+    ".github",
+    "adapters",
+    "bundles",
+    "components",
+    "contextos",
+    "integrations",
+    "runtimes",
+    "scripts",
+    "workspace",
+}
 STATE_THRESHOLDS = {"current.md": 3, "weekly-priorities.md": 5, "blockers.md": 7}
 INITIALIZATION_FILE = "current.md"
 SETUP_NEXT_ACTION = (
@@ -660,9 +680,14 @@ def _agent_lifecycle_authorization(
     _reject_config_aliases(root, relative)
     safe_repo_path(root, relative)
     component_path = safe_repo_path(root, "components/manifest.json")
-    manifest = load_component_manifest(
-        component_path, root=root, check_paths=False
-    )
+    try:
+        manifest = load_component_manifest(
+            component_path, root=root, check_paths=False
+        )
+    except (ComponentManifestError, OSError, UnicodeError) as exc:
+        raise ContextOSError(
+            f"invalid component manifest: {component_path} ({exc})"
+        ) from exc
     declared_owner = workspace_path_owner(manifest, relative)
     if declared_owner != expected[relative]["owner"]:
         raise ContextOSError(
@@ -696,13 +721,20 @@ def _agent_source_hashes(root: Path) -> dict[str, str]:
 
 def _selection_components(root: Path, agents: Sequence[str]) -> list[str]:
     component_path = safe_repo_path(root, "components/manifest.json")
-    manifest = load_component_manifest(
-        component_path, root=root, check_paths=False
-    )
-    requested: set[str] = {"core"}
-    for runtime in agents:
-        requested.update(runtime_manifest(root, runtime, check_paths=False)["components"])
-    return component_closure(manifest, sorted(requested))
+    try:
+        manifest = load_component_manifest(
+            component_path, root=root, check_paths=False
+        )
+        requested: set[str] = {"core"}
+        for runtime in agents:
+            requested.update(
+                runtime_manifest(root, runtime, check_paths=False)["components"]
+            )
+        return component_closure(manifest, sorted(requested))
+    except (ComponentManifestError, OSError, UnicodeError) as exc:
+        raise ContextOSError(
+            f"invalid component manifest: {component_path} ({exc})"
+        ) from exc
 
 
 def _agent_change(
@@ -1207,7 +1239,10 @@ def render_setup(workspace: Workspace, payload: dict[str, Any], now: datetime) -
         path = safe_repo_path(workspace.root, raw_path)
         relative = relative_path(workspace.root, path)
         top = Path(relative).parts[0]
-        skill_path = len(Path(relative).parts) >= 3 and Path(relative).parts[:2] == (".agents", "skills")
+        skill_path = (
+            len(Path(relative).parts) >= 3
+            and Path(relative).parts[:2] == SETUP_SKILL_PREFIX
+        )
         if top not in SETUP_ROOTS and relative not in SETUP_FILES and not skill_path:
             raise ContextOSError(f"setup cannot write outside approved context paths: {relative}")
         content = ensure_text(raw_content, f"files[{raw_path}]").replace("{{TODAY}}", today)
@@ -1416,6 +1451,8 @@ def create_proposal(root: Path, workflow: str, payload: dict[str, Any], now: dat
     )
     if not changes:
         raise ContextOSError("proposal has no changes")
+    for change in changes:
+        _validate_change_path(workspace, workflow, now, change["path"])
     document: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "workflow": workflow,
@@ -1487,11 +1524,19 @@ def _validate_change_path(workspace: Workspace, workflow: str, created_at: datet
     parts = Path(relative).parts
     if not parts or parts[0] in {".git", ".context-os"}:
         raise ContextOSError(f"proposal path is reserved: {relative}")
+    if (
+        workflow != "setup"
+        and workspace_portable_identity(parts[0])
+        in {workspace_portable_identity(root) for root in LIFECYCLE_PRODUCT_ROOTS}
+    ):
+        raise ContextOSError(
+            f"{workflow} proposal path targets product authority: {relative}"
+        )
     if workflow == "setup":
         allowed = (
             relative in SETUP_FILES
-            or parts[0] in {"identity", "projects", "state"}
-            or (len(parts) >= 3 and parts[:2] == (".agents", "skills"))
+            or parts[0] in SETUP_ROOTS
+            or (len(parts) >= 3 and parts[:2] == SETUP_SKILL_PREFIX)
         )
     else:
         state_paths = {
@@ -3177,6 +3222,10 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
     expected_digest = validate_proposal(document)
     if confirmation != expected_digest:
         raise ContextOSError("--confirm must exactly match the proposal_digest")
+    if runtime == "generic" and not is_agent_workflow:
+        raise ContextOSError(
+            "generic runtime is reserved for agent-config and materialization proposals"
+        )
     validate_execution_runtime(root, runtime)
     with transaction_lock(root):
         # A completed crash journal has priority over every later lifecycle

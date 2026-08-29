@@ -16,6 +16,10 @@ location, or any parent or ancestor discovered by searching upward. If the
 host-supplied directory is unavailable or either marker is absent, stop and
 report the problem without creating a payload or running the kernel.
 
+Under the v0.12 full-template wrapper path this is the colocated `KernelRoot`,
+`ContextRoot`, and nominal `WorkingRoot`.
+A separate application repository is not a supported lifecycle execution root.
+
 Anchor every repository read and write under that exact root. Run
 `scripts/contextos.sh` and repository validation with their working directory
 explicitly set to that root (or use absolute paths beneath it); this includes

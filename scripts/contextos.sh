@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Run the lifecycle kernel with the repository's resolved Python interpreter.
+# In v0.12 the script parent is the colocated KernelRoot and ContextRoot, and
+# the wrapper intentionally changes into it before invoking the kernel.
 # Use this instead of `python3 -m contextos` so hosts that expose Python 3 only
 # as `python` work, and so CONTEXTOS_PYTHON is honored.
 #

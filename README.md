@@ -63,7 +63,15 @@ local registration separately. `agent enable` (or `agent add`) creates an
 additive proposal; `agent disable` creates the only proposal allowed to shrink
 the set. Neither operation deletes bundled adapter files.
 
-Then start your agent from the repository root:
+Then start your agent from the repository root. In the normal v0.12
+full-template wrapper path, the product kernel, durable context, and nominal
+active work share one root. A marker-only JSON workspace may use an already-loaded
+executable package for discovery and reports, but a marker-only root cannot
+apply content or configure runtimes until the trusted product closure is
+materialized there. A containing Git worktree may supply read-only commit
+evidence without gaining context mutation authority. A separate
+application-repository attachment is not yet a supported lifecycle path; see
+the [root contract](docs/root-contract.md).
 
 | Starting point | Next action |
 |---|---|
@@ -204,10 +212,12 @@ in #65. The template does not ship a live root file because that would override
 an existing clone's legacy YAML before its migration is reviewed.
 
 Once present, `contextos.workspace.json` is the provider-neutral root marker,
-including for a core-only workspace. Existing `AGENTS.md` plus `state/` or
+including for a marker-only workspace. Existing `AGENTS.md` plus `state/` or
 `workspace.yaml` roots remain discoverable. The nearest recognized root wins,
 and discovery never climbs past a nested `.git` repository boundary; use
-`--root` when deliberately targeting an outer workspace.
+`--root` to choose an explicit discovery start when cwd is not the intended
+starting point. Discovery may still ascend from that path to the nearest valid
+root before a nested Git boundary.
 
 Each fact should have one canonical home. `ROUTING.md` points an agent to the right file instead of copying the same context across prompts.
 
@@ -254,6 +264,7 @@ behavior of an installed agent version or an external service.
 | See every command and portable skill | [Commands and skills](docs/commands-and-skills.md) |
 | Understand component ownership and future clean composition | [Component model](docs/component-model.md) |
 | Verify an offline bundle or inspect a structural plan | [Bundle locks and plans](docs/bundle-locks.md) |
+| Understand KernelRoot, ContextRoot, WorkingRoot, and the v0.12 compatibility boundary | [Root contract](docs/root-contract.md) |
 | Choose an optional add-on | [Integration chooser](docs/integrations-guide.md) and [catalog](references/integrations.md) |
 | Understand product language and boundaries | [Positioning](docs/positioning.md) |
 | Keep context files small and cheap to load | [Optimizing context files](docs/optimizing-context.md) |
