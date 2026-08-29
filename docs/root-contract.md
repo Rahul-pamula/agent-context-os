@@ -1,0 +1,171 @@
+# Root contract
+
+**Status:** Accepted for v0.12 compatibility mode; distinct-root execution is
+reserved for the external-project attachment milestone.
+
+Context OS uses three root roles. They are colocated in v0.12, but their
+ownership and authority are defined separately now so a later attachment flow
+does not have to reinterpret existing proposals, receipts, or safety claims.
+
+## Root roles
+
+| Role | Owns | Lifecycle access |
+|---|---|---|
+| **KernelRoot** | Versioned product assets: `contextos/`, executable wrappers, runtime and component manifests, schemas, shipped adapter/skill templates, and immutable bundle sources | Read product authority and execute the kernel. Lifecycle setup/update/end never mutate KernelRoot-owned paths. |
+| **ContextRoot** | Tracked workspace intent and durable context: routing, identity, projects, state, sessions, tasks, plus local `.context-os/` inputs, proposals, locks, staging, journals, receipts, host state, and installed-bundle state | The only mutation authority for lifecycle setup/update/end. Transaction targets and journal entries are ContextRoot-relative. |
+| **WorkingRoot** | The application repository whose files, repository identity, status, and history describe the work being performed | Read-only evidence for Context OS lifecycle. Application edits remain ordinary host/tool actions outside lifecycle proposal/apply. |
+
+Role ownership is stronger than physical containment. In a future split mode,
+the canonical roots must be distinct and non-overlapping: none may be nested
+beneath another. The v0.12 colocated mode is the only overlap exception.
+
+## v0.12 compatibility decision
+
+v0.12 supports one colocated repository:
+
+```text
+KernelRoot == ContextRoot == WorkingRoot == canonical discovered root
+```
+
+The existing `--root` option explicitly selects that colocated root. Without
+it, the CLI discovers the nearest valid `contextos.workspace.json`, or the
+legacy compound marker, and stops at a nested `.git` boundary. The shell
+wrapper resolves its own parent and changes into that directory before running
+the kernel. Host skills require the exact host-supplied directory containing
+`AGENTS.md` and `scripts/contextos.sh`.
+
+Consequences that must be stated rather than inferred:
+
+- `start.git_head`, proposal `source_git_head`, and receipt Git evidence all
+  describe this one repository.
+- Starting an agent in an unrelated application repository and reaching into a
+  separate Context OS repository is not a supported v0.12 lifecycle path.
+- `--root` never combines its argument with process cwd, a skill installation
+  directory, or an installed-package location.
+- External attachment requires versioned binding, evidence, and receipt
+  contracts; it cannot silently change the meaning of v0.12 fields.
+
+The release therefore publishes the trustworthy full-template, full-closure,
+colocated mode. It does not claim external project attachment or slim
+composition.
+
+## Resolution and canonicalization
+
+Each root is canonicalized exactly once before it is used for containment or
+identity checks.
+
+- In v0.12, CLI discovery returns the canonical colocated root.
+- Public Python lifecycle/report functions that accept a raw root path must
+  normalize it to the same canonical ContextRoot spelling before workspace
+  resolution. Direct callers and CLI callers are one contract, not separate
+  safety tiers. Issue #113 implements and tests this release requirement.
+- Strict lifecycle reads and hooks fail closed when a path changes identity or
+  becomes link-like after canonicalization. `doctor` remains diagnostic: a
+  late race produces a structured `unknown`/warning result rather than a
+  traceback or a followed link.
+- Discovery never falls through an invalid nearer marker or climbs past a
+  nested Git boundary to capture an outer ContextRoot.
+
+KernelRoot will eventually come from the trusted installation or wrapper,
+ContextRoot from an explicit option or validated local binding, and WorkingRoot
+from an explicit host working directory or argument. KernelRoot location and
+process cwd must never be implicit authority for ContextRoot.
+
+## Legacy linked-path boundary
+
+v0.12 preserves the explicitly tested pre-JSON behavior for an internal linked
+`state_dir`, both with legacy `workspace.yaml` and with no tracked configuration:
+readiness may read the resolved internal target, while migration and activation
+continue to reject that path. This is a compatibility exception, not part of
+the canonical no-follow guarantee.
+
+`doctor` must identify the linked pre-JSON path, scope the exception, and direct
+the owner to migrate. Canonical JSON workspaces continue to reject linked or
+reparse-point state paths for `start`, hooks, and diagnostics. A future
+distinct-root mode requires canonical tracked configuration and does not inherit
+the exception. Issue #112 owns the diagnostic and control work.
+
+## Future attachment binding
+
+External attachment will keep stable project identity separate from
+machine-specific location:
+
+- ContextRoot stores a schema-versioned tracked project identity. It never
+  stores an absolute KernelRoot or WorkingRoot path.
+- Ignored local state beneath `ContextRoot/.context-os/` maps that identity to
+  canonical machine-local KernelRoot and WorkingRoot paths plus observed
+  repository identity.
+- The first attachment slice adds no tracked pointer or Context OS lifecycle
+  file to WorkingRoot.
+- Moving a repository requires explicit rebinding after identity validation.
+  A path match, remote-name match, cwd, symlink, or copied marker is not
+  authorization.
+- A missing, stale, or mismatched binding makes strict lifecycle operations
+  fail before proposal or mutation. Read-only diagnostics may report it as
+  unavailable or stale.
+
+The exact binding schema and CLI belong to the external-project attachment
+milestone, not v0.12.
+
+## Write and evidence boundaries
+
+Lifecycle setup/update/end obey these invariants:
+
+1. Reviewed input, proposal, lock, staging, journal, receipt, and every target
+   path are owned by ContextRoot.
+2. Journal and receipt target paths are relative to ContextRoot; recovery can
+   restore only ContextRoot targets.
+3. WorkingRoot state may be bound as read-only evidence, but it never grants
+   mutation authority and never replaces ContextRoot target hashes.
+4. KernelRoot product assets supply trusted code and schemas; ContextRoot
+   content cannot shadow them to widen authorization.
+5. Materializing a bundle is a separately named installation/composition
+   boundary with an explicit reviewed destination. It is not a setup/update/end
+   lifecycle write to an attached WorkingRoot.
+
+When split mode ships, receipts and reports must use role-qualified identities
+and Git fields. The ambiguous v0.12 `git_head` fields cannot silently acquire a
+second meaning.
+
+## Required controls
+
+The later root split must retain all v0.12 controls and add distinct-root
+fixtures. Each row names a must-fire behavior and its must-not-fire complement.
+
+| Surface | Must fire | Must not fire |
+|---|---|---|
+| Compatibility | `--root R` resolves all three roles to canonical `R` and existing commands/receipts remain valid | `--root` combines `R` with cwd or installed product paths |
+| Context discovery | Nearest valid marker wins | Invalid inner marker falls outward, or discovery crosses nested `.git` |
+| Canonicalization | Equivalent permitted entrypoints produce one canonical identity for CLI and direct API calls | Link/reparse swaps or alias changes redirect a role after validation |
+| Start | Reads ContextRoot continuity and, in split mode, separately reports WorkingRoot identity/status/history | Writes any root, reads context state from WorkingRoot, or presents KernelRoot commits as user work |
+| Propose | Publishes reviewed proposal state only beneath ContextRoot | Absolute, escaping, linked, KernelRoot, or WorkingRoot targets reach publication |
+| Apply/recovery | Changes and restores only ContextRoot-relative targets under the existing digest, lock, journal, and receipt protocol | Crafted or legacy artifacts cause KernelRoot/WorkingRoot mutation |
+| Runtime registration | Reads runtime/component authority from KernelRoot and records local state beneath ContextRoot | Installation modifies WorkingRoot or lets ContextRoot shadow product authority |
+| Doctor | Diagnoses each role independently and stays total across late races | Executes runtime probes, follows links, mutates a root, or hides an unexecuted check as green |
+| Hooks | Resolves protected ContextRoot paths against the declared role | Treats an ordinary WorkingRoot-relative source path as ContextRoot-relative |
+| Binding | Explicit identity match permits a local binding and explicit rebind handles a move | cwd, copied marker, stale path, or matching remote name alone authorizes use |
+| Root isolation | Split-mode lifecycle succeeds with a read-only KernelRoot and unchanged WorkingRoot snapshot | Any successful or rejected lifecycle path changes KernelRoot or WorkingRoot bytes, modes, or tree shape |
+
+## Implementation surface inventory
+
+Distinct-root work must update these surfaces together rather than creating a
+second ad hoc root path:
+
+- `contextos/cli.py`: unambiguous role options; `--root` remains the v0.12
+  colocated compatibility form.
+- `contextos/kernel.py`: typed root resolution; ContextRoot workspace and
+  transaction guards; role-qualified Git evidence, reports, hooks, receipts,
+  and recovery.
+- `scripts/contextos.sh` and hook wrappers: load KernelRoot assets without
+  replacing the caller's WorkingRoot or discovering ContextRoot from cwd.
+- `.agents/skills/context-*` and runtime adapters: execute in WorkingRoot while
+  invoking an explicit/bound ContextRoot through KernelRoot.
+- runtime/component/bundle validation: read product authority from KernelRoot;
+  never from writable context or application content.
+- materialization: distinguish creation/reconciliation of a ContextRoot from
+  lifecycle activity inside an attached application repository.
+
+Issue #116 owns that implementation and its Windows/Linux Claude-to-Codex
+golden path. Issue #118 owns later desired-composition schema work and is not a
+v0.12 dependency except for the bounded verification task tracked separately in
+#106.

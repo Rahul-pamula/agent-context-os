@@ -49,6 +49,33 @@ class DocumentationPositioningTests(unittest.TestCase):
         self.assertIn("conorbronsdon/agent-context-os.git", readme)
         self.assertNotIn("claude-context-os", readme)
 
+    def test_v012_root_contract_is_explicit_and_routed(self) -> None:
+        contract = self.text("docs/root-contract.md")
+        for role in ("KernelRoot", "ContextRoot", "WorkingRoot"):
+            self.assertIn(role, contract)
+        self.assertIn(
+            "KernelRoot == ContextRoot == WorkingRoot == canonical discovered root",
+            contract,
+        )
+        self.assertIn("The only mutation authority", contract)
+        self.assertIn("not a supported v0.12 lifecycle path", contract)
+        self.assertIn("no tracked pointer", contract)
+
+        for path in (
+            "README.md",
+            "docs/cross-runtime-architecture.md",
+            "docs/getting-started.md",
+            "docs/workspace-configuration.md",
+        ):
+            self.assertIn("root contract", self.text(path).casefold(), path)
+
+        for workflow in ("setup", "start", "update", "end"):
+            skill = self.text(f".agents/skills/context-{workflow}/SKILL.md")
+            self.assertIn("KernelRoot", skill, workflow)
+            self.assertIn("ContextRoot", skill, workflow)
+            self.assertIn("WorkingRoot", skill, workflow)
+            self.assertIn("not a supported lifecycle execution root", skill, workflow)
+
     def test_getting_started_keeps_mutations_opt_in(self) -> None:
         guide = self.text("docs/getting-started.md")
         for phrase in (

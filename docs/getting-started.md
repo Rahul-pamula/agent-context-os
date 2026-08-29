@@ -86,9 +86,13 @@ digest-confirmed `apply`; disabling never deletes the bundled adapter.
 
 ### Start from your answers
 
-Launch repository-discovery hosts from the repository root. OpenClaw is the
-exception: its external plugin resolves an operator-configured project alias,
-so its Gateway and private workspace do not need to start in the repository:
+Launch repository-discovery hosts from the repository root. In v0.12 that root
+is intentionally the colocated KernelRoot, ContextRoot, and WorkingRoot.
+Operating in a separate application repository is not yet a supported lifecycle
+path; see the [root contract](root-contract.md). OpenClaw is the exception only
+for process location: its external plugin resolves an operator-configured alias
+to that same colocated root, so its Gateway and private workspace do not need to
+start in the repository:
 
 ```bash
 claude

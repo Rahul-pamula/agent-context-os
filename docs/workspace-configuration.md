@@ -3,6 +3,11 @@
 Context OS separates repository intent from machine-local runtime state and
 per-operation evidence:
 
+All locations below are beneath the v0.12 `ContextRoot`. v0.12 uses the
+colocated root contract (`KernelRoot == ContextRoot == WorkingRoot`); it does
+not store or infer an external application-repository binding. See
+[the root contract](root-contract.md).
+
 | Layer | Location | Meaning |
 |---|---|---|
 | Tracked workspace intent | `contextos.workspace.json` | Selected runtime set, full-template mode, repository paths, and template source |
@@ -249,6 +254,9 @@ intent with these rules:
   host-local onboarding steps.
 
 ## Root discovery
+
+In this section, `root` means the v0.12 colocated ContextRoot selected by the
+CLI. `--root` does not designate a separate application WorkingRoot.
 
 `contextos.workspace.json` is the provider-neutral root marker. A valid tracked
 configuration is sufficient even for a minimal core-only workspace with no

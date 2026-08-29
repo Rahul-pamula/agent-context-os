@@ -63,7 +63,10 @@ local registration separately. `agent enable` (or `agent add`) creates an
 additive proposal; `agent disable` creates the only proposal allowed to shrink
 the set. Neither operation deletes bundled adapter files.
 
-Then start your agent from the repository root:
+Then start your agent from the repository root. In v0.12 this is intentionally
+one colocated repository: the product kernel, durable context, and active work
+share a root. A separate application-repository attachment is not yet a
+supported lifecycle path; see the [root contract](docs/root-contract.md).
 
 | Starting point | Next action |
 |---|---|
@@ -254,6 +257,7 @@ behavior of an installed agent version or an external service.
 | See every command and portable skill | [Commands and skills](docs/commands-and-skills.md) |
 | Understand component ownership and future clean composition | [Component model](docs/component-model.md) |
 | Verify an offline bundle or inspect a structural plan | [Bundle locks and plans](docs/bundle-locks.md) |
+| Understand KernelRoot, ContextRoot, WorkingRoot, and the v0.12 compatibility boundary | [Root contract](docs/root-contract.md) |
 | Choose an optional add-on | [Integration chooser](docs/integrations-guide.md) and [catalog](references/integrations.md) |
 | Understand product language and boundaries | [Positioning](docs/positioning.md) |
 | Keep context files small and cheap to load | [Optimizing context files](docs/optimizing-context.md) |
