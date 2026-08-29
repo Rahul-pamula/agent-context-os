@@ -481,16 +481,29 @@ def resolve_workspace(root: Path) -> WorkspaceResolution:
     workspace = _workspace_from_paths(root, values, legacy=True)
     linked_state = _legacy_link_component(root, values["state_dir"])
     if linked_state is not None:
-        resolved_state = relative_path(root, workspace.state_dir)
+        try:
+            resolved_state = workspace.state_dir.relative_to(root.resolve()).as_posix()
+        except ValueError as exc:
+            raise ContextOSError(
+                "resolved pre-JSON state_dir escaped the repository during "
+                "diagnostic labeling"
+            ) from exc
+        remediation = (
+            "Replace the link with a real directory, then run setup to complete "
+            "migration to canonical JSON"
+            if source == "defaults"
+            else (
+                "Replace the link or change workspace.yaml to the resolved "
+                "repository-relative path, then preview and propose migration"
+            )
+        )
         notices.append({
             "code": "legacy-linked-state-dir",
             "message": (
                 f"pre-JSON linked state_dir compatibility is active: {linked_state!r} "
                 f"resolves inside the repository to {resolved_state!r}; start and "
                 "session-start may read that resolved target, but canonical JSON "
-                "rejects linked paths. Replace the link or change workspace.yaml to "
-                "the resolved repository-relative path, then preview and propose "
-                "migration"
+                f"rejects linked paths. {remediation}"
             ),
         })
     return WorkspaceResolution(

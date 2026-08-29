@@ -1672,10 +1672,37 @@ with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_tar
         self.assertIn("'state'", linked["detail"])
         self.assertIn("real-state", linked["detail"])
         self.assertIn("migration", linked["detail"])
+        self.assertIn("run setup", linked["detail"])
+        self.assertNotIn("change workspace.yaml", linked["detail"])
         with self.assertRaisesRegex(ContextOSError, "cannot be activated safely"):
             create_workspace_setup_proposal(self.root, ("codex",), NOW)
         self.assertFalse((self.root / "contextos.workspace.json").exists())
         self.assertFalse((self.root / ".context-os/proposals").exists())
+
+    def test_legacy_linked_state_still_rejects_linked_readiness_descendant(self) -> None:
+        real_state = self.root / "real-state"
+        (self.root / "state").rename(real_state)
+        linked_state = self.root / "linked-state"
+        try:
+            make_directory_link(linked_state, real_state)
+        except OSError:
+            self.skipTest("directory link creation is unavailable")
+        (self.root / "workspace.yaml").write_text(
+            "state_dir: linked-state\n", encoding="utf-8"
+        )
+        current = real_state / "current.md"
+        real_current = real_state / "real-current.md"
+        current.rename(real_current)
+        try:
+            current.symlink_to(real_current)
+        except OSError:
+            real_current.rename(current)
+            self.skipTest("file symlink creation is unavailable")
+
+        with self.assertRaisesRegex(ContextOSError, "symlink or reparse point"):
+            start_report(self.root, NOW)
+        with self.assertRaisesRegex(ContextOSError, "symlink or reparse point"):
+            hook_report(self.root, "session-start", {}, today=NOW.date())
 
     def test_readiness_snapshot_rejects_link_swap_after_guard(self) -> None:
         with tempfile.TemporaryDirectory() as external:

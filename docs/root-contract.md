@@ -145,7 +145,9 @@ uses that resolved internal path rather than the link spelling. Migration and
 activation continue to reject the link. This is a compatibility exception, not
 part of the canonical no-follow guarantee. Readiness files beneath the resolved
 target remain no-follow in every mode; the exception covers only the pre-JSON
-`state_dir` indirection and never a linked `current.md` or other descendant.
+`state_dir` indirection for readiness and never a linked `current.md` or other
+descendant. Other legacy path fields retain their historical resolution
+semantics outside this readiness guarantee.
 
 `doctor` identifies the link spelling and resolved internal target, scopes the
 exception, and directs the owner to replace or retarget the link before
