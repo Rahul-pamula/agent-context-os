@@ -45,7 +45,15 @@ from .workspace_schema import WorkspaceConfigError, parse_agent_selection
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="context-os", description="Deterministic Context OS lifecycle kernel")
-    result.add_argument("--root", type=Path, help="Context OS repository root")
+    result.add_argument(
+        "--root",
+        type=Path,
+        help=(
+            "v0.12 discovery start for the nearest Context OS root "
+            "(ContextRoot and nominal WorkingRoot; also KernelRoot for the "
+            "full-template wrapper path)"
+        ),
+    )
     result.add_argument("--version", action="version", version=__version__)
     commands = result.add_subparsers(dest="command", required=True)
 
@@ -254,6 +262,7 @@ def _bundle_main(args: argparse.Namespace) -> int:
     candidate = verify_bundle(
         args.lock, args.source, expected_sha256=args.expect_sha256,
         source_mode=args.source_mode,
+        retain_paths=(),
     )
     if args.bundle_command == "check":
         emit({
@@ -290,6 +299,7 @@ def _bundle_main(args: argparse.Namespace) -> int:
             expected_sha256=args.expect_current_sha256,
             source_mode=args.current_source_mode,
             role="current",
+            retain_paths=(),
         )
         current_components = component_selection(
             args.current_components, "current_components"

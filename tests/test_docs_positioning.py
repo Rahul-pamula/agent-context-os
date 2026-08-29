@@ -6,6 +6,14 @@ import sys
 import unittest
 from pathlib import Path
 
+from contextos.cli import parser as contextos_parser
+from contextos.kernel import (
+    LIFECYCLE_PRODUCT_ROOTS,
+    SETUP_FILES,
+    SETUP_ROOTS,
+    SETUP_SKILL_PREFIX,
+)
+
 # Shell out to the interpreter running these tests, never a bare "python3".
 #
 # On Windows "python3" resolves to the Microsoft Store App Execution Alias — a
@@ -48,6 +56,68 @@ class DocumentationPositioningTests(unittest.TestCase):
         # Renamed claude-context-os -> agent-context-os (Aug 2026); old URLs redirect.
         self.assertIn("conorbronsdon/agent-context-os.git", readme)
         self.assertNotIn("claude-context-os", readme)
+
+    def test_v012_root_contract_is_explicit_and_routed(self) -> None:
+        contract = self.text("docs/root-contract.md")
+        for role in ("KernelRoot", "ContextRoot", "WorkingRoot"):
+            self.assertIn(role, contract)
+        self.assertIn(
+            "ContextRoot == nominal WorkingRoot == canonical discovered root",
+            contract,
+        )
+        self.assertIn("KernelRoot == ContextRoot", contract)
+        self.assertIn("GitEvidenceScope", contract)
+        self.assertIn("marker-only", contract)
+        self.assertIn("`generic` execution is reserved", contract)
+        self.assertIn("Git cannot", contract)
+        self.assertIn("`bundle propose` without current", contract)
+        self.assertIn("`template.source`", contract)
+        self.assertIn("`bundle compose` command is not the marker-only path", contract)
+        self.assertIn("The only mutation authority", contract)
+        self.assertIn("not a supported v0.12 lifecycle path", contract)
+        self.assertIn("no tracked pointer", contract)
+        self.assertIn("supplies the starting path", contract)
+        self.assertIn("managed` records", contract)
+        self.assertIn("enclosing Git worktree", contract)
+        self.assertIn("deliberate exception", contract)
+        self.assertIn("discovery start", contextos_parser().format_help())
+        self.assertIn(
+            "archive a complete copy",
+            self.text("docs/workspace-configuration.md").casefold(),
+        )
+        workspace_contract = self.text("docs/workspace-configuration.md")
+        self.assertIn("marker-only root is not the same as a core-only profile", workspace_contract)
+        self.assertIn("`bundle propose` without current-bundle inputs", workspace_contract)
+        for root in SETUP_ROOTS:
+            self.assertIn(f"`{root}/`", contract)
+        for filename in SETUP_FILES:
+            self.assertIn(f"`{filename}`", contract)
+        self.assertEqual((".agents", "skills"), SETUP_SKILL_PREFIX)
+        setup_skill_root = "/".join(SETUP_SKILL_PREFIX) + "/"
+        self.assertIn(f"`{setup_skill_root}`", contract)
+        expected_product_roots = {
+            ".agents", ".claude", ".codex", ".cursor", ".github",
+            "adapters", "bundles", "components", "contextos", "integrations",
+            "runtimes", "scripts", "workspace",
+        }
+        self.assertEqual(expected_product_roots, LIFECYCLE_PRODUCT_ROOTS)
+        for protected in expected_product_roots:
+            self.assertIn(f"`{protected}/`", contract)
+
+        for path in (
+            "README.md",
+            "docs/cross-runtime-architecture.md",
+            "docs/getting-started.md",
+            "docs/workspace-configuration.md",
+        ):
+            self.assertIn("root contract", self.text(path).casefold(), path)
+
+        for workflow in ("setup", "start", "update", "end"):
+            skill = self.text(f".agents/skills/context-{workflow}/SKILL.md")
+            self.assertIn("KernelRoot", skill, workflow)
+            self.assertIn("ContextRoot", skill, workflow)
+            self.assertIn("WorkingRoot", skill, workflow)
+            self.assertIn("not a supported lifecycle execution root", skill, workflow)
 
     def test_getting_started_keeps_mutations_opt_in(self) -> None:
         guide = self.text("docs/getting-started.md")

@@ -4,6 +4,24 @@
 
 ### Changed
 - Aligned integration proposal, contributor guidance, and PR templates with catalog schema v2 (documentation and template changes only).
+- Git-index bundle verification now streams locked blobs through one bounded
+  `git cat-file --batch` process per pass, retains only requested candidate
+  write payloads, discards current-bundle payloads after validation, and removes
+  redundant same-boundary apply checks while preserving planner-end and
+  immediate pre-mutation source revalidation. Linux and Windows CI report the
+  full-bundle Git process, wall-time, and logical payload-memory bounds.
+- The v0.12 root contract now names `KernelRoot`, `ContextRoot`, and
+  `WorkingRoot`, versions their colocated compatibility mode, separates the
+  nominal WorkingRoot path from a possibly enclosing read-only Git evidence
+  scope, distinguishes a full-template core-only profile from a marker-only
+  bootstrap root using already-loaded executable code, confines lifecycle
+  mutation authority to ContextRoot-owned paths, blocks configured content lifecycle
+  targets from product-authority namespaces, reserves descriptor-free
+  `generic` execution for authenticated agent-config/materialization workflows,
+  keeps verified detached-bundle materialization as the explicit
+  product-closure boundary,
+  and reserves external project
+  attachment for a later schema- and receipt-versioned binding.
 - Workspace validation treats `.cursor/` as user-extensible while strict
   maintainer validation still requires ownership for every shipped path.
 - `doctor` is set-aware when tracked workspace configuration exists. It reports
@@ -87,11 +105,18 @@
 - Lifecycle readiness now gives recovery-specific guidance for future-dated
   `state/current.md`, protects shipped `[DATE]` placeholders, and controls
   missing-Git advisory behavior plus exact PowerShell child-exit propagation.
-  Start and automatic session hooks also reject linked or reparse-point state
-  paths through stable no-follow snapshots, derive diagnostic labels only after
-  that guard, and accept equivalent Windows 8.3 and canonical root spellings.
-  Doctor degrades concurrent path changes to an unknown diagnostic instead of
-  crashing.
+  Start and automatic session hooks keep readiness files no-follow in every
+  mode; canonical JSON also rejects a linked configured `state_dir`. The
+  documented pre-JSON internal linked `state_dir` exception remains readable
+  for compatibility, then snapshots its files without following further links.
+  `doctor` now names the link and resolved target and directs migration.
+  Direct start, hook, and doctor API calls canonicalize their exact supplied
+  root without upward discovery. Diagnostics derive labels only after the
+  guard, accept equivalent POSIX symlink, Windows junction/8.3, and canonical
+  root spellings, and degrade concurrent path changes to structured diagnostics
+  instead of crashing. Initialization and freshness become explicit unknown
+  warnings; a required state file that becomes link-like is a failing check and
+  makes the doctor CLI exit with status one.
 - Git-index materialization now stages the exact index blobs verified against
   the bundle lock, so CRLF checkout transforms, clean/smudge filters, and
   unrelated unstaged source edits cannot replace or invalidate approved bytes.

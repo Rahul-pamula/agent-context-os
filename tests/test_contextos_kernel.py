@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
@@ -18,9 +19,13 @@ from contextos.kernel import (
     _publish_exclusive,
     _recover_pending_agent_journals,
     apply_proposal,
+    create_agent_activation_proposal,
     create_proposal,
+    create_workspace_migration_proposal,
+    create_workspace_setup_proposal,
     discover_root,
     doctor,
+    git_head,
     hook_report,
     install_runtime,
     migrate_legacy_runtime_state,
@@ -31,6 +36,7 @@ from contextos.kernel import (
     sha256_text,
     start_report,
 )
+from contextos.cli import main as cli_main
 from contextos.component_schema import load_component_manifest, resolved_component_paths
 from contextos.workspace_schema import render_workspace_config
 
@@ -97,12 +103,95 @@ class RootDiscoveryTest(unittest.TestCase):
         marker.write_text(content or root_config(), encoding="utf-8")
         return marker
 
-    def test_json_marker_supports_minimal_core_only_workspace(self) -> None:
+    def test_json_marker_supports_minimal_marker_only_workspace(self) -> None:
         self.write_json(self.root)
         child = self.root / "uncreated-state-parent"
         child.mkdir()
         self.assertEqual(self.root, discover_root(child))
         self.assertEqual(self.root, discover_root(self.root / "contextos.workspace.json"))
+
+    def test_marker_only_surface_is_read_propose_and_diagnose_until_composed(self) -> None:
+        marker = self.write_json(self.root)
+
+        self.assertEqual(marker.parent, discover_root(self.root))
+        self.assertIsNone(start_report(self.root, NOW)["git_head"])
+        self.assertTrue(
+            hook_report(self.root, "session-start", {}, today=NOW.date())["findings"]
+        )
+        checks = {check["name"]: check for check in doctor(self.root)["checks"]}
+        self.assertEqual("fail", checks["component-inventory"]["status"])
+
+        proposal_path, proposal = create_proposal(
+            self.root, "update", {"progress": ["Marker-only proposal"]}, NOW
+        )
+        self.assertTrue(proposal_path.is_relative_to(self.root / ".context-os/proposals"))
+        def snapshot() -> dict[str, bytes]:
+            return {
+                path.relative_to(self.root).as_posix(): path.read_bytes()
+                for path in self.root.rglob("*")
+                if path.is_file()
+            }
+        target = self.root / "sessions/2026-08-23.md"
+        before = snapshot()
+        with self.assertRaisesRegex(ContextOSError, "generic runtime is reserved"):
+            apply_proposal(
+                self.root,
+                proposal_path,
+                proposal["proposal_digest"],
+                "generic",
+            )
+        self.assertEqual(before, snapshot())
+        with self.assertRaisesRegex(ContextOSError, "missing runtime manifest"):
+            apply_proposal(
+                self.root,
+                proposal_path,
+                proposal["proposal_digest"],
+                "codex",
+            )
+        self.assertEqual(before, snapshot())
+        with self.assertRaisesRegex(ContextOSError, "missing runtime manifest"):
+            create_agent_activation_proposal(self.root, "codex", True, NOW)
+        with self.assertRaisesRegex(ContextOSError, "missing runtime manifest"):
+            install_runtime(self.root, "codex")
+        hook_output = io.StringIO()
+        with mock.patch("sys.stdin", new=io.StringIO("{}")), mock.patch(
+            "sys.stdout", new=hook_output
+        ):
+            self.assertEqual(
+                0,
+                cli_main([
+                    "--root", str(self.root), "hook", "session-start",
+                    "--runtime", "codex",
+                ]),
+            )
+        self.assertEqual("", hook_output.getvalue())
+        self.assertEqual(before, snapshot())
+        marker.write_text(root_config(canonical=False), encoding="utf-8")
+        before_repair = snapshot()
+        with self.assertRaisesRegex(ContextOSError, "invalid component manifest"):
+            create_workspace_migration_proposal(self.root, (), NOW)
+        self.assertEqual(before_repair, snapshot())
+
+        (self.root / "components").mkdir()
+        (self.root / "components/manifest.json").write_text(
+            json.dumps({
+                "schema_version": 1,
+                "extensible_paths": [],
+                "extensible_roots": [],
+                "components": [{
+                    "id": "other",
+                    "description": "Valid fixture without the required core component.",
+                    "depends_on": [],
+                    "paths": [{"path": "other.txt", "policy": "managed"}],
+                }],
+            }) + "\n",
+            encoding="utf-8",
+        )
+        before_closure = snapshot()
+        with self.assertRaisesRegex(ContextOSError, "unknown components: core"):
+            create_workspace_migration_proposal(self.root, (), NOW)
+        self.assertEqual(before_closure, snapshot())
+        self.assertFalse(target.exists())
 
     def test_valid_noncanonical_json_is_still_a_root(self) -> None:
         self.write_json(self.root, root_config(canonical=False))
@@ -162,6 +251,189 @@ class RootDiscoveryTest(unittest.TestCase):
         nested.mkdir()
         self.write_json(nested)
         self.assertEqual(nested, discover_root(nested))
+
+    def test_nested_context_root_reports_enclosing_git_evidence(self) -> None:
+        subprocess.run(["git", "init", "--quiet"], cwd=self.root, check=True)
+        tracked = self.root / "outer.txt"
+        tracked.write_text("outer repository\n", encoding="utf-8")
+        subprocess.run(["git", "add", "outer.txt"], cwd=self.root, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Context OS Tests",
+                "-c",
+                "user.email=context-os-tests@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            cwd=self.root,
+            check=True,
+        )
+        expected = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        nested = self.root / "nested-context"
+        nested.mkdir()
+        self.write_json(nested)
+
+        self.assertEqual(nested, discover_root(nested))
+        self.assertEqual(expected, start_report(nested, NOW)["git_head"])
+
+        outer_before = tracked.read_bytes()
+        (nested / "sessions").mkdir()
+        (nested / "runtimes").mkdir()
+        (nested / "components").mkdir()
+        shutil.copyfile(ROOT / "runtimes/codex.json", nested / "runtimes/codex.json")
+        shutil.copyfile(
+            ROOT / "components/manifest.json", nested / "components/manifest.json"
+        )
+        proposal_path, proposal = create_proposal(
+            nested, "update", {"progress": ["Nested context"]}, NOW
+        )
+        receipt_path, receipt = apply_proposal(
+            nested, proposal_path, proposal["proposal_digest"], "codex"
+        )
+        self.assertEqual(outer_before, tracked.read_bytes())
+        self.assertTrue(receipt_path.is_relative_to(nested / ".context-os/receipts"))
+        self.assertEqual(expected, receipt["git_head_before"])
+        self.assertEqual(expected, receipt["git_head_after"])
+
+        subprocess.run(["git", "init", "--quiet"], cwd=nested, check=True)
+        self.assertIsNone(start_report(nested, NOW)["git_head"])
+        subprocess.run(
+            ["git", "add", "contextos.workspace.json"], cwd=nested, check=True
+        )
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Context OS Tests",
+                "-c",
+                "user.email=context-os-tests@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "nested fixture",
+            ],
+            cwd=nested,
+            check=True,
+        )
+        nested_expected = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=nested,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        self.assertNotEqual(expected, nested_expected)
+        self.assertEqual(nested_expected, start_report(nested, NOW)["git_head"])
+
+    def test_enclosing_git_evidence_tracks_head_not_uncommitted_bytes(self) -> None:
+        subprocess.run(["git", "init", "--quiet"], cwd=self.root, check=True)
+        outer = self.root / "outer.txt"
+        outer.write_text("outer repository\n", encoding="utf-8")
+        subprocess.run(["git", "add", "outer.txt"], cwd=self.root, check=True)
+        subprocess.run(
+            [
+                "git", "-c", "user.name=Context OS Tests",
+                "-c", "user.email=context-os-tests@example.invalid",
+                "commit", "--quiet", "-m", "fixture",
+            ],
+            cwd=self.root,
+            check=True,
+        )
+
+        nested = self.root / "nested-context"
+        nested.mkdir()
+        self.write_json(nested)
+        for relative in (
+            "components/manifest.json",
+            "runtimes/codex.json",
+            "runtimes/schema.json",
+            "workspace/schema.json",
+        ):
+            target = nested / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / relative, target)
+
+        enable_path, enable = create_agent_activation_proposal(
+            nested, "codex", True, NOW
+        )
+        self.assertIsNotNone(enable_path)
+        self.assertIsNotNone(enable)
+        assert enable_path is not None and enable is not None
+        outer.write_text("uncommitted outer change\n", encoding="utf-8")
+        self.assertEqual(enable["source_git_head"], git_head(nested))
+        apply_proposal(nested, enable_path, enable["proposal_digest"], "generic")
+        configured = json.loads(
+            (nested / "contextos.workspace.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(["codex"], configured["agents"])
+        outer.write_text("outer repository\n", encoding="utf-8")
+
+        proposal_path, proposal = create_agent_activation_proposal(
+            nested, "codex", False, NOW.replace(second=1)
+        )
+        self.assertIsNotNone(proposal_path)
+        self.assertIsNotNone(proposal)
+        assert proposal_path is not None and proposal is not None
+        config_before = (nested / "contextos.workspace.json").read_bytes()
+
+        new_outer = self.root / "new-head.txt"
+        new_outer.write_text("new enclosing commit\n", encoding="utf-8")
+        subprocess.run(["git", "add", "new-head.txt"], cwd=self.root, check=True)
+        subprocess.run(
+            [
+                "git", "-c", "user.name=Context OS Tests",
+                "-c", "user.email=context-os-tests@example.invalid",
+                "commit", "--quiet", "-m", "advance enclosing head",
+            ],
+            cwd=self.root,
+            check=True,
+        )
+        outer_before_apply = outer.read_bytes()
+        new_outer_before_apply = new_outer.read_bytes()
+        self.assertNotEqual(proposal["source_git_head"], git_head(nested))
+
+        with self.assertRaisesRegex(ContextOSError, "git HEAD changed"):
+            apply_proposal(
+                nested,
+                proposal_path,
+                proposal["proposal_digest"],
+                "generic",
+            )
+
+        self.assertEqual(config_before, (nested / "contextos.workspace.json").read_bytes())
+        self.assertEqual(outer_before_apply, outer.read_bytes())
+        self.assertEqual(new_outer_before_apply, new_outer.read_bytes())
+        self.assertFalse((nested / ".context-os/receipts" / proposal_path.name).exists())
+
+    def test_missing_git_repository_reports_no_commit_evidence(self) -> None:
+        absent = self.root / "absent"
+        absent.mkdir()
+        self.assertIsNone(git_head(absent))
+
+        invalid = self.root / "invalid"
+        invalid.mkdir()
+        (invalid / ".git").write_text("gitdir: missing\n", encoding="utf-8")
+        self.assertIsNone(git_head(invalid))
+
+        unavailable = self.root / "unavailable"
+        unavailable.mkdir()
+        (unavailable / ".git").mkdir()
+        with mock.patch(
+            "contextos.primitives.subprocess.run",
+            side_effect=FileNotFoundError("git is unavailable"),
+        ):
+            self.assertIsNone(git_head(unavailable))
 
     def test_invalid_inner_json_never_falls_back_to_legacy_or_outer_root(self) -> None:
         self.write_json(self.root)
@@ -435,6 +707,84 @@ class KernelTest(unittest.TestCase):
         session = (self.root / "sessions/2026-08-23.md").read_text(encoding="utf-8")
         self.assertIn("## Update: 14:30", session)
         self.assertIn("## Update: 16:00", session)
+
+    def test_content_proposal_rejects_product_authority_from_json_and_legacy_config(self) -> None:
+        cases = (
+            (
+                "json",
+                self.root / "contextos.workspace.json",
+                render_workspace_config({
+                    "schema_version": 1,
+                    "mode": "full-template",
+                    "agents": [],
+                    "paths": {
+                        "state_dir": "state",
+                        "sessions_dir": "scripts",
+                        "task_file": "TODO.md",
+                    },
+                    "template": {"version": "0.12.0", "source": "test"},
+                }),
+            ),
+            ("legacy", self.root / "workspace.yaml", "sessions_dir: scripts\n"),
+            (
+                "legacy-host-control",
+                self.root / "workspace.yaml",
+                "sessions_dir: .claude/hooks\n",
+            ),
+        )
+        for name, config_path, config_text in cases:
+            with self.subTest(config=name):
+                config_path.write_text(config_text, encoding="utf-8")
+                try:
+                    with self.assertRaisesRegex(
+                        ContextOSError, "proposal path targets product authority"
+                    ):
+                        self._propose("update", {"progress": ["Must not publish"]})
+                    proposals = self.root / ".context-os/proposals"
+                    self.assertFalse(proposals.exists() and any(proposals.iterdir()))
+                finally:
+                    config_path.unlink()
+
+    def test_content_proposal_allows_benign_custom_session_directory(self) -> None:
+        (self.root / "workspace.yaml").write_text(
+            "sessions_dir: custom-sessions\n", encoding="utf-8"
+        )
+
+        proposal_path, proposal = self._propose(
+            "update", {"progress": ["Custom session path"]}
+        )
+
+        self.assertEqual("custom-sessions/2026-08-23.md", proposal["changes"][0]["path"])
+        self.assertTrue(proposal_path.is_file())
+
+    def test_legacy_internal_link_update_uses_resolved_target(self) -> None:
+        real = self.root / "real-state"
+        (self.root / "state").rename(real)
+        linked = self.root / "linked-state"
+        try:
+            make_directory_link(linked, real)
+        except OSError:
+            real.rename(self.root / "state")
+            self.skipTest("directory link creation is unavailable")
+        (self.root / "workspace.yaml").write_text(
+            "state_dir: linked-state\n", encoding="utf-8"
+        )
+
+        proposal_path, proposal = self._propose(
+            "update",
+            {
+                "progress": ["Legacy compatibility"],
+                "current_markdown": (
+                    "# Current State\n\n**Last Updated:** 2026-08-20\n\n- Linked\n"
+                ),
+            },
+        )
+
+        paths = {change["path"] for change in proposal["changes"]}
+        self.assertIn("real-state/current.md", paths)
+        self.assertNotIn("linked-state/current.md", paths)
+        self._apply(proposal_path, proposal)
+        self.assertIn("**Last Updated:** 2026-08-23", (real / "current.md").read_text())
 
     def test_end_appends_session_and_decision(self) -> None:
         existing = self.root / "sessions/2026-08-23.md"
@@ -1014,6 +1364,16 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
         with self.assertRaisesRegex(ContextOSError, "approved context paths"):
             self._propose("setup", {"files": {"scripts/unsafe.py": "no"}})
 
+    def test_setup_allows_portable_skill_prefix_through_propose_and_apply(self) -> None:
+        target = self.root / ".agents/skills/custom/SKILL.md"
+        proposal_path, proposal = self._propose(
+            "setup", {"files": {".agents/skills/custom/SKILL.md": "# Custom\n"}}
+        )
+
+        self._apply(proposal_path, proposal)
+
+        self.assertEqual("# Custom\n", target.read_text(encoding="utf-8"))
+
     def test_apply_revalidates_workflow_paths_for_handcrafted_proposal(self) -> None:
         proposal_path, proposal = self._propose("update", {"progress": ["One"]})
         proposal["changes"][0]["path"] = ".git/hooks/pre-commit"
@@ -1023,6 +1383,77 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
         proposal_path.write_text(json.dumps(proposal), encoding="utf-8")
         with self.assertRaisesRegex(ContextOSError, "metadata or local host state"):
             self._apply(proposal_path, proposal)
+
+    def test_apply_rejects_handcrafted_product_authority_target(self) -> None:
+        proposal_path, proposal = self._propose("update", {"progress": ["One"]})
+        proposal["changes"][0]["path"] = "scripts/2026-08-23.md"
+        unsigned = dict(proposal)
+        unsigned.pop("proposal_digest")
+        proposal["proposal_digest"] = sha256_text(canonical_json(unsigned))
+        proposal_path.write_text(json.dumps(proposal), encoding="utf-8")
+
+        with self.assertRaisesRegex(
+            ContextOSError, "proposal path targets product authority"
+        ):
+            self._apply(proposal_path, proposal)
+
+    def test_recovery_rejects_legacy_journal_targeting_product_authority(self) -> None:
+        (self.root / "workspace.yaml").write_text(
+            "sessions_dir: scripts\n", encoding="utf-8"
+        )
+        with mock.patch("contextos.kernel.LIFECYCLE_PRODUCT_ROOTS", set()):
+            proposal_path, proposal = self._propose(
+                "update", {"progress": ["Simulate a pre-guard journal"]}
+            )
+        target = self.root / "scripts/2026-08-23.md"
+        script = r'''
+import os
+import sys
+from pathlib import Path
+from unittest import mock
+import contextos.kernel as kernel
+
+root = Path(sys.argv[1])
+proposal = Path(sys.argv[2])
+digest = sys.argv[3]
+target = Path(sys.argv[4]).resolve()
+kernel.LIFECYCLE_PRODUCT_ROOTS.clear()
+real_sync = kernel._fsync_directory
+
+def crash_after_target(directory):
+    real_sync(directory)
+    if Path(directory) == target.parent and target.is_file():
+        os._exit(88)
+
+with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_target):
+    kernel.apply_proposal(root, proposal, digest, "codex")
+'''
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(self.root),
+                str(proposal_path),
+                proposal["proposal_digest"],
+                str(target),
+            ],
+            cwd=ROOT,
+            check=False,
+        )
+        self.assertEqual(88, result.returncode)
+        self.assertTrue(target.is_file())
+        after_crash = target.read_bytes()
+        journal = self.root / ".context-os/journals" / proposal["proposal_id"]
+        self.assertTrue(journal.is_dir())
+        (self.root / ".context-os/apply.lock").unlink()
+
+        with self.assertRaisesRegex(
+            ContextOSError, "proposal path targets product authority"
+        ):
+            _recover_pending_agent_journals(self.root)
+        self.assertEqual(after_crash, target.read_bytes())
+        self.assertTrue(journal.is_dir())
 
     def test_apply_rejects_setup_replacement_bypass(self) -> None:
         (self.root / "identity").mkdir()
@@ -1096,6 +1527,87 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
         )
         self.assertEqual("pass", initialization["status"])
 
+    def test_direct_reports_and_cli_normalize_a_linked_root(self) -> None:
+        canonical_report = start_report(self.root.resolve(), NOW)
+        canonical_hook = hook_report(
+            self.root.resolve(), "session-start", {}, today=NOW.date()
+        )
+        external = tempfile.TemporaryDirectory()
+        self.addCleanup(external.cleanup)
+        linked_root = Path(external.name) / "linked-root"
+        try:
+            make_directory_link(linked_root, self.root.resolve())
+        except OSError:
+            self.skipTest("directory link creation is unavailable")
+
+        def remove_linked_root() -> None:
+            if os.name == "nt" and linked_root.exists():
+                linked_root.rmdir()
+            elif linked_root.is_symlink():
+                linked_root.unlink()
+
+        # Cleanups run LIFO, so remove the cross-fixture link before deleting
+        # its containing temporary directory on every supported Python version.
+        self.addCleanup(remove_linked_root)
+
+        self.assertEqual(canonical_report, start_report(linked_root, NOW))
+        self.assertEqual(
+            canonical_hook,
+            hook_report(
+                linked_root, "session-start", {}, today=NOW.date()
+            )
+        )
+
+        output = io.StringIO()
+        with mock.patch("sys.stdout", new=output):
+            self.assertEqual(
+                0,
+                cli_main([
+                    "--root",
+                    str(linked_root),
+                    "start",
+                    "--now",
+                    NOW.isoformat(),
+                ]),
+            )
+        self.assertEqual(canonical_report, json.loads(output.getvalue()))
+
+        (self.root / "state/current.md").write_text(
+            "# Current State\n\n**Last Updated:** [DATE]\n", encoding="utf-8"
+        )
+        canonical_advisory = hook_report(
+            self.root.resolve(), "session-start", {}, today=NOW.date()
+        )
+        self.assertEqual(
+            canonical_advisory,
+            hook_report(
+                linked_root, "session-start", {}, today=NOW.date()
+            ),
+        )
+        self.assertTrue(any(
+            "not initialized" in finding["message"]
+            for finding in canonical_advisory["findings"]
+        ))
+
+        hook_output = io.StringIO()
+        with mock.patch("sys.stdin", new=io.StringIO("{}")), mock.patch(
+            "sys.stdout", new=hook_output
+        ):
+            self.assertEqual(
+                0,
+                cli_main([
+                    "--root",
+                    str(linked_root),
+                    "hook",
+                    "session-start",
+                    "--runtime",
+                    "codex",
+                ]),
+            )
+        rendered_hook = json.loads(hook_output.getvalue())
+        self.assertIn("not initialized", rendered_hook["systemMessage"])
+        self.assertNotIn("could not run", rendered_hook["systemMessage"])
+
     def test_future_dated_state_is_not_treated_as_initialized(self) -> None:
         (self.root / "state/current.md").write_text(
             "# Current State\n\n**Last Updated:** 2099-01-01\n",
@@ -1151,6 +1663,128 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
             with self.assertRaisesRegex(ContextOSError, "symlink or reparse point"):
                 hook_report(self.root, "session-start", {}, today=NOW.date())
 
+    def test_legacy_linked_state_readiness_is_compatible_and_diagnosed(self) -> None:
+        real_state = self.root / "real-state"
+        (self.root / "state").rename(real_state)
+        linked_state = self.root / "linked-state"
+        try:
+            make_directory_link(linked_state, real_state)
+        except OSError:
+            self.skipTest("directory link creation is unavailable")
+        (self.root / "workspace.yaml").write_text(
+            "state_dir: linked-state\n", encoding="utf-8"
+        )
+        before = {
+            path.relative_to(self.root).as_posix(): path.read_bytes()
+            for path in self.root.rglob("*")
+            if path.is_file()
+        }
+
+        report = start_report(self.root, NOW)
+        self.assertTrue(report["initialized"])
+        self.assertIn("real-state/current.md", report["state"])
+        self.assertFalse(any(
+            "not initialized" in finding["message"]
+            for finding in hook_report(
+                self.root, "session-start", {}, today=NOW.date()
+            )["findings"]
+        ))
+
+        checks = {item["name"]: item for item in doctor(self.root)["checks"]}
+        linked = checks["legacy-linked-state-dir"]
+        self.assertEqual("warn", linked["status"])
+        self.assertIn("linked-state", linked["detail"])
+        self.assertIn("real-state", linked["detail"])
+        self.assertIn("migration", linked["detail"])
+        self.assertEqual("pass", checks["initialization-state"]["status"])
+
+        with self.assertRaisesRegex(ContextOSError, "cannot be activated safely"):
+            create_workspace_migration_proposal(self.root, ("codex",), NOW)
+        with self.assertRaisesRegex(ContextOSError, "requires contextos.workspace.json"):
+            create_agent_activation_proposal(self.root, "codex", True, NOW)
+        after = {
+            path.relative_to(self.root).as_posix(): path.read_bytes()
+            for path in self.root.rglob("*")
+            if path.is_file()
+        }
+        self.assertEqual(before, after)
+        self.assertFalse((self.root / "contextos.workspace.json").exists())
+        self.assertFalse((self.root / ".context-os/proposals").exists())
+
+        (real_state / "current.md").write_text(
+            "# Current State\n\n**Last Updated:** [DATE]\n", encoding="utf-8"
+        )
+        self.assertFalse(start_report(self.root, NOW)["initialized"])
+        self.assertTrue(any(
+            "not initialized" in finding["message"]
+            for finding in hook_report(
+                self.root, "session-start", {}, today=NOW.date()
+            )["findings"]
+        ))
+
+        (self.root / "workspace.yaml").write_text(
+            "state_dir: real-state\n", encoding="utf-8"
+        )
+        direct_checks = {
+            item["name"]: item for item in doctor(self.root)["checks"]
+        }
+        self.assertNotIn("legacy-linked-state-dir", direct_checks)
+
+    def test_default_linked_state_uses_the_same_pre_json_diagnostic(self) -> None:
+        real_state = self.root / "real-state"
+        (self.root / "state").rename(real_state)
+        try:
+            make_directory_link(self.root / "state", real_state)
+        except OSError:
+            self.skipTest("directory link creation is unavailable")
+
+        report = start_report(self.root, NOW)
+        self.assertTrue(report["initialized"])
+        self.assertIn("real-state/current.md", report["state"])
+        self.assertFalse(any(
+            "not initialized" in finding["message"]
+            for finding in hook_report(
+                self.root, "session-start", {}, today=NOW.date()
+            )["findings"]
+        ))
+        checks = {item["name"]: item for item in doctor(self.root)["checks"]}
+        linked = checks["legacy-linked-state-dir"]
+        self.assertEqual("warn", linked["status"])
+        self.assertIn("'state'", linked["detail"])
+        self.assertIn("real-state", linked["detail"])
+        self.assertIn("migration", linked["detail"])
+        self.assertIn("run setup", linked["detail"])
+        self.assertNotIn("change workspace.yaml", linked["detail"])
+        with self.assertRaisesRegex(ContextOSError, "cannot be activated safely"):
+            create_workspace_setup_proposal(self.root, ("codex",), NOW)
+        self.assertFalse((self.root / "contextos.workspace.json").exists())
+        self.assertFalse((self.root / ".context-os/proposals").exists())
+
+    def test_legacy_linked_state_still_rejects_linked_readiness_descendant(self) -> None:
+        real_state = self.root / "real-state"
+        (self.root / "state").rename(real_state)
+        linked_state = self.root / "linked-state"
+        try:
+            make_directory_link(linked_state, real_state)
+        except OSError:
+            self.skipTest("directory link creation is unavailable")
+        (self.root / "workspace.yaml").write_text(
+            "state_dir: linked-state\n", encoding="utf-8"
+        )
+        current = real_state / "current.md"
+        real_current = real_state / "real-current.md"
+        current.rename(real_current)
+        try:
+            current.symlink_to(real_current)
+        except OSError:
+            real_current.rename(current)
+            self.skipTest("file symlink creation is unavailable")
+
+        with self.assertRaisesRegex(ContextOSError, "symlink or reparse point"):
+            start_report(self.root, NOW)
+        with self.assertRaisesRegex(ContextOSError, "symlink or reparse point"):
+            hook_report(self.root, "session-start", {}, today=NOW.date())
+
     def test_readiness_snapshot_rejects_link_swap_after_guard(self) -> None:
         with tempfile.TemporaryDirectory() as external:
             outside = Path(external) / "outside-current.md"
@@ -1196,6 +1830,68 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
         )
         self.assertEqual("warn", initialization["status"])
         self.assertEqual("warn", freshness["status"])
+        self.assertIn("unknown", initialization["detail"])
+        self.assertIn("could not inspect", freshness["detail"])
+
+    def test_doctor_degrades_post_label_state_swap_to_unknown(self) -> None:
+        original = __import__(
+            "contextos.kernel", fromlist=["_initialization_state"]
+        )._initialization_state
+        state = self.root / "state"
+        swapped = False
+
+        with tempfile.TemporaryDirectory() as external:
+            outside = Path(external) / "outside-state"
+
+            def swap_before_snapshot(
+                workspace,
+                today: date,
+                *,
+                tolerate_unsafe: bool = False,
+            ):
+                nonlocal swapped
+                if not swapped:
+                    state.rename(outside)
+                    try:
+                        make_directory_link(state, outside)
+                    except OSError:
+                        outside.rename(state)
+                        self.skipTest("directory link creation is unavailable")
+                    swapped = True
+                return original(
+                    workspace, today, tolerate_unsafe=tolerate_unsafe
+                )
+
+            try:
+                with mock.patch(
+                    "contextos.kernel._initialization_state",
+                    side_effect=swap_before_snapshot,
+                ), mock.patch(
+                    "contextos.kernel._state_freshness",
+                    side_effect=AssertionError("replacement state must not be read"),
+                ):
+                    report = doctor(self.root, today=NOW.date())
+            finally:
+                if swapped:
+                    if os.name == "nt" and state.exists():
+                        state.rmdir()
+                    elif state.is_symlink():
+                        state.unlink()
+                    if outside.exists() and not state.exists():
+                        outside.rename(state)
+
+        initialization = next(
+            item for item in report["checks"] if item["name"] == "initialization-state"
+        )
+        freshness = next(
+            item for item in report["checks"] if item["name"] == "state-freshness"
+        )
+        self.assertEqual("warn", initialization["status"])
+        self.assertIn("unknown", initialization["detail"])
+        self.assertIn("could not be revalidated", initialization["detail"])
+        self.assertEqual("warn", freshness["status"])
+        self.assertIn("unknown", freshness["detail"])
+        self.assertNotEqual("pass", report["status"])
 
     def test_shipped_state_templates_retain_date_placeholders(self) -> None:
         for filename in ("current.md", "weekly-priorities.md", "blockers.md"):
@@ -1870,9 +2566,78 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
     def test_doctor_normalizes_an_unresolved_root(self) -> None:
         unresolved = self.root / "nested" / ".."
 
-        report = doctor(unresolved)
+        report = doctor(unresolved, today=NOW.date())
 
         self.assertIn(report["status"], {"pass", "warn"})
+        self.assertTrue(any(
+            item["name"] == "file:state/current.md"
+            and item["status"] == "pass"
+            for item in report["checks"]
+        ))
+
+    @unittest.skipIf(os.name == "nt", "POSIX file-link race regression")
+    def test_doctor_required_file_probe_does_not_follow_a_late_link(self) -> None:
+        with tempfile.TemporaryDirectory() as external:
+            outside = Path(external) / "outside-current.md"
+            outside.write_text(
+                "# External\n\n**Last Updated:** 2026-08-23\n", encoding="utf-8"
+            )
+            current = self.root / "state/current.md"
+            original_current = current.read_bytes()
+            original_guard = __import__(
+                "contextos.kernel", fromlist=["_guard_local_state_path"]
+            )._guard_local_state_path
+            original_freshness = __import__(
+                "contextos.kernel", fromlist=["_state_freshness"]
+            )._state_freshness
+            swapped = False
+
+            def swap_after_label(root: Path, path: Path) -> Path:
+                nonlocal swapped
+                relative = original_guard(root, path)
+                if path == current and not swapped:
+                    current.unlink()
+                    try:
+                        current.symlink_to(outside)
+                    except OSError:
+                        self.skipTest("file symlink creation is unavailable")
+                    swapped = True
+                return relative
+
+            def reject_replacement_snapshot(
+                path: Path, today: date, threshold: int
+            ) -> dict[str, object]:
+                if path == current:
+                    raise AssertionError("replacement state must not be read")
+                return original_freshness(path, today, threshold)
+
+            try:
+                with mock.patch(
+                    "contextos.kernel._guard_local_state_path",
+                    side_effect=swap_after_label,
+                ), mock.patch(
+                    "contextos.kernel._state_freshness",
+                    side_effect=reject_replacement_snapshot,
+                ):
+                    report = doctor(self.root, today=NOW.date())
+            finally:
+                if current.is_symlink():
+                    current.unlink()
+                if not current.exists():
+                    current.write_bytes(original_current)
+
+        required = next(
+            item
+            for item in report["checks"]
+            if item["name"] == "file:state/current.md"
+        )
+        initialization = next(
+            item for item in report["checks"] if item["name"] == "initialization-state"
+        )
+        self.assertEqual("fail", required["status"])
+        self.assertIn("symlink or reparse point", required["detail"])
+        self.assertEqual("warn", initialization["status"])
+        self.assertIn("unknown", initialization["detail"])
 
     def test_doctor_reports_linked_state_file_without_crashing(self) -> None:
         with tempfile.TemporaryDirectory() as external:
@@ -1897,10 +2662,14 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
             (self.root / "state").rename(outside)
             state = self.root / "state"
             try:
-                state.symlink_to(outside, target_is_directory=True)
+                make_directory_link(state, outside)
             except OSError:
                 outside.rename(state)
-                self.skipTest("directory symlink creation is unavailable")
+                self.skipTest("directory link creation is unavailable")
+            with self.assertRaisesRegex(ContextOSError, "escapes the repository root"):
+                start_report(self.root, NOW)
+            with self.assertRaisesRegex(ContextOSError, "escapes the repository root"):
+                hook_report(self.root, "session-start", {}, today=NOW.date())
             report = doctor(self.root)
         self.assertEqual("fail", report["status"])
         self.assertEqual("invalid", report["scope"])

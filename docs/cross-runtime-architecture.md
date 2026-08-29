@@ -4,6 +4,15 @@ Context OS guarantees equivalent lifecycle state transitions across supported
 runtimes. It does not claim identical command syntax, hook timing, permission
 models, tool names, or native memory.
 
+The [root contract](root-contract.md) defines product assets (`KernelRoot`),
+durable lifecycle state (`ContextRoot`), and the nominal application working
+directory (`WorkingRoot`). v0.12 colocates them on its normal full-template
+wrapper path. A marker-only root may use already-loaded code for discovery,
+reports, diagnosis, direct provider-neutral hooks, and proposal publication,
+but named runtime execution and mutation require the colocated trusted product
+closure. Verified detached-bundle materialization is the separate bootstrap boundary.
+External project attachment requires a later versioned binding contract.
+
 ## Layers
 
 1. **Repository state:** `identity/`, `projects/`, `state/`, and `sessions/` are
@@ -43,7 +52,8 @@ materially changed. Setup accepts `files: {path: content}` and requires every
 populated replacement path in `replace_populated`.
 
 The kernel rejects absolute paths, traversal, setup writes outside approved
-context roots, multiple or missing `Last Updated` lines, and no-op proposals.
+context paths beneath the v0.12 ContextRoot, multiple or missing `Last Updated`
+lines, and no-op proposals.
 
 ## Transaction protocols
 

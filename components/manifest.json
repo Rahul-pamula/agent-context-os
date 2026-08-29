@@ -196,6 +196,10 @@
                     "policy": "managed"
                 },
                 {
+                    "path": "docs/root-contract.md",
+                    "policy": "managed"
+                },
+                {
                     "path": "docs/safety-contract.md",
                     "policy": "managed"
                 },
@@ -318,6 +322,10 @@
                 {
                     "path": "scripts/mine-gemini-workflows.py",
                     "policy": "managed"
+                },
+                {
+                    "path": "scripts/measure-bundle-materialization.py",
+                    "policy": "development"
                 },
                 {
                     "path": "scripts/pre-commit-hook.sh",

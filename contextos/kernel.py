@@ -99,6 +99,26 @@ LAST_UPDATED_RE = re.compile(r"^\*\*Last Updated:\*\*\s*(.+?)\s*$", re.MULTILINE
 REAL_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 SETUP_ROOTS = {"identity", "projects", "state"}
 SETUP_FILES = {"ROUTING.md", "TODO.md", "CLAUDE.md", "AGENTS.md"}
+SETUP_SKILL_PREFIX = (".agents", "skills")
+# Content lifecycle configuration must not turn executable product authority into
+# state/session storage.  Keep this distinct from generic workspace-path
+# validation: bundle and component schemas legitimately name these directories,
+# and pre-JSON workspace configuration remains readable for compatibility.
+LIFECYCLE_PRODUCT_ROOTS = {
+    ".agents",
+    ".claude",
+    ".codex",
+    ".cursor",
+    ".github",
+    "adapters",
+    "bundles",
+    "components",
+    "contextos",
+    "integrations",
+    "runtimes",
+    "scripts",
+    "workspace",
+}
 STATE_THRESHOLDS = {"current.md": 3, "weekly-priorities.md": 5, "blockers.md": 7}
 INITIALIZATION_FILE = "current.md"
 SETUP_NEXT_ACTION = (
@@ -334,6 +354,24 @@ def _legacy_repo_path(root: Path, raw: str, field: str) -> Path:
     return resolved
 
 
+def _legacy_link_component(root: Path, raw: str) -> str | None:
+    """Return the first link-like pre-JSON path component without following it."""
+    relative = Path(raw)
+    if relative.is_absolute():
+        return None
+    current = root
+    for part in relative.parts:
+        if part in {"", "."}:
+            continue
+        current /= part
+        if _is_link_like(current):
+            try:
+                return current.relative_to(root).as_posix()
+            except ValueError:
+                return raw
+    return None
+
+
 def _workspace_from_paths(
     root: Path, paths: dict[str, str], *, legacy: bool = False
 ) -> Workspace:
@@ -440,11 +478,39 @@ def resolve_workspace(root: Path) -> WorkspaceResolution:
                 "and agent intent is unknown"
             ),
         })
+    workspace = _workspace_from_paths(root, values, legacy=True)
+    linked_state = _legacy_link_component(root, values["state_dir"])
+    if linked_state is not None:
+        try:
+            resolved_state = workspace.state_dir.relative_to(root.resolve()).as_posix()
+        except ValueError as exc:
+            raise ContextOSError(
+                "resolved pre-JSON state_dir escaped the repository during "
+                "diagnostic labeling"
+            ) from exc
+        remediation = (
+            "Replace the link with a real directory, then run setup to complete "
+            "migration to canonical JSON"
+            if source == "defaults"
+            else (
+                "Replace the link or change workspace.yaml to the resolved "
+                "repository-relative path, then preview and propose migration"
+            )
+        )
+        notices.append({
+            "code": "legacy-linked-state-dir",
+            "message": (
+                f"pre-JSON linked state_dir compatibility is active: {linked_state!r} "
+                f"resolves inside the repository to {resolved_state!r}; start and "
+                "session-start may read that resolved target, but canonical JSON "
+                f"rejects linked paths. {remediation}"
+            ),
+        })
     return WorkspaceResolution(
         # Repositories without tracked configuration use the same historical
         # path semantics as workspace.yaml. Tight path rules begin only after
         # a canonical JSON configuration is explicitly adopted.
-        workspace=_workspace_from_paths(root, values, legacy=True),
+        workspace=workspace,
         config=None,
         source=source,
         agents=None,
@@ -660,9 +726,14 @@ def _agent_lifecycle_authorization(
     _reject_config_aliases(root, relative)
     safe_repo_path(root, relative)
     component_path = safe_repo_path(root, "components/manifest.json")
-    manifest = load_component_manifest(
-        component_path, root=root, check_paths=False
-    )
+    try:
+        manifest = load_component_manifest(
+            component_path, root=root, check_paths=False
+        )
+    except (ComponentManifestError, OSError, UnicodeError) as exc:
+        raise ContextOSError(
+            f"invalid component manifest: {component_path} ({exc})"
+        ) from exc
     declared_owner = workspace_path_owner(manifest, relative)
     if declared_owner != expected[relative]["owner"]:
         raise ContextOSError(
@@ -696,13 +767,20 @@ def _agent_source_hashes(root: Path) -> dict[str, str]:
 
 def _selection_components(root: Path, agents: Sequence[str]) -> list[str]:
     component_path = safe_repo_path(root, "components/manifest.json")
-    manifest = load_component_manifest(
-        component_path, root=root, check_paths=False
-    )
-    requested: set[str] = {"core"}
-    for runtime in agents:
-        requested.update(runtime_manifest(root, runtime, check_paths=False)["components"])
-    return component_closure(manifest, sorted(requested))
+    try:
+        manifest = load_component_manifest(
+            component_path, root=root, check_paths=False
+        )
+        requested: set[str] = {"core"}
+        for runtime in agents:
+            requested.update(
+                runtime_manifest(root, runtime, check_paths=False)["components"]
+            )
+        return component_closure(manifest, sorted(requested))
+    except (ComponentManifestError, OSError, UnicodeError) as exc:
+        raise ContextOSError(
+            f"invalid component manifest: {component_path} ({exc})"
+        ) from exc
 
 
 def _agent_change(
@@ -1207,7 +1285,10 @@ def render_setup(workspace: Workspace, payload: dict[str, Any], now: datetime) -
         path = safe_repo_path(workspace.root, raw_path)
         relative = relative_path(workspace.root, path)
         top = Path(relative).parts[0]
-        skill_path = len(Path(relative).parts) >= 3 and Path(relative).parts[:2] == (".agents", "skills")
+        skill_path = (
+            len(Path(relative).parts) >= 3
+            and Path(relative).parts[:2] == SETUP_SKILL_PREFIX
+        )
         if top not in SETUP_ROOTS and relative not in SETUP_FILES and not skill_path:
             raise ContextOSError(f"setup cannot write outside approved context paths: {relative}")
         content = ensure_text(raw_content, f"files[{raw_path}]").replace("{{TODAY}}", today)
@@ -1416,6 +1497,8 @@ def create_proposal(root: Path, workflow: str, payload: dict[str, Any], now: dat
     )
     if not changes:
         raise ContextOSError("proposal has no changes")
+    for change in changes:
+        _validate_change_path(workspace, workflow, now, change["path"])
     document: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "workflow": workflow,
@@ -1487,11 +1570,19 @@ def _validate_change_path(workspace: Workspace, workflow: str, created_at: datet
     parts = Path(relative).parts
     if not parts or parts[0] in {".git", ".context-os"}:
         raise ContextOSError(f"proposal path is reserved: {relative}")
+    if (
+        workflow != "setup"
+        and workspace_portable_identity(parts[0])
+        in {workspace_portable_identity(root) for root in LIFECYCLE_PRODUCT_ROOTS}
+    ):
+        raise ContextOSError(
+            f"{workflow} proposal path targets product authority: {relative}"
+        )
     if workflow == "setup":
         allowed = (
             relative in SETUP_FILES
-            or parts[0] in {"identity", "projects", "state"}
-            or (len(parts) >= 3 and parts[:2] == (".agents", "skills"))
+            or parts[0] in SETUP_ROOTS
+            or (len(parts) >= 3 and parts[:2] == SETUP_SKILL_PREFIX)
         )
     else:
         state_paths = {
@@ -1711,10 +1802,17 @@ def _validate_agent_proposal_shape(
     return operation, created_at
 
 
-def _validate_proposal_shape(root: Path, proposal: Path, document: dict[str, Any]) -> tuple[str, datetime]:
+def _validate_proposal_shape(
+    root: Path, proposal: Path, document: dict[str, Any],
+    *, validated_agent_shape: tuple[str, datetime] | None = None,
+) -> tuple[str, datetime]:
     workflow = document.get("workflow")
     if workflow == AGENT_LIFECYCLE_WORKFLOW:
-        operation, created_at = _validate_agent_proposal_shape(root, document)
+        operation, created_at = (
+            validated_agent_shape
+            if validated_agent_shape is not None
+            else _validate_agent_proposal_shape(root, document)
+        )
         workflow_value = AGENT_LIFECYCLE_WORKFLOW
     else:
         operation = "content-lifecycle"
@@ -3177,7 +3275,12 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
     expected_digest = validate_proposal(document)
     if confirmation != expected_digest:
         raise ContextOSError("--confirm must exactly match the proposal_digest")
+    if runtime == "generic" and not is_agent_workflow:
+        raise ContextOSError(
+            "generic runtime is reserved for agent-config and materialization proposals"
+        )
     validate_execution_runtime(root, runtime)
+    prepared_materialization_payloads: dict[str, bytes] | None = None
     with transaction_lock(root):
         # A completed crash journal has priority over every later lifecycle
         # operation, including generic content proposals.
@@ -3189,8 +3292,20 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
                 raise ContextOSError(
                     f"refusing to replay proposal with existing receipt: {receipt_candidate}"
                 )
-            workflow, _ = _validate_proposal_shape(root, proposal, document)
-            _validate_agent_preflight(root, document)
+            if document.get("operation") == MATERIALIZE_OPERATION:
+                from .materializer import prepare_materialization_preflight
+
+                created_at, prepared_materialization_payloads = (
+                    prepare_materialization_preflight(root, document)
+                )
+                _validate_proposal_shape(
+                    root, proposal, document,
+                    validated_agent_shape=(MATERIALIZE_OPERATION, created_at),
+                )
+                workflow = AGENT_LIFECYCLE_WORKFLOW
+            else:
+                workflow, _ = _validate_proposal_shape(root, proposal, document)
+                _validate_agent_preflight(root, document)
         else:
             workflow, created_at = _validate_proposal_shape(root, proposal, document)
             for change in document.get("changes", []):
@@ -3226,7 +3341,9 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
         publication_anchors: dict[Path, Path] = {}
         journal_path: Path | None = None
         receipt_published = False
-        materialization_payloads: dict[str, bytes] = {}
+        materialization_payloads: dict[str, bytes] = (
+            prepared_materialization_payloads or {}
+        )
         staging_root = root / ".context-os" / "staging" / document["proposal_id"]
         receipt_path = root / ".context-os" / "receipts" / f"{document['proposal_id']}.json"
         _guard_local_artifact_path(root, staging_root)
@@ -3244,10 +3361,6 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
                     staging_root,
                 )
             staging_root.mkdir(parents=True)
-            if document.get("operation") == MATERIALIZE_OPERATION:
-                from .materializer import materialization_payloads as load_payloads
-
-                materialization_payloads = load_payloads(root, document)
             for change_index, change in enumerate(document["changes"]):
                 path = _transaction_target(
                     root, change["path"], document.get("operation")
@@ -3276,6 +3389,7 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
                         mode=target_mode,
                     )
                     staged[path] = stage
+            materialization_payloads.clear()
             journal_path = (
                 root / ".context-os" / "journals" / document["proposal_id"]
             )
@@ -3737,7 +3851,7 @@ def _initialization_state(
         try:
             _guard_local_state_path(workspace.root, path)
             state[relative] = _state_freshness(path, today, threshold)
-        except ContextOSError:
+        except ContextOSError as exc:
             if not tolerate_unsafe:
                 raise
             state[relative] = {
@@ -3747,6 +3861,7 @@ def _initialization_state(
                 "stale_after_days": threshold,
                 "freshness_status": "unknown",
                 "stale": None,
+                "unavailable_reason": str(exc),
             }
     gate = (state_dir_relative / INITIALIZATION_FILE).as_posix()
     return _is_initialized(state[gate]), state
@@ -3765,6 +3880,7 @@ def _initialization_next_action(
 
 
 def start_report(root: Path, now: datetime) -> dict[str, Any]:
+    root = root.resolve()
     workspace = load_workspace(root)
     initialized, files = _initialization_state(workspace, now.date())
     sessions = sorted(workspace.sessions_dir.glob("????-??-??.md"), reverse=True) if workspace.sessions_dir.exists() else []
@@ -4099,6 +4215,9 @@ def doctor(
                 notice["message"] for notice in workspace_resolution.notices
             )
         add("workspace-config", workspace_status, detail)
+        for notice in workspace_resolution.notices:
+            if notice["code"] == "legacy-linked-state-dir":
+                add("legacy-linked-state-dir", "warn", notice["message"])
     except ContextOSError as exc:
         add("workspace-config", "fail", str(exc))
         # Keep diagnostics total even when the default path itself is the
@@ -4134,10 +4253,38 @@ def doctor(
     for path in required_paths:
         rel = state_path_labels[path]
         error = state_path_errors.get(path)
+        required_status = "fail" if error else "warn"
+        required_detail = error or rel
+        if error is None:
+            try:
+                metadata = path.lstat()
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                required_status = "fail"
+                required_detail = f"cannot inspect required state path: {exc}"
+            else:
+                link_tags = {
+                    getattr(stat, "IO_REPARSE_TAG_SYMLINK", -1),
+                    getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", -2),
+                }
+                if stat.S_ISLNK(metadata.st_mode) or getattr(
+                    metadata, "st_reparse_tag", 0
+                ) in link_tags:
+                    required_status = "fail"
+                    required_detail = (
+                        "required state path became a symlink or reparse point "
+                        f"during diagnosis: {rel}"
+                    )
+                elif stat.S_ISREG(metadata.st_mode):
+                    required_status = "pass"
+                else:
+                    required_status = "fail"
+                    required_detail = f"required state path is not a regular file: {rel}"
         add(
             f"file:{rel}",
-            "fail" if error else "pass" if path.exists() else "warn",
-            error or rel,
+            required_status,
+            required_detail,
         )
     unsafe_freshness = [
         state_path_labels[path]
@@ -4149,7 +4296,7 @@ def doctor(
         add(
             "initialization-state",
             "warn",
-            "guided setup required; unsafe state path(s): "
+            "initialization state is unknown; cannot inspect unsafe state path(s): "
             + ", ".join(unsafe_freshness),
         )
         add(
@@ -4158,48 +4305,88 @@ def doctor(
             "cannot inspect unsafe state path(s): " + ", ".join(unsafe_freshness),
         )
     else:
-        initialized, initialization_files = _initialization_state(
-            workspace, effective_today, tolerate_unsafe=True
-        )
-        add(
-            "initialization-state",
-            "pass" if initialized else "warn",
-            "ready"
-            if initialized
-            else (
-                f"recovery required; {gate} carries a future **Last Updated:** date; "
-                + _initialization_next_action(workspace, initialization_files)
-                if initialization_files[gate]["freshness_status"] == "future"
-                else f"guided setup required; {gate} carries no real **Last Updated:** date"
-            ),
-        )
-        future = [
-            path
-            for path, item in initialization_files.items()
-            if item["freshness_status"] == "future"
-        ]
-        unusable = [
-            path
-            for path, item in initialization_files.items()
-            if item["freshness_status"] in {"missing", "unknown"}
-        ]
-        unresolved = future + unusable
-        freshness_details = []
-        if future:
-            freshness_details.append(
-                "future **Last Updated:** date in: " + ", ".join(future)
+        try:
+            initialized, initialization_files = _initialization_state(
+                workspace, effective_today, tolerate_unsafe=True
             )
-        if unusable:
-            freshness_details.append(
-                "no usable **Last Updated:** date in: " + ", ".join(unusable)
+            gate_state = initialization_files[gate]
+            initialization_detail = "ready"
+            if not initialized:
+                if gate_state.get("unavailable_reason"):
+                    initialization_detail = (
+                        f"initialization state is unknown; cannot inspect {gate}: "
+                        f"{gate_state['unavailable_reason']}"
+                    )
+                elif gate_state["freshness_status"] == "future":
+                    initialization_detail = (
+                        f"recovery required; {gate} carries a future "
+                        f"**Last Updated:** date; {FUTURE_DATE_NEXT_ACTION}"
+                    )
+                else:
+                    initialization_detail = (
+                        f"guided setup required; {gate} carries no real "
+                        "**Last Updated:** date"
+                    )
+        except ContextOSError as exc:
+            add(
+                "initialization-state",
+                "warn",
+                f"initialization state is unknown because state could not be "
+                f"revalidated during diagnosis: {exc}",
             )
-        add(
-            "state-freshness",
-            "pass" if not unresolved else "warn",
-            "all tracked state files carry a real date"
-            if not unresolved
-            else "; ".join(freshness_details),
-        )
+            add(
+                "state-freshness",
+                "warn",
+                f"state freshness is unknown because state could not be "
+                f"revalidated during diagnosis: {exc}",
+            )
+        else:
+            add(
+                "initialization-state",
+                "pass" if initialized else "warn",
+                initialization_detail,
+            )
+            future = [
+                path
+                for path, item in initialization_files.items()
+                if item["freshness_status"] == "future"
+            ]
+            unavailable = {
+                path: str(item["unavailable_reason"])
+                for path, item in initialization_files.items()
+                if item.get("unavailable_reason")
+            }
+            unusable = [
+                path
+                for path, item in initialization_files.items()
+                if item["freshness_status"] in {"missing", "unknown"}
+                and path not in unavailable
+            ]
+            unresolved = future + list(unavailable) + unusable
+            freshness_details = []
+            if future:
+                freshness_details.append(
+                    "future **Last Updated:** date in: " + ", ".join(future)
+                )
+            if unusable:
+                freshness_details.append(
+                    "no usable **Last Updated:** date in: " + ", ".join(unusable)
+                )
+            if unavailable:
+                freshness_details.append(
+                    "could not inspect: "
+                    + "; ".join(
+                        f"{path}: {reason}"
+                        for path, reason in unavailable.items()
+                    )
+                )
+            add(
+                "state-freshness",
+                "pass" if not unresolved else "warn",
+                "all tracked state files carry a real date"
+                if not unresolved
+                else "; ".join(freshness_details),
+            )
 
     local_hosts = {"schema_version": HOST_STATE_SCHEMA_VERSION, "hosts": {}}
     local_hosts_valid = False
@@ -4882,6 +5069,7 @@ def hook_report(
     *,
     today: date | None = None,
 ) -> dict[str, Any]:
+    root = root.resolve()
     findings: list[dict[str, str]] = []
     workspace = load_workspace(root)
     if event == "session-start":
