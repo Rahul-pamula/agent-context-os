@@ -99,12 +99,16 @@ LAST_UPDATED_RE = re.compile(r"^\*\*Last Updated:\*\*\s*(.+?)\s*$", re.MULTILINE
 REAL_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 SETUP_ROOTS = {"identity", "projects", "state"}
 SETUP_FILES = {"ROUTING.md", "TODO.md", "CLAUDE.md", "AGENTS.md"}
+SETUP_SKILL_PREFIX = (".agents", "skills")
 # Content lifecycle configuration must not turn executable product authority into
 # state/session storage.  Keep this distinct from generic workspace-path
 # validation: bundle and component schemas legitimately name these directories,
 # and pre-JSON workspace configuration remains readable for compatibility.
 LIFECYCLE_PRODUCT_ROOTS = {
+    ".agents",
+    ".claude",
     ".codex",
+    ".cursor",
     ".github",
     "adapters",
     "bundles",
@@ -1516,8 +1520,8 @@ def _validate_change_path(workspace: Workspace, workflow: str, created_at: datet
     if workflow == "setup":
         allowed = (
             relative in SETUP_FILES
-            or parts[0] in {"identity", "projects", "state"}
-            or (len(parts) >= 3 and parts[:2] == (".agents", "skills"))
+            or parts[0] in SETUP_ROOTS
+            or (len(parts) >= 3 and parts[:2] == SETUP_SKILL_PREFIX)
         )
     else:
         state_paths = {

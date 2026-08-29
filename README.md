@@ -210,7 +210,9 @@ Once present, `contextos.workspace.json` is the provider-neutral root marker,
 including for a core-only workspace. Existing `AGENTS.md` plus `state/` or
 `workspace.yaml` roots remain discoverable. The nearest recognized root wins,
 and discovery never climbs past a nested `.git` repository boundary; use
-`--root` when deliberately targeting an outer workspace.
+`--root` to choose an explicit discovery start when cwd is not the intended
+starting point. Discovery may still ascend from that path to the nearest valid
+root before a nested Git boundary.
 
 Each fact should have one canonical home. `ROUTING.md` points an agent to the right file instead of copying the same context across prompts.
 

@@ -7,7 +7,12 @@ import unittest
 from pathlib import Path
 
 from contextos.cli import parser as contextos_parser
-from contextos.kernel import LIFECYCLE_PRODUCT_ROOTS, SETUP_FILES, SETUP_ROOTS
+from contextos.kernel import (
+    LIFECYCLE_PRODUCT_ROOTS,
+    SETUP_FILES,
+    SETUP_ROOTS,
+    SETUP_SKILL_PREFIX,
+)
 
 # Shell out to the interpreter running these tests, never a bare "python3".
 #
@@ -72,8 +77,16 @@ class DocumentationPositioningTests(unittest.TestCase):
             self.assertIn(f"`{root}", contract)
         for filename in SETUP_FILES:
             self.assertIn(f"`{filename}`", contract)
-        for protected in ("contextos", "scripts", "workspace"):
-            self.assertIn(protected, LIFECYCLE_PRODUCT_ROOTS)
+        self.assertEqual((".agents", "skills"), SETUP_SKILL_PREFIX)
+        self.assertIn("`.agents/skills/`", contract)
+        expected_product_roots = {
+            ".agents", ".claude", ".codex", ".cursor", ".github",
+            "adapters", "bundles", "components", "contextos", "integrations",
+            "runtimes", "scripts", "workspace",
+        }
+        self.assertEqual(expected_product_roots, LIFECYCLE_PRODUCT_ROOTS)
+        for protected in expected_product_roots:
+            self.assertIn(f"`{protected}/`", contract)
 
         for path in (
             "README.md",

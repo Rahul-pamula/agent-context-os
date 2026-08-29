@@ -59,6 +59,11 @@ UNC and absolute paths, backslashes, dot segments, Windows device aliases,
 remain `state`, `sessions`, and `TODO.md`; migration does not silently move the
 task file to `state/tasks.md`.
 
+Path syntax validity is not write authorization. Update/end proposal
+publication, apply, and recovery also reject configured state/session targets
+under the protected product and host-control namespaces enumerated in the
+[root contract](root-contract.md). Benign custom directories remain supported.
+
 The generated structural schema is `workspace/schema.json`.
 `contextos.workspace_schema` remains authoritative for registry membership,
 portable path rules, set semantics, and role collisions.
@@ -270,8 +275,9 @@ Existing clones remain discoverable through the legacy compound marker:
 chooses the nearest recognized root. After evaluating a directory, it stops at
 an exact `.git` file, directory, or symlink, so an unconfigured nested repository
 cannot accidentally inherit an outer repository's Context OS state. Pass an
-explicit `--root` only when deliberately operating on an outer workspace. A
-discovery start may be a real directory, regular file, or link-like entrypoint.
+explicit `--root` to choose the discovery start when cwd is not the intended
+starting point; the argument itself need not be the root. A discovery start may
+be a real directory, regular file, or link-like entrypoint.
 Internal links and entrypoints such as `current -> repo` remain compatible when
 their resolved start stays inside the nearest lexical `.git` boundary. A link
 that escapes that boundary fails before an outer workspace can be selected;

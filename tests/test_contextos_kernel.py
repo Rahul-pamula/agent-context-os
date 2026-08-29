@@ -454,6 +454,11 @@ class KernelTest(unittest.TestCase):
                 }),
             ),
             ("legacy", self.root / "workspace.yaml", "sessions_dir: scripts\n"),
+            (
+                "legacy-host-control",
+                self.root / "workspace.yaml",
+                "sessions_dir: .claude/hooks\n",
+            ),
         )
         for name, config_path, config_text in cases:
             with self.subTest(config=name):
@@ -479,6 +484,35 @@ class KernelTest(unittest.TestCase):
 
         self.assertEqual("custom-sessions/2026-08-23.md", proposal["changes"][0]["path"])
         self.assertTrue(proposal_path.is_file())
+
+    def test_legacy_internal_link_update_uses_resolved_target(self) -> None:
+        real = self.root / "real-state"
+        (self.root / "state").rename(real)
+        linked = self.root / "linked-state"
+        try:
+            make_directory_link(linked, real)
+        except OSError:
+            real.rename(self.root / "state")
+            self.skipTest("directory link creation is unavailable")
+        (self.root / "workspace.yaml").write_text(
+            "state_dir: linked-state\n", encoding="utf-8"
+        )
+
+        proposal_path, proposal = self._propose(
+            "update",
+            {
+                "progress": ["Legacy compatibility"],
+                "current_markdown": (
+                    "# Current State\n\n**Last Updated:** 2026-08-20\n\n- Linked\n"
+                ),
+            },
+        )
+
+        paths = {change["path"] for change in proposal["changes"]}
+        self.assertIn("real-state/current.md", paths)
+        self.assertNotIn("linked-state/current.md", paths)
+        self._apply(proposal_path, proposal)
+        self.assertIn("**Last Updated:** 2026-08-23", (real / "current.md").read_text())
 
     def test_end_appends_session_and_decision(self) -> None:
         existing = self.root / "sessions/2026-08-23.md"
@@ -1080,6 +1114,64 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
             ContextOSError, "proposal path targets product authority"
         ):
             self._apply(proposal_path, proposal)
+
+    def test_recovery_rejects_legacy_journal_targeting_product_authority(self) -> None:
+        (self.root / "workspace.yaml").write_text(
+            "sessions_dir: scripts\n", encoding="utf-8"
+        )
+        with mock.patch("contextos.kernel.LIFECYCLE_PRODUCT_ROOTS", set()):
+            proposal_path, proposal = self._propose(
+                "update", {"progress": ["Simulate a pre-guard journal"]}
+            )
+        target = self.root / "scripts/2026-08-23.md"
+        script = r'''
+import os
+import sys
+from pathlib import Path
+from unittest import mock
+import contextos.kernel as kernel
+
+root = Path(sys.argv[1])
+proposal = Path(sys.argv[2])
+digest = sys.argv[3]
+target = Path(sys.argv[4]).resolve()
+kernel.LIFECYCLE_PRODUCT_ROOTS.clear()
+real_sync = kernel._fsync_directory
+
+def crash_after_target(directory):
+    real_sync(directory)
+    if Path(directory) == target.parent and target.is_file():
+        os._exit(88)
+
+with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_target):
+    kernel.apply_proposal(root, proposal, digest, "codex")
+'''
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(self.root),
+                str(proposal_path),
+                proposal["proposal_digest"],
+                str(target),
+            ],
+            cwd=ROOT,
+            check=False,
+        )
+        self.assertEqual(88, result.returncode)
+        self.assertTrue(target.is_file())
+        after_crash = target.read_bytes()
+        journal = self.root / ".context-os/journals" / proposal["proposal_id"]
+        self.assertTrue(journal.is_dir())
+        (self.root / ".context-os/apply.lock").unlink()
+
+        with self.assertRaisesRegex(
+            ContextOSError, "proposal path targets product authority"
+        ):
+            _recover_pending_agent_journals(self.root)
+        self.assertEqual(after_crash, target.read_bytes())
+        self.assertTrue(journal.is_dir())
 
     def test_apply_rejects_setup_replacement_bypass(self) -> None:
         (self.root / "identity").mkdir()

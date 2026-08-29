@@ -99,9 +99,10 @@ deliberate exception.
 
 v0.12 preserves the explicitly tested pre-JSON behavior for an internal linked
 `state_dir`, both with legacy `workspace.yaml` and with no tracked configuration:
-readiness may read the resolved internal target, while migration and activation
-continue to reject that path. This is a compatibility exception, not part of
-the canonical no-follow guarantee.
+readiness may read the resolved internal target, and update/end proposal/apply
+uses that resolved internal path rather than the link spelling. Migration and
+activation continue to reject the link. This is a compatibility exception, not
+part of the canonical no-follow guarantee.
 
 `doctor` must identify the linked pre-JSON path, scope the exception, and direct
 the owner to migrate. Canonical JSON workspaces continue to reject linked or
@@ -135,8 +136,11 @@ milestone, not v0.12.
 
 Lifecycle setup/update/end obey these invariants:
 
-1. Reviewed input, proposal, lock, staging, journal, receipt, and every target
-   path are owned by ContextRoot.
+1. Proposal, lock, staging, journal, receipt, and every target path are owned by
+   ContextRoot. Host skills conventionally place reviewed input beneath
+   `ContextRoot/.context-os/inputs/`; the CLI also accepts an explicit input
+   file elsewhere, whose bytes are read but whose location is not mutation
+   authority.
 2. Journal and receipt target paths are relative to ContextRoot; recovery can
    restore only ContextRoot targets.
 3. WorkingRoot state may be bound as read-only evidence, but it never grants
@@ -151,6 +155,12 @@ For both canonical JSON and pre-JSON compatibility configuration, update/end
 proposal publication, apply, and recovery reject configured state or session
 targets whose first path component is a product-authority namespace. Config
 readability therefore cannot widen lifecycle mutation authority.
+
+The v0.12 protected namespaces are `.agents/`, `.claude/`, `.codex/`,
+`.cursor/`, `.github/`, `adapters/`, `bundles/`, `components/`, `contextos/`,
+`integrations/`, `runtimes/`, `scripts/`, and `workspace/`. This update/end
+guard includes extensible host instruction surfaces; it does not make those
+paths KernelRoot-owned or remove setup's narrower `.agents/skills/` authority.
 
 When split mode ships, receipts and reports must use role-qualified identities
 and Git fields. The ambiguous v0.12 `git_head` fields cannot silently acquire a
@@ -167,7 +177,7 @@ fixtures. Each row names a must-fire behavior and its must-not-fire complement.
 | Context discovery | Nearest valid marker wins | Invalid inner marker falls outward, or discovery crosses nested `.git` |
 | Canonicalization | Equivalent permitted entrypoints produce one canonical identity for CLI and direct API calls | Link/reparse swaps or alias changes redirect a role after validation |
 | Start | Reads ContextRoot continuity and, in split mode, separately reports WorkingRoot identity/status/history | Writes any root, reads context state from WorkingRoot, or presents KernelRoot commits as user work |
-| Propose | Publishes reviewed proposal state only beneath ContextRoot | Absolute, escaping, linked, KernelRoot, or WorkingRoot targets reach publication |
+| Propose | Publishes reviewed proposal state only beneath ContextRoot | Absolute, escaping, unresolved link-like, canonical-config linked, KernelRoot, or WorkingRoot targets reach publication; the documented pre-JSON internal-link exception is resolved before target calculation |
 | Apply/recovery | Changes and restores only ContextRoot-relative targets under the existing digest, lock, journal, and receipt protocol | Crafted or legacy artifacts cause KernelRoot/WorkingRoot mutation |
 | Runtime registration | Reads runtime/component authority from KernelRoot and records local state beneath ContextRoot | Installation modifies WorkingRoot or lets ContextRoot shadow product authority |
 | Doctor | Diagnoses each role independently and stays total across late races | Executes runtime probes, follows links, mutates a root, or hides an unexecuted check as green |
