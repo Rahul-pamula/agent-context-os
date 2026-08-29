@@ -354,6 +354,24 @@ def _legacy_repo_path(root: Path, raw: str, field: str) -> Path:
     return resolved
 
 
+def _legacy_link_component(root: Path, raw: str) -> str | None:
+    """Return the first link-like pre-JSON path component without following it."""
+    relative = Path(raw)
+    if relative.is_absolute():
+        return None
+    current = root
+    for part in relative.parts:
+        if part in {"", "."}:
+            continue
+        current /= part
+        if _is_link_like(current):
+            try:
+                return current.relative_to(root).as_posix()
+            except ValueError:
+                return raw
+    return None
+
+
 def _workspace_from_paths(
     root: Path, paths: dict[str, str], *, legacy: bool = False
 ) -> Workspace:
@@ -460,11 +478,26 @@ def resolve_workspace(root: Path) -> WorkspaceResolution:
                 "and agent intent is unknown"
             ),
         })
+    workspace = _workspace_from_paths(root, values, legacy=True)
+    linked_state = _legacy_link_component(root, values["state_dir"])
+    if linked_state is not None:
+        resolved_state = relative_path(root, workspace.state_dir)
+        notices.append({
+            "code": "legacy-linked-state-dir",
+            "message": (
+                f"pre-JSON linked state_dir compatibility is active: {linked_state!r} "
+                f"resolves inside the repository to {resolved_state!r}; start and "
+                "session-start may read that resolved target, but canonical JSON "
+                "rejects linked paths. Replace the link or change workspace.yaml to "
+                "the resolved repository-relative path, then preview and propose "
+                "migration"
+            ),
+        })
     return WorkspaceResolution(
         # Repositories without tracked configuration use the same historical
         # path semantics as workspace.yaml. Tight path rules begin only after
         # a canonical JSON configuration is explicitly adopted.
-        workspace=_workspace_from_paths(root, values, legacy=True),
+        workspace=workspace,
         config=None,
         source=source,
         agents=None,
@@ -4148,6 +4181,9 @@ def doctor(
                 notice["message"] for notice in workspace_resolution.notices
             )
         add("workspace-config", workspace_status, detail)
+        for notice in workspace_resolution.notices:
+            if notice["code"] == "legacy-linked-state-dir":
+                add("legacy-linked-state-dir", "warn", notice["message"])
     except ContextOSError as exc:
         add("workspace-config", "fail", str(exc))
         # Keep diagnostics total even when the default path itself is the
