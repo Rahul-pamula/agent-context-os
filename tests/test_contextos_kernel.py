@@ -22,6 +22,7 @@ from contextos.kernel import (
     create_agent_activation_proposal,
     create_proposal,
     create_workspace_migration_proposal,
+    create_workspace_setup_proposal,
     discover_root,
     doctor,
     git_head,
@@ -1581,6 +1582,128 @@ with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_tar
             with self.assertRaisesRegex(ContextOSError, "symlink or reparse point"):
                 hook_report(self.root, "session-start", {}, today=NOW.date())
 
+    def test_legacy_linked_state_readiness_is_compatible_and_diagnosed(self) -> None:
+        real_state = self.root / "real-state"
+        (self.root / "state").rename(real_state)
+        linked_state = self.root / "linked-state"
+        try:
+            make_directory_link(linked_state, real_state)
+        except OSError:
+            self.skipTest("directory link creation is unavailable")
+        (self.root / "workspace.yaml").write_text(
+            "state_dir: linked-state\n", encoding="utf-8"
+        )
+        before = {
+            path.relative_to(self.root).as_posix(): path.read_bytes()
+            for path in self.root.rglob("*")
+            if path.is_file()
+        }
+
+        report = start_report(self.root, NOW)
+        self.assertTrue(report["initialized"])
+        self.assertIn("real-state/current.md", report["state"])
+        self.assertFalse(any(
+            "not initialized" in finding["message"]
+            for finding in hook_report(
+                self.root, "session-start", {}, today=NOW.date()
+            )["findings"]
+        ))
+
+        checks = {item["name"]: item for item in doctor(self.root)["checks"]}
+        linked = checks["legacy-linked-state-dir"]
+        self.assertEqual("warn", linked["status"])
+        self.assertIn("linked-state", linked["detail"])
+        self.assertIn("real-state", linked["detail"])
+        self.assertIn("migration", linked["detail"])
+        self.assertEqual("pass", checks["initialization-state"]["status"])
+
+        with self.assertRaisesRegex(ContextOSError, "cannot be activated safely"):
+            create_workspace_migration_proposal(self.root, ("codex",), NOW)
+        with self.assertRaisesRegex(ContextOSError, "requires contextos.workspace.json"):
+            create_agent_activation_proposal(self.root, "codex", True, NOW)
+        after = {
+            path.relative_to(self.root).as_posix(): path.read_bytes()
+            for path in self.root.rglob("*")
+            if path.is_file()
+        }
+        self.assertEqual(before, after)
+        self.assertFalse((self.root / "contextos.workspace.json").exists())
+        self.assertFalse((self.root / ".context-os/proposals").exists())
+
+        (real_state / "current.md").write_text(
+            "# Current State\n\n**Last Updated:** [DATE]\n", encoding="utf-8"
+        )
+        self.assertFalse(start_report(self.root, NOW)["initialized"])
+        self.assertTrue(any(
+            "not initialized" in finding["message"]
+            for finding in hook_report(
+                self.root, "session-start", {}, today=NOW.date()
+            )["findings"]
+        ))
+
+        (self.root / "workspace.yaml").write_text(
+            "state_dir: real-state\n", encoding="utf-8"
+        )
+        direct_checks = {
+            item["name"]: item for item in doctor(self.root)["checks"]
+        }
+        self.assertNotIn("legacy-linked-state-dir", direct_checks)
+
+    def test_default_linked_state_uses_the_same_pre_json_diagnostic(self) -> None:
+        real_state = self.root / "real-state"
+        (self.root / "state").rename(real_state)
+        try:
+            make_directory_link(self.root / "state", real_state)
+        except OSError:
+            self.skipTest("directory link creation is unavailable")
+
+        report = start_report(self.root, NOW)
+        self.assertTrue(report["initialized"])
+        self.assertIn("real-state/current.md", report["state"])
+        self.assertFalse(any(
+            "not initialized" in finding["message"]
+            for finding in hook_report(
+                self.root, "session-start", {}, today=NOW.date()
+            )["findings"]
+        ))
+        checks = {item["name"]: item for item in doctor(self.root)["checks"]}
+        linked = checks["legacy-linked-state-dir"]
+        self.assertEqual("warn", linked["status"])
+        self.assertIn("'state'", linked["detail"])
+        self.assertIn("real-state", linked["detail"])
+        self.assertIn("migration", linked["detail"])
+        self.assertIn("run setup", linked["detail"])
+        self.assertNotIn("change workspace.yaml", linked["detail"])
+        with self.assertRaisesRegex(ContextOSError, "cannot be activated safely"):
+            create_workspace_setup_proposal(self.root, ("codex",), NOW)
+        self.assertFalse((self.root / "contextos.workspace.json").exists())
+        self.assertFalse((self.root / ".context-os/proposals").exists())
+
+    def test_legacy_linked_state_still_rejects_linked_readiness_descendant(self) -> None:
+        real_state = self.root / "real-state"
+        (self.root / "state").rename(real_state)
+        linked_state = self.root / "linked-state"
+        try:
+            make_directory_link(linked_state, real_state)
+        except OSError:
+            self.skipTest("directory link creation is unavailable")
+        (self.root / "workspace.yaml").write_text(
+            "state_dir: linked-state\n", encoding="utf-8"
+        )
+        current = real_state / "current.md"
+        real_current = real_state / "real-current.md"
+        current.rename(real_current)
+        try:
+            current.symlink_to(real_current)
+        except OSError:
+            real_current.rename(current)
+            self.skipTest("file symlink creation is unavailable")
+
+        with self.assertRaisesRegex(ContextOSError, "symlink or reparse point"):
+            start_report(self.root, NOW)
+        with self.assertRaisesRegex(ContextOSError, "symlink or reparse point"):
+            hook_report(self.root, "session-start", {}, today=NOW.date())
+
     def test_readiness_snapshot_rejects_link_swap_after_guard(self) -> None:
         with tempfile.TemporaryDirectory() as external:
             outside = Path(external) / "outside-current.md"
@@ -2327,10 +2450,14 @@ with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_tar
             (self.root / "state").rename(outside)
             state = self.root / "state"
             try:
-                state.symlink_to(outside, target_is_directory=True)
+                make_directory_link(state, outside)
             except OSError:
                 outside.rename(state)
-                self.skipTest("directory symlink creation is unavailable")
+                self.skipTest("directory link creation is unavailable")
+            with self.assertRaisesRegex(ContextOSError, "escapes the repository root"):
+                start_report(self.root, NOW)
+            with self.assertRaisesRegex(ContextOSError, "escapes the repository root"):
+                hook_report(self.root, "session-start", {}, today=NOW.date())
             report = doctor(self.root)
         self.assertEqual("fail", report["status"])
         self.assertEqual("invalid", report["scope"])

@@ -143,13 +143,18 @@ v0.12 preserves the explicitly tested pre-JSON behavior for an internal linked
 readiness may read the resolved internal target, and update/end proposal/apply
 uses that resolved internal path rather than the link spelling. Migration and
 activation continue to reject the link. This is a compatibility exception, not
-part of the canonical no-follow guarantee.
+part of the canonical no-follow guarantee. Readiness files beneath the resolved
+target remain no-follow in every mode; the exception covers only the pre-JSON
+`state_dir` indirection for readiness and never a linked `current.md` or other
+descendant. Other legacy path fields retain their historical resolution
+semantics outside this readiness guarantee.
 
-`doctor` must identify the linked pre-JSON path, scope the exception, and direct
-the owner to migrate. Canonical JSON workspaces continue to reject linked or
+`doctor` identifies the link spelling and resolved internal target, scopes the
+exception, and directs the owner to replace or retarget the link before
+migration. Canonical JSON workspaces continue to reject linked or
 reparse-point state paths for `start`, hooks, and diagnostics. A future
 distinct-root mode requires canonical tracked configuration and does not inherit
-the exception. Issue #112 owns the diagnostic and control work.
+the exception.
 
 ## Future attachment binding
 

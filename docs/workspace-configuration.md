@@ -54,11 +54,11 @@ mode. The transaction-backed migration path can create the root JSON and record
 choices explicitly rather than inferring from installed binaries; setup-time
 selection and adapter composition remain separate work.
 
-Paths use canonical POSIX repository-relative syntax on every platform. Drives,
-UNC and absolute paths, backslashes, dot segments, Windows device aliases,
-`.git`, `.context-os`, and symlink traversal fail closed. The current defaults
-remain `state`, `sessions`, and `TODO.md`; migration does not silently move the
-task file to `state/tasks.md`.
+Canonical JSON paths use POSIX repository-relative syntax on every platform.
+Drives, UNC and absolute paths, backslashes, dot segments, Windows device
+aliases, `.git`, `.context-os`, and symlink traversal fail closed. The current
+defaults remain `state`, `sessions`, and `TODO.md`; migration does not silently
+move the task file to `state/tasks.md`.
 
 Path syntax validity is not write authorization. Update/end proposal
 publication, apply, and recovery also reject configured state/session targets
@@ -85,6 +85,17 @@ meaning differs across operating systems; replace them with POSIX `/` first.
 Duplicate keys, empty values, nested structures, anchors, block scalars,
 unknown keys, and unsafe paths block a supposedly lossless preview instead of
 being silently dropped.
+
+Pre-JSON readiness preserves one narrower host-compatibility exception: an
+internal linked `state_dir` is resolved inside the repository, so `start` and
+the session-start hook read the resolved target. `doctor` reports the link and
+resolved target as a warning with migration guidance. Migration remains blocked
+until the link is replaced or `workspace.yaml` names the resolved
+repository-relative directory directly; activation remains blocked until that
+canonical JSON migration is applied. Canonical JSON does not inherit this
+exception and rejects linked or reparse-point configured paths. Readiness files
+beneath the resolved pre-JSON target remain no-follow; a linked `current.md` or
+other descendant is rejected in every mode.
 
 Inspect effective state:
 
