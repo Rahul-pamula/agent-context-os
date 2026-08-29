@@ -87,7 +87,8 @@ digest-confirmed `apply`; disabling never deletes the bundled adapter.
 ### Start from your answers
 
 Launch repository-discovery hosts from the repository root. In v0.12 that root
-is intentionally the colocated KernelRoot, ContextRoot, and WorkingRoot.
+is the colocated KernelRoot, ContextRoot, and nominal WorkingRoot for this
+full-template wrapper path.
 Operating in a separate application repository is not yet a supported lifecycle
 path; see the [root contract](root-contract.md). OpenClaw is the exception only
 for process location: its external plugin resolves an operator-configured alias

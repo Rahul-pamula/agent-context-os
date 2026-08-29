@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
@@ -18,9 +19,12 @@ from contextos.kernel import (
     _publish_exclusive,
     _recover_pending_agent_journals,
     apply_proposal,
+    create_agent_activation_proposal,
     create_proposal,
+    create_workspace_migration_proposal,
     discover_root,
     doctor,
+    git_head,
     hook_report,
     install_runtime,
     migrate_legacy_runtime_state,
@@ -31,6 +35,7 @@ from contextos.kernel import (
     sha256_text,
     start_report,
 )
+from contextos.cli import main as cli_main
 from contextos.component_schema import load_component_manifest, resolved_component_paths
 from contextos.workspace_schema import render_workspace_config
 
@@ -97,12 +102,95 @@ class RootDiscoveryTest(unittest.TestCase):
         marker.write_text(content or root_config(), encoding="utf-8")
         return marker
 
-    def test_json_marker_supports_minimal_core_only_workspace(self) -> None:
+    def test_json_marker_supports_minimal_marker_only_workspace(self) -> None:
         self.write_json(self.root)
         child = self.root / "uncreated-state-parent"
         child.mkdir()
         self.assertEqual(self.root, discover_root(child))
         self.assertEqual(self.root, discover_root(self.root / "contextos.workspace.json"))
+
+    def test_marker_only_surface_is_read_propose_and_diagnose_until_composed(self) -> None:
+        marker = self.write_json(self.root)
+
+        self.assertEqual(marker.parent, discover_root(self.root))
+        self.assertIsNone(start_report(self.root, NOW)["git_head"])
+        self.assertTrue(
+            hook_report(self.root, "session-start", {}, today=NOW.date())["findings"]
+        )
+        checks = {check["name"]: check for check in doctor(self.root)["checks"]}
+        self.assertEqual("fail", checks["component-inventory"]["status"])
+
+        proposal_path, proposal = create_proposal(
+            self.root, "update", {"progress": ["Marker-only proposal"]}, NOW
+        )
+        self.assertTrue(proposal_path.is_relative_to(self.root / ".context-os/proposals"))
+        def snapshot() -> dict[str, bytes]:
+            return {
+                path.relative_to(self.root).as_posix(): path.read_bytes()
+                for path in self.root.rglob("*")
+                if path.is_file()
+            }
+        target = self.root / "sessions/2026-08-23.md"
+        before = snapshot()
+        with self.assertRaisesRegex(ContextOSError, "generic runtime is reserved"):
+            apply_proposal(
+                self.root,
+                proposal_path,
+                proposal["proposal_digest"],
+                "generic",
+            )
+        self.assertEqual(before, snapshot())
+        with self.assertRaisesRegex(ContextOSError, "missing runtime manifest"):
+            apply_proposal(
+                self.root,
+                proposal_path,
+                proposal["proposal_digest"],
+                "codex",
+            )
+        self.assertEqual(before, snapshot())
+        with self.assertRaisesRegex(ContextOSError, "missing runtime manifest"):
+            create_agent_activation_proposal(self.root, "codex", True, NOW)
+        with self.assertRaisesRegex(ContextOSError, "missing runtime manifest"):
+            install_runtime(self.root, "codex")
+        hook_output = io.StringIO()
+        with mock.patch("sys.stdin", new=io.StringIO("{}")), mock.patch(
+            "sys.stdout", new=hook_output
+        ):
+            self.assertEqual(
+                0,
+                cli_main([
+                    "--root", str(self.root), "hook", "session-start",
+                    "--runtime", "codex",
+                ]),
+            )
+        self.assertEqual("", hook_output.getvalue())
+        self.assertEqual(before, snapshot())
+        marker.write_text(root_config(canonical=False), encoding="utf-8")
+        before_repair = snapshot()
+        with self.assertRaisesRegex(ContextOSError, "invalid component manifest"):
+            create_workspace_migration_proposal(self.root, (), NOW)
+        self.assertEqual(before_repair, snapshot())
+
+        (self.root / "components").mkdir()
+        (self.root / "components/manifest.json").write_text(
+            json.dumps({
+                "schema_version": 1,
+                "extensible_paths": [],
+                "extensible_roots": [],
+                "components": [{
+                    "id": "other",
+                    "description": "Valid fixture without the required core component.",
+                    "depends_on": [],
+                    "paths": [{"path": "other.txt", "policy": "managed"}],
+                }],
+            }) + "\n",
+            encoding="utf-8",
+        )
+        before_closure = snapshot()
+        with self.assertRaisesRegex(ContextOSError, "unknown components: core"):
+            create_workspace_migration_proposal(self.root, (), NOW)
+        self.assertEqual(before_closure, snapshot())
+        self.assertFalse(target.exists())
 
     def test_valid_noncanonical_json_is_still_a_root(self) -> None:
         self.write_json(self.root, root_config(canonical=False))
@@ -162,6 +250,189 @@ class RootDiscoveryTest(unittest.TestCase):
         nested.mkdir()
         self.write_json(nested)
         self.assertEqual(nested, discover_root(nested))
+
+    def test_nested_context_root_reports_enclosing_git_evidence(self) -> None:
+        subprocess.run(["git", "init", "--quiet"], cwd=self.root, check=True)
+        tracked = self.root / "outer.txt"
+        tracked.write_text("outer repository\n", encoding="utf-8")
+        subprocess.run(["git", "add", "outer.txt"], cwd=self.root, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Context OS Tests",
+                "-c",
+                "user.email=context-os-tests@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            cwd=self.root,
+            check=True,
+        )
+        expected = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        nested = self.root / "nested-context"
+        nested.mkdir()
+        self.write_json(nested)
+
+        self.assertEqual(nested, discover_root(nested))
+        self.assertEqual(expected, start_report(nested, NOW)["git_head"])
+
+        outer_before = tracked.read_bytes()
+        (nested / "sessions").mkdir()
+        (nested / "runtimes").mkdir()
+        (nested / "components").mkdir()
+        shutil.copyfile(ROOT / "runtimes/codex.json", nested / "runtimes/codex.json")
+        shutil.copyfile(
+            ROOT / "components/manifest.json", nested / "components/manifest.json"
+        )
+        proposal_path, proposal = create_proposal(
+            nested, "update", {"progress": ["Nested context"]}, NOW
+        )
+        receipt_path, receipt = apply_proposal(
+            nested, proposal_path, proposal["proposal_digest"], "codex"
+        )
+        self.assertEqual(outer_before, tracked.read_bytes())
+        self.assertTrue(receipt_path.is_relative_to(nested / ".context-os/receipts"))
+        self.assertEqual(expected, receipt["git_head_before"])
+        self.assertEqual(expected, receipt["git_head_after"])
+
+        subprocess.run(["git", "init", "--quiet"], cwd=nested, check=True)
+        self.assertIsNone(start_report(nested, NOW)["git_head"])
+        subprocess.run(
+            ["git", "add", "contextos.workspace.json"], cwd=nested, check=True
+        )
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Context OS Tests",
+                "-c",
+                "user.email=context-os-tests@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "nested fixture",
+            ],
+            cwd=nested,
+            check=True,
+        )
+        nested_expected = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=nested,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        self.assertNotEqual(expected, nested_expected)
+        self.assertEqual(nested_expected, start_report(nested, NOW)["git_head"])
+
+    def test_enclosing_git_evidence_tracks_head_not_uncommitted_bytes(self) -> None:
+        subprocess.run(["git", "init", "--quiet"], cwd=self.root, check=True)
+        outer = self.root / "outer.txt"
+        outer.write_text("outer repository\n", encoding="utf-8")
+        subprocess.run(["git", "add", "outer.txt"], cwd=self.root, check=True)
+        subprocess.run(
+            [
+                "git", "-c", "user.name=Context OS Tests",
+                "-c", "user.email=context-os-tests@example.invalid",
+                "commit", "--quiet", "-m", "fixture",
+            ],
+            cwd=self.root,
+            check=True,
+        )
+
+        nested = self.root / "nested-context"
+        nested.mkdir()
+        self.write_json(nested)
+        for relative in (
+            "components/manifest.json",
+            "runtimes/codex.json",
+            "runtimes/schema.json",
+            "workspace/schema.json",
+        ):
+            target = nested / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / relative, target)
+
+        enable_path, enable = create_agent_activation_proposal(
+            nested, "codex", True, NOW
+        )
+        self.assertIsNotNone(enable_path)
+        self.assertIsNotNone(enable)
+        assert enable_path is not None and enable is not None
+        outer.write_text("uncommitted outer change\n", encoding="utf-8")
+        self.assertEqual(enable["source_git_head"], git_head(nested))
+        apply_proposal(nested, enable_path, enable["proposal_digest"], "generic")
+        configured = json.loads(
+            (nested / "contextos.workspace.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(["codex"], configured["agents"])
+        outer.write_text("outer repository\n", encoding="utf-8")
+
+        proposal_path, proposal = create_agent_activation_proposal(
+            nested, "codex", False, NOW.replace(second=1)
+        )
+        self.assertIsNotNone(proposal_path)
+        self.assertIsNotNone(proposal)
+        assert proposal_path is not None and proposal is not None
+        config_before = (nested / "contextos.workspace.json").read_bytes()
+
+        new_outer = self.root / "new-head.txt"
+        new_outer.write_text("new enclosing commit\n", encoding="utf-8")
+        subprocess.run(["git", "add", "new-head.txt"], cwd=self.root, check=True)
+        subprocess.run(
+            [
+                "git", "-c", "user.name=Context OS Tests",
+                "-c", "user.email=context-os-tests@example.invalid",
+                "commit", "--quiet", "-m", "advance enclosing head",
+            ],
+            cwd=self.root,
+            check=True,
+        )
+        outer_before_apply = outer.read_bytes()
+        new_outer_before_apply = new_outer.read_bytes()
+        self.assertNotEqual(proposal["source_git_head"], git_head(nested))
+
+        with self.assertRaisesRegex(ContextOSError, "git HEAD changed"):
+            apply_proposal(
+                nested,
+                proposal_path,
+                proposal["proposal_digest"],
+                "generic",
+            )
+
+        self.assertEqual(config_before, (nested / "contextos.workspace.json").read_bytes())
+        self.assertEqual(outer_before_apply, outer.read_bytes())
+        self.assertEqual(new_outer_before_apply, new_outer.read_bytes())
+        self.assertFalse((nested / ".context-os/receipts" / proposal_path.name).exists())
+
+    def test_missing_git_repository_reports_no_commit_evidence(self) -> None:
+        absent = self.root / "absent"
+        absent.mkdir()
+        self.assertIsNone(git_head(absent))
+
+        invalid = self.root / "invalid"
+        invalid.mkdir()
+        (invalid / ".git").write_text("gitdir: missing\n", encoding="utf-8")
+        self.assertIsNone(git_head(invalid))
+
+        unavailable = self.root / "unavailable"
+        unavailable.mkdir()
+        (unavailable / ".git").mkdir()
+        with mock.patch(
+            "contextos.primitives.subprocess.run",
+            side_effect=FileNotFoundError("git is unavailable"),
+        ):
+            self.assertIsNone(git_head(unavailable))
 
     def test_invalid_inner_json_never_falls_back_to_legacy_or_outer_root(self) -> None:
         self.write_json(self.root)
@@ -1091,6 +1362,16 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
             self._propose("setup", {"files": {"../outside.md": "no"}})
         with self.assertRaisesRegex(ContextOSError, "approved context paths"):
             self._propose("setup", {"files": {"scripts/unsafe.py": "no"}})
+
+    def test_setup_allows_portable_skill_prefix_through_propose_and_apply(self) -> None:
+        target = self.root / ".agents/skills/custom/SKILL.md"
+        proposal_path, proposal = self._propose(
+            "setup", {"files": {".agents/skills/custom/SKILL.md": "# Custom\n"}}
+        )
+
+        self._apply(proposal_path, proposal)
+
+        self.assertEqual("# Custom\n", target.read_text(encoding="utf-8"))
 
     def test_apply_revalidates_workflow_paths_for_handcrafted_proposal(self) -> None:
         proposal_path, proposal = self._propose("update", {"progress": ["One"]})

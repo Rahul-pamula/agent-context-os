@@ -62,9 +62,17 @@ class DocumentationPositioningTests(unittest.TestCase):
         for role in ("KernelRoot", "ContextRoot", "WorkingRoot"):
             self.assertIn(role, contract)
         self.assertIn(
-            "KernelRoot == ContextRoot == WorkingRoot == canonical discovered root",
+            "ContextRoot == nominal WorkingRoot == canonical discovered root",
             contract,
         )
+        self.assertIn("KernelRoot == ContextRoot", contract)
+        self.assertIn("GitEvidenceScope", contract)
+        self.assertIn("marker-only", contract)
+        self.assertIn("`generic` execution is reserved", contract)
+        self.assertIn("Git cannot", contract)
+        self.assertIn("`bundle propose` without current", contract)
+        self.assertIn("`template.source`", contract)
+        self.assertIn("`bundle compose` command is not the marker-only path", contract)
         self.assertIn("The only mutation authority", contract)
         self.assertIn("not a supported v0.12 lifecycle path", contract)
         self.assertIn("no tracked pointer", contract)
@@ -73,12 +81,20 @@ class DocumentationPositioningTests(unittest.TestCase):
         self.assertIn("enclosing Git worktree", contract)
         self.assertIn("deliberate exception", contract)
         self.assertIn("discovery start", contextos_parser().format_help())
+        self.assertIn(
+            "archive a complete copy",
+            self.text("docs/workspace-configuration.md").casefold(),
+        )
+        workspace_contract = self.text("docs/workspace-configuration.md")
+        self.assertIn("marker-only root is not the same as a core-only profile", workspace_contract)
+        self.assertIn("`bundle propose` without current-bundle inputs", workspace_contract)
         for root in SETUP_ROOTS:
-            self.assertIn(f"`{root}", contract)
+            self.assertIn(f"`{root}/`", contract)
         for filename in SETUP_FILES:
             self.assertIn(f"`{filename}`", contract)
         self.assertEqual((".agents", "skills"), SETUP_SKILL_PREFIX)
-        self.assertIn("`.agents/skills/`", contract)
+        setup_skill_root = "/".join(SETUP_SKILL_PREFIX) + "/"
+        self.assertIn(f"`{setup_skill_root}`", contract)
         expected_product_roots = {
             ".agents", ".claude", ".codex", ".cursor", ".github",
             "adapters", "bundles", "components", "contextos", "integrations",

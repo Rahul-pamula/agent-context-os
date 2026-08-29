@@ -1475,7 +1475,9 @@ class AgentLifecycleTransactionTest(unittest.TestCase):
                     {"progress": [f"Mode pass {index}"]},
                     NOW,
                 )
-                receipt, _ = self.apply(path, proposal)
+                receipt, _ = apply_proposal(
+                    self.root, path, proposal["proposal_digest"], "codex"
+                )
                 self.assertIn(
                     "sessions/2026-08-25.md",
                     [change["path"] for change in proposal["changes"]],

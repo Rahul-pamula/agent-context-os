@@ -5,9 +5,13 @@ runtimes. It does not claim identical command syntax, hook timing, permission
 models, tool names, or native memory.
 
 The [root contract](root-contract.md) defines product assets (`KernelRoot`),
-durable lifecycle state (`ContextRoot`), and the active application repository
-(`WorkingRoot`). v0.12 deliberately supports their colocated compatibility mode;
-external project attachment requires a later versioned binding contract.
+durable lifecycle state (`ContextRoot`), and the nominal application working
+directory (`WorkingRoot`). v0.12 colocates them on its normal full-template
+wrapper path. A marker-only root may use already-loaded code for discovery,
+reports, diagnosis, direct provider-neutral hooks, and proposal publication,
+but named runtime execution and mutation require the colocated trusted product
+closure. Verified detached-bundle materialization is the separate bootstrap boundary.
+External project attachment requires a later versioned binding contract.
 
 ## Layers
 

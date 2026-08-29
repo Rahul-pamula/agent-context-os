@@ -16,7 +16,8 @@ location, or any parent or ancestor discovered by searching upward. If the
 host-supplied directory is unavailable or either marker is absent, stop and
 report the problem without creating a payload or running the kernel.
 
-Under v0.12 this is the colocated `KernelRoot`, `ContextRoot`, and `WorkingRoot`.
+Under the v0.12 full-template wrapper path this is the colocated `KernelRoot`,
+`ContextRoot`, and nominal `WorkingRoot`.
 A separate application repository is not a supported lifecycle execution root.
 
 Anchor every repository read and write under that exact root. Run
@@ -30,7 +31,8 @@ Resume from durable repository state instead of reconstructing context from chat
 
 1. Run `bash scripts/contextos.sh start` from the repository root. Treat its JSON as
    the deterministic inventory of configured paths, freshness, latest session,
-   and repository revision. If the kernel is unavailable, stop and recommend
+   and Git commit evidence from the documented `GitEvidenceScope`, which may
+   enclose the ContextRoot. If the kernel is unavailable, stop and recommend
    `bash scripts/contextos.sh doctor`; do not silently substitute another lifecycle
    implementation.
 2. Determine today's local date and day of week. Read `ROUTING.md`, then load:
