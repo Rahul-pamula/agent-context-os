@@ -54,9 +54,10 @@ authority outside ContextRoot.
 
 `GitEvidenceScope` is a documentation-only evidence source, not a fourth
 authority root or a v0.12 path/identity field. It is the nearest valid containing
-Git worktree, when one exists, used only for existing commit evidence; it is
-absent when no valid containing Git worktree with an existing commit resolves.
-It normally equals the discovered root, but an intentionally nested ContextRoot
+Git worktree, when one exists, used only for existing commit evidence. It is
+absent when the nearest valid containing worktree has no existing commit, or
+when none exists; evidence never falls outward past a nearer worktree. It
+normally equals the discovered root, but an intentionally nested ContextRoot
 makes it an ancestor of the nominal WorkingRoot. That compatibility case does
 not authorize lifecycle mutation outside ContextRoot.
 
@@ -78,8 +79,8 @@ this upward-search compatibility behavior.
 Consequences that must be stated rather than inferred:
 
 - `start.git_head`, proposal `source_git_head`, and receipt Git evidence all
-  describe `GitEvidenceScope`, the Git repository containing the discovered
-  root. A legacy or non-top-level ContextRoot may therefore report an enclosing
+  describe `GitEvidenceScope`, the nearest containing Git worktree. A legacy or
+  non-top-level ContextRoot may therefore report an enclosing
   Git worktree's HEAD; the nominal WorkingRoot remains the discovered path and
   v0.12 exposes neither the evidence-scope path nor a second mutation authority.
   A new enclosing HEAD therefore invalidates proposal commit evidence even when

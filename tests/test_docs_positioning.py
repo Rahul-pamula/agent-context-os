@@ -80,11 +80,12 @@ class DocumentationPositioningTests(unittest.TestCase):
             self.text("docs/workspace-configuration.md").casefold(),
         )
         for root in SETUP_ROOTS:
-            self.assertIn(f"`{root}", contract)
+            self.assertIn(f"`{root}/`", contract)
         for filename in SETUP_FILES:
             self.assertIn(f"`{filename}`", contract)
         self.assertEqual((".agents", "skills"), SETUP_SKILL_PREFIX)
-        self.assertIn("`.agents/skills/`", contract)
+        setup_skill_root = "/".join(SETUP_SKILL_PREFIX) + "/"
+        self.assertIn(f"`{setup_skill_root}`", contract)
         expected_product_roots = {
             ".agents", ".claude", ".codex", ".cursor", ".github",
             "adapters", "bundles", "components", "contextos", "integrations",

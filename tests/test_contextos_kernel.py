@@ -21,6 +21,7 @@ from contextos.kernel import (
     create_proposal,
     discover_root,
     doctor,
+    git_head,
     hook_report,
     install_runtime,
     migrate_legacy_runtime_state,
@@ -32,6 +33,7 @@ from contextos.kernel import (
     start_report,
 )
 from contextos.component_schema import load_component_manifest, resolved_component_paths
+from contextos.primitives import SnapshotError
 from contextos.workspace_schema import render_workspace_config
 
 
@@ -246,6 +248,13 @@ class RootDiscoveryTest(unittest.TestCase):
 
         self.assertNotEqual(expected, nested_expected)
         self.assertEqual(nested_expected, start_report(nested, NOW)["git_head"])
+
+    def test_missing_git_repository_reports_no_commit_evidence(self) -> None:
+        with mock.patch(
+            "contextos.kernel.git_repository_identity",
+            side_effect=SnapshotError("cannot find a containing local Git repository"),
+        ):
+            self.assertIsNone(git_head(self.root))
 
     def test_invalid_inner_json_never_falls_back_to_legacy_or_outer_root(self) -> None:
         self.write_json(self.root)
