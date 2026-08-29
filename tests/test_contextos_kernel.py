@@ -1527,6 +1527,77 @@ with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_tar
         )
         self.assertEqual("pass", initialization["status"])
 
+    @unittest.skipIf(os.name == "nt", "POSIX symlink-root regression")
+    def test_direct_reports_and_cli_normalize_a_symlinked_root(self) -> None:
+        canonical_report = start_report(self.root.resolve(), NOW)
+        canonical_hook = hook_report(
+            self.root.resolve(), "session-start", {}, today=NOW.date()
+        )
+        with tempfile.TemporaryDirectory() as external:
+            linked_root = Path(external) / "linked-root"
+            try:
+                linked_root.symlink_to(self.root.resolve(), target_is_directory=True)
+            except OSError:
+                self.skipTest("directory symlink creation is unavailable")
+
+            self.assertEqual(canonical_report, start_report(linked_root, NOW))
+            self.assertEqual(
+                canonical_hook,
+                hook_report(
+                    linked_root, "session-start", {}, today=NOW.date()
+                ),
+            )
+
+            output = io.StringIO()
+            with mock.patch("sys.stdout", new=output):
+                self.assertEqual(
+                    0,
+                    cli_main([
+                        "--root",
+                        str(linked_root),
+                        "start",
+                        "--now",
+                        NOW.isoformat(),
+                    ]),
+                )
+            self.assertEqual(canonical_report, json.loads(output.getvalue()))
+
+            (self.root / "state/current.md").write_text(
+                "# Current State\n\n**Last Updated:** [DATE]\n", encoding="utf-8"
+            )
+            canonical_advisory = hook_report(
+                self.root.resolve(), "session-start", {}, today=NOW.date()
+            )
+            self.assertEqual(
+                canonical_advisory,
+                hook_report(
+                    linked_root, "session-start", {}, today=NOW.date()
+                ),
+            )
+            self.assertTrue(any(
+                "not initialized" in finding["message"]
+                for finding in canonical_advisory["findings"]
+            ))
+
+            hook_output = io.StringIO()
+            with mock.patch("sys.stdin", new=io.StringIO("{}")), mock.patch(
+                "sys.stdout", new=hook_output
+            ):
+                self.assertEqual(
+                    0,
+                    cli_main([
+                        "--root",
+                        str(linked_root),
+                        "hook",
+                        "session-start",
+                        "--runtime",
+                        "codex",
+                    ]),
+                )
+            rendered_hook = json.loads(hook_output.getvalue())
+            self.assertIn("not initialized", rendered_hook["systemMessage"])
+            self.assertNotIn("could not run", rendered_hook["systemMessage"])
+
     def test_future_dated_state_is_not_treated_as_initialized(self) -> None:
         (self.root / "state/current.md").write_text(
             "# Current State\n\n**Last Updated:** 2099-01-01\n",
@@ -1749,6 +1820,62 @@ with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_tar
         )
         self.assertEqual("warn", initialization["status"])
         self.assertEqual("warn", freshness["status"])
+
+    def test_doctor_degrades_post_label_state_swap_to_unknown(self) -> None:
+        original = __import__(
+            "contextos.kernel", fromlist=["_initialization_state"]
+        )._initialization_state
+        state = self.root / "state"
+        swapped = False
+
+        with tempfile.TemporaryDirectory() as external:
+            outside = Path(external) / "outside-state"
+
+            def swap_before_snapshot(
+                workspace,
+                today: date,
+                *,
+                tolerate_unsafe: bool = False,
+            ):
+                nonlocal swapped
+                if not swapped:
+                    state.rename(outside)
+                    try:
+                        make_directory_link(state, outside)
+                    except OSError:
+                        outside.rename(state)
+                        self.skipTest("directory link creation is unavailable")
+                    swapped = True
+                return original(
+                    workspace, today, tolerate_unsafe=tolerate_unsafe
+                )
+
+            try:
+                with mock.patch(
+                    "contextos.kernel._initialization_state",
+                    side_effect=swap_before_snapshot,
+                ), mock.patch(
+                    "contextos.kernel._state_freshness",
+                    side_effect=AssertionError("replacement state must not be read"),
+                ):
+                    report = doctor(self.root, today=NOW.date())
+            finally:
+                if swapped:
+                    state.rmdir() if os.name == "nt" else state.unlink()
+                    outside.rename(state)
+
+        initialization = next(
+            item for item in report["checks"] if item["name"] == "initialization-state"
+        )
+        freshness = next(
+            item for item in report["checks"] if item["name"] == "state-freshness"
+        )
+        self.assertEqual("warn", initialization["status"])
+        self.assertIn("unknown", initialization["detail"])
+        self.assertIn("state changed during diagnosis", initialization["detail"])
+        self.assertEqual("warn", freshness["status"])
+        self.assertIn("unknown", freshness["detail"])
+        self.assertNotEqual("pass", report["status"])
 
     def test_shipped_state_templates_retain_date_placeholders(self) -> None:
         for filename in ("current.md", "weekly-priorities.md", "blockers.md"):

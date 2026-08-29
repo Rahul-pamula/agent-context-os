@@ -3860,6 +3860,7 @@ def _initialization_next_action(
 
 
 def start_report(root: Path, now: datetime) -> dict[str, Any]:
+    root = root.resolve()
     workspace = load_workspace(root)
     initialized, files = _initialization_state(workspace, now.date())
     sessions = sorted(workspace.sessions_dir.glob("????-??-??.md"), reverse=True) if workspace.sessions_dir.exists() else []
@@ -4256,48 +4257,70 @@ def doctor(
             "cannot inspect unsafe state path(s): " + ", ".join(unsafe_freshness),
         )
     else:
-        initialized, initialization_files = _initialization_state(
-            workspace, effective_today, tolerate_unsafe=True
-        )
-        add(
-            "initialization-state",
-            "pass" if initialized else "warn",
-            "ready"
-            if initialized
-            else (
-                f"recovery required; {gate} carries a future **Last Updated:** date; "
-                + _initialization_next_action(workspace, initialization_files)
-                if initialization_files[gate]["freshness_status"] == "future"
-                else f"guided setup required; {gate} carries no real **Last Updated:** date"
-            ),
-        )
-        future = [
-            path
-            for path, item in initialization_files.items()
-            if item["freshness_status"] == "future"
-        ]
-        unusable = [
-            path
-            for path, item in initialization_files.items()
-            if item["freshness_status"] in {"missing", "unknown"}
-        ]
-        unresolved = future + unusable
-        freshness_details = []
-        if future:
-            freshness_details.append(
-                "future **Last Updated:** date in: " + ", ".join(future)
+        try:
+            initialized, initialization_files = _initialization_state(
+                workspace, effective_today, tolerate_unsafe=True
             )
-        if unusable:
-            freshness_details.append(
-                "no usable **Last Updated:** date in: " + ", ".join(unusable)
+            initialization_detail = (
+                "ready"
+                if initialized
+                else (
+                    f"recovery required; {gate} carries a future **Last Updated:** "
+                    "date; "
+                    + FUTURE_DATE_NEXT_ACTION
+                    if initialization_files[gate]["freshness_status"] == "future"
+                    else (
+                        f"guided setup required; {gate} carries no real "
+                        "**Last Updated:** date"
+                    )
+                )
             )
-        add(
-            "state-freshness",
-            "pass" if not unresolved else "warn",
-            "all tracked state files carry a real date"
-            if not unresolved
-            else "; ".join(freshness_details),
-        )
+        except ContextOSError as exc:
+            add(
+                "initialization-state",
+                "warn",
+                f"initialization state is unknown because state changed during "
+                f"diagnosis: {exc}",
+            )
+            add(
+                "state-freshness",
+                "warn",
+                f"state freshness is unknown because state changed during "
+                f"diagnosis: {exc}",
+            )
+        else:
+            add(
+                "initialization-state",
+                "pass" if initialized else "warn",
+                initialization_detail,
+            )
+            future = [
+                path
+                for path, item in initialization_files.items()
+                if item["freshness_status"] == "future"
+            ]
+            unusable = [
+                path
+                for path, item in initialization_files.items()
+                if item["freshness_status"] in {"missing", "unknown"}
+            ]
+            unresolved = future + unusable
+            freshness_details = []
+            if future:
+                freshness_details.append(
+                    "future **Last Updated:** date in: " + ", ".join(future)
+                )
+            if unusable:
+                freshness_details.append(
+                    "no usable **Last Updated:** date in: " + ", ".join(unusable)
+                )
+            add(
+                "state-freshness",
+                "pass" if not unresolved else "warn",
+                "all tracked state files carry a real date"
+                if not unresolved
+                else "; ".join(freshness_details),
+            )
 
     local_hosts = {"schema_version": HOST_STATE_SCHEMA_VERSION, "hosts": {}}
     local_hosts_valid = False
@@ -4980,6 +5003,7 @@ def hook_report(
     *,
     today: date | None = None,
 ) -> dict[str, Any]:
+    root = root.resolve()
     findings: list[dict[str, str]] = []
     workspace = load_workspace(root)
     if event == "session-start":
