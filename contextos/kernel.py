@@ -680,9 +680,14 @@ def _agent_lifecycle_authorization(
     _reject_config_aliases(root, relative)
     safe_repo_path(root, relative)
     component_path = safe_repo_path(root, "components/manifest.json")
-    manifest = load_component_manifest(
-        component_path, root=root, check_paths=False
-    )
+    try:
+        manifest = load_component_manifest(
+            component_path, root=root, check_paths=False
+        )
+    except (ComponentManifestError, OSError, UnicodeError) as exc:
+        raise ContextOSError(
+            f"invalid component manifest: {component_path} ({exc})"
+        ) from exc
     declared_owner = workspace_path_owner(manifest, relative)
     if declared_owner != expected[relative]["owner"]:
         raise ContextOSError(

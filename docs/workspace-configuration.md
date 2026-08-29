@@ -288,7 +288,10 @@ the profile and remains fully supported in a materialized full-template
 workspace. Marker-only describes a bootstrap root that lacks product
 descriptors: it supports discovery, reports, diagnosis, direct provider-neutral
 hooks, and proposal publication, while apply and agent/runtime configuration
-fail until verified composition installs the product closure.
+fail until verified detached-bundle materialization installs the product
+closure. The marker's `template.source` and `template.version` must exactly
+match the candidate bundle. Use `bundle propose` without current-bundle inputs;
+`bundle compose` is only for a clean target where the marker does not exist.
 
 Existing clones remain discoverable through the legacy compound marker:
 `AGENTS.md` plus either a `state/` directory or `workspace.yaml`. Discovery

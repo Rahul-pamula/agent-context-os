@@ -10,7 +10,7 @@ directory (`WorkingRoot`). v0.12 colocates them on its normal full-template
 wrapper path. A marker-only root may use already-loaded code for discovery,
 reports, diagnosis, direct provider-neutral hooks, and proposal publication,
 but named runtime execution and mutation require the colocated trusted product
-closure. Verified bundle composition is the separate bootstrap boundary.
+closure. Verified detached-bundle materialization is the separate bootstrap boundary.
 External project attachment requires a later versioned binding contract.
 
 ## Layers

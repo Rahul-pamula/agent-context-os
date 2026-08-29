@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
@@ -20,6 +21,7 @@ from contextos.kernel import (
     apply_proposal,
     create_agent_activation_proposal,
     create_proposal,
+    create_workspace_migration_proposal,
     discover_root,
     doctor,
     git_head,
@@ -33,8 +35,8 @@ from contextos.kernel import (
     sha256_text,
     start_report,
 )
+from contextos.cli import main as cli_main
 from contextos.component_schema import load_component_manifest, resolved_component_paths
-from contextos.primitives import SnapshotError
 from contextos.workspace_schema import render_workspace_config
 
 
@@ -150,7 +152,20 @@ class RootDiscoveryTest(unittest.TestCase):
             create_agent_activation_proposal(self.root, "codex", True, NOW)
         with self.assertRaisesRegex(ContextOSError, "missing runtime manifest"):
             install_runtime(self.root, "codex")
+        with mock.patch("sys.stdin", new=io.StringIO("{}")):
+            self.assertEqual(
+                0,
+                cli_main([
+                    "--root", str(self.root), "hook", "session-start",
+                    "--runtime", "codex",
+                ]),
+            )
         self.assertEqual(before, snapshot())
+        marker.write_text(root_config(canonical=False), encoding="utf-8")
+        before_repair = snapshot()
+        with self.assertRaisesRegex(ContextOSError, "invalid component manifest"):
+            create_workspace_migration_proposal(self.root, (), NOW)
+        self.assertEqual(before_repair, snapshot())
         self.assertFalse(target.exists())
 
     def test_valid_noncanonical_json_is_still_a_root(self) -> None:
@@ -377,11 +392,23 @@ class RootDiscoveryTest(unittest.TestCase):
         self.assertFalse((nested / ".context-os/receipts" / proposal_path.name).exists())
 
     def test_missing_git_repository_reports_no_commit_evidence(self) -> None:
+        absent = self.root / "absent"
+        absent.mkdir()
+        self.assertIsNone(git_head(absent))
+
+        invalid = self.root / "invalid"
+        invalid.mkdir()
+        (invalid / ".git").write_text("gitdir: missing\n", encoding="utf-8")
+        self.assertIsNone(git_head(invalid))
+
+        unavailable = self.root / "unavailable"
+        unavailable.mkdir()
+        (unavailable / ".git").mkdir()
         with mock.patch(
-            "contextos.kernel.git_repository_identity",
-            side_effect=SnapshotError("cannot find a containing local Git repository"),
+            "contextos.primitives.subprocess.run",
+            side_effect=FileNotFoundError("git is unavailable"),
         ):
-            self.assertIsNone(git_head(self.root))
+            self.assertIsNone(git_head(unavailable))
 
     def test_invalid_inner_json_never_falls_back_to_legacy_or_outer_root(self) -> None:
         self.write_json(self.root)

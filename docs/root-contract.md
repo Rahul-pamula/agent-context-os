@@ -53,10 +53,15 @@ report, diagnose, run direct provider-neutral hooks, and publish content
 proposals there, but it may not apply those proposals or mutate agent/runtime
 configuration until trusted runtime/component descriptors are colocated.
 `generic` execution is reserved for authenticated agent-config and
-materialization proposals, not descriptor-free content apply. Verified bundle
-composition is the separate explicit-destination installation boundary that
-may create the product closure. v0.12 exposes no KernelRoot path field, and the
-origin of imported code grants no lifecycle authority.
+materialization proposals, not descriptor-free content apply. Verified
+detached-bundle materialization is the separate explicit-destination
+installation boundary that may create the product closure. For a marker-only
+target, its tracked `template.source` and `template.version` must already match
+the verified candidate bundle exactly; use `bundle propose` without current
+bundle inputs, then review and run `bundle apply`. The clean-target `bundle
+compose` command is not the marker-only path because the marker already exists.
+v0.12 exposes no KernelRoot path field, and the origin of imported code grants
+no lifecycle authority.
 
 `GitEvidenceScope` is a documentation-only evidence source, not a fourth
 authority root or a v0.12 path/identity field. It is the nearest valid containing
@@ -184,8 +189,8 @@ Lifecycle setup/update/end obey these invariants:
    code, schemas, and runtime/component authorization. Marker-only content
    cannot borrow authority from the installed package: named-runtime apply,
    agent configuration, and runtime registration fail until the trusted product
-   closure is colocated. Verified bundle composition supplies its own pinned
-   authority at the separate installation boundary.
+   closure is colocated. Verified detached-bundle materialization supplies its
+   own pinned authority at the separate installation boundary.
 5. Materializing a bundle is a separately named installation/composition
    boundary with an explicit reviewed destination. It is not a setup/update/end
    lifecycle write to an attached WorkingRoot.
@@ -213,7 +218,7 @@ fixtures. Each row names a must-fire behavior and its must-not-fire complement.
 | Surface | Must fire | Must not fire |
 |---|---|---|
 | Compatibility | `--root R` starts discovery at `R`, resolves ContextRoot and the nominal WorkingRoot to the nearest canonical root, keeps full-template wrapper KernelRoot colocated while permitting already-loaded code to inspect a marker-only root, attributes existing Git commit fields to `GitEvidenceScope`, and keeps existing commands/receipts valid | A supplied discovery start falls back to cwd or installed product paths; an installed package grants product or ContextRoot authority; an enclosing Git worktree gains lifecycle mutation authority or is presented as ContextRoot-authored work; future exact role options search upward |
-| Marker-only bootstrap | Discovery, start, diagnosis, direct provider-neutral hooks, and content proposal publication remain read/local-publication surfaces; verified bundle composition may install the product closure at its explicit destination | Descriptor-free content apply, agent configuration, runtime registration, or a named provider hook/apply succeeds; bundle authority is inferred from installed code or writable ContextRoot content |
+| Marker-only bootstrap | Discovery, start, diagnosis, direct provider-neutral hooks, and content proposal publication remain read/local-publication surfaces; `bundle propose` without current-bundle inputs may materialize a matching verified product closure at its explicit destination | Descriptor-free content apply, agent configuration, runtime registration, or a named provider hook/apply succeeds; `bundle compose` is presented as accepting an existing marker, or bundle authority is inferred from installed code or writable ContextRoot content |
 | Context discovery | Nearest valid marker wins | Invalid inner marker falls outward, or discovery crosses nested `.git` |
 | Canonicalization | Equivalent permitted entrypoints produce one canonical identity for CLI and direct API calls | Link/reparse swaps or alias changes redirect a role after validation |
 | Start | Reads ContextRoot continuity and, in split mode, separately reports WorkingRoot identity/status/history | Writes any root, reads context state from WorkingRoot, or presents KernelRoot commits as user work |

@@ -11,7 +11,8 @@
   mutation authority to ContextRoot-owned paths, blocks configured content lifecycle
   targets from product-authority namespaces, reserves descriptor-free
   `generic` execution for authenticated agent-config/materialization workflows,
-  keeps verified bundle composition as the explicit product-closure boundary,
+  keeps verified detached-bundle materialization as the explicit
+  product-closure boundary,
   and reserves external project
   attachment for a later schema- and receipt-versioned binding.
 - Workspace validation treats `.cursor/` as user-extensible while strict
