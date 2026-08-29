@@ -78,7 +78,9 @@ executable bits. That is an explicit limitation, not a skipped success.
 - If deterministic source or artifact verification fails after the tag exists,
   retire that version and fix the problem in a patch release.
 - After publication, tags and assets are immutable. Correct errors with a notice
-  and a new patch release, never by replacing bytes.
+  and a new patch release, never by replacing bytes. If only the final
+  attestation poll times out, a rerun verifies the already-published immutable
+  release by its numeric ID without attempting to publish it again.
 
 Consumers should follow the version-specific offline instructions and obtain
 the expected digest through a channel they trust. Co-located checksums prove

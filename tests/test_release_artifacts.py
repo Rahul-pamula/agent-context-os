@@ -215,6 +215,10 @@ class ReleaseArtifactTest(unittest.TestCase):
         self.assertIn('-f "ref=refs/tags/$TAG"', workflow)
         self.assertIn("--verify-tag", workflow)
         self.assertNotIn('--target "$RELEASE_COMMIT"', workflow)
+        build = workflow.split("  build-linux:", 1)[1].split(
+            "  verify-candidate-linux:", 1
+        )[0]
+        self.assertNotIn("chmod +x", build)
         publish = workflow.split("  publish:", 1)[1]
         self.assertLess(
             publish.index('gh release download "$TAG"'),
@@ -231,6 +235,7 @@ class ReleaseArtifactTest(unittest.TestCase):
         self.assertIn("release_id: ${{ steps.stage.outputs.release_id }}", workflow)
         self.assertIn('"repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"', publish)
         self.assertNotIn('releases/tags/$TAG', publish)
+        self.assertIn("already_published=true", publish)
         action_references = [
             line.strip().split("uses: ", 1)[1].split(" #", 1)[0]
             for line in workflow.splitlines() if "uses: actions/" in line

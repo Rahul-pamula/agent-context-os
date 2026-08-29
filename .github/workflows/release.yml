@@ -50,7 +50,6 @@ jobs:
 
       - name: Run the canonical validator on the release source
         run: |
-          chmod +x scripts/*.sh tests/*.sh
           bash scripts/validate-all.sh
 
       - name: Build the candidate twice and compare every byte
@@ -86,6 +85,7 @@ jobs:
           path: ${{ runner.temp }}/release-one/*
           compression-level: 0
           if-no-files-found: error
+          overwrite: true
           retention-days: 1
 
   verify-candidate-linux:
@@ -217,8 +217,8 @@ jobs:
           fi
           test "$(git ls-remote origin "refs/tags/$TAG" | cut -f1)" = "$RELEASE_COMMIT"
 
-          if gh release view "$TAG" --json isDraft,isPrerelease > "$RUNNER_TEMP/existing-release.json" 2>/dev/null; then
-            python -c 'import json, os, pathlib; value=json.loads(pathlib.Path(os.environ["RUNNER_TEMP"] + "/existing-release.json").read_text()); assert value == {"isDraft": True, "isPrerelease": False}'
+          if gh release view "$TAG" --json isDraft,isImmutable,isPrerelease > "$RUNNER_TEMP/existing-release.json" 2>/dev/null; then
+            python -c 'import json, os, pathlib; value=json.loads(pathlib.Path(os.environ["RUNNER_TEMP"] + "/existing-release.json").read_text()); assert value["isPrerelease"] is False and (value["isDraft"] is True or value["isImmutable"] is True)'
             gh release download "$TAG" --dir "$RUNNER_TEMP/existing-assets"
             python scripts/release-artifacts.py verify \
               --artifacts "$RUNNER_TEMP/existing-assets" \
@@ -337,7 +337,8 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Re-download and verify the exact draft immediately before publication
+      - name: Re-download and verify the exact release immediately before publication
+        id: final
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_ID: ${{ needs.stage-draft.outputs.release_id }}
@@ -362,9 +363,17 @@ jobs:
             "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
             --jq '{draft, prerelease, assets: [.assets[] | {name, size, digest}]}' \
             > "$RUNNER_TEMP/release-state.json"
-          python -c 'import hashlib, json, os, pathlib; root=pathlib.Path(os.environ["RUNNER_TEMP"] + "/final-assets"); value=json.loads(pathlib.Path(os.environ["RUNNER_TEMP"] + "/release-state.json").read_text()); remote={item["name"]: item for item in value["assets"]}; local={path.name: path for path in root.iterdir() if path.is_file()}; assert value["draft"] is True and value["prerelease"] is False and set(remote) == set(local); assert all(item["size"] == local[name].stat().st_size and item["digest"] == "sha256:" + hashlib.sha256(local[name].read_bytes()).hexdigest() for name, item in remote.items())'
+          python -c 'import hashlib, json, os, pathlib; root=pathlib.Path(os.environ["RUNNER_TEMP"] + "/final-assets"); value=json.loads(pathlib.Path(os.environ["RUNNER_TEMP"] + "/release-state.json").read_text()); remote={item["name"]: item for item in value["assets"]}; local={path.name: path for path in root.iterdir() if path.is_file()}; assert type(value["draft"]) is bool and value["prerelease"] is False and set(remote) == set(local); assert all(item["size"] == local[name].stat().st_size and item["digest"] == "sha256:" + hashlib.sha256(local[name].read_bytes()).hexdigest() for name, item in remote.items())'
+          DRAFT=$(python -c 'import json, os, pathlib; print(str(json.loads(pathlib.Path(os.environ["RUNNER_TEMP"] + "/release-state.json").read_text())["draft"]).lower())')
+          if [[ "$DRAFT" == "false" ]]; then
+            test "$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq .immutable)" = true
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Publish the verified draft and require immutability
+      - name: Publish the verified draft
+        if: steps.final.outputs.already_published != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_ID: ${{ needs.stage-draft.outputs.release_id }}
@@ -373,6 +382,12 @@ jobs:
             "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
             -F draft=false \
             -f make_latest=true >/dev/null
+
+      - name: Require immutability and verify the release attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.stage-draft.outputs.release_id }}
+        run: |
           for attempt in 1 2 3 4 5 6; do
             IMMUTABLE=$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
               "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq .immutable 2>/dev/null || true)
