@@ -4234,10 +4234,38 @@ def doctor(
     for path in required_paths:
         rel = state_path_labels[path]
         error = state_path_errors.get(path)
+        required_status = "fail" if error else "warn"
+        required_detail = error or rel
+        if error is None:
+            try:
+                metadata = path.lstat()
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                required_status = "fail"
+                required_detail = f"cannot inspect required state path: {exc}"
+            else:
+                link_tags = {
+                    getattr(stat, "IO_REPARSE_TAG_SYMLINK", -1),
+                    getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", -2),
+                }
+                if stat.S_ISLNK(metadata.st_mode) or getattr(
+                    metadata, "st_reparse_tag", 0
+                ) in link_tags:
+                    required_status = "fail"
+                    required_detail = (
+                        "required state path became a symlink or reparse point "
+                        f"during diagnosis: {rel}"
+                    )
+                elif stat.S_ISREG(metadata.st_mode):
+                    required_status = "pass"
+                else:
+                    required_status = "fail"
+                    required_detail = f"required state path is not a regular file: {rel}"
         add(
             f"file:{rel}",
-            "fail" if error else "pass" if path.exists() else "warn",
-            error or rel,
+            required_status,
+            required_detail,
         )
     unsafe_freshness = [
         state_path_labels[path]
@@ -4249,7 +4277,7 @@ def doctor(
         add(
             "initialization-state",
             "warn",
-            "guided setup required; unsafe state path(s): "
+            "initialization state is unknown; cannot inspect unsafe state path(s): "
             + ", ".join(unsafe_freshness),
         )
         add(

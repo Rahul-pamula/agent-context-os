@@ -113,8 +113,8 @@ composition.
 
 ## Resolution and canonicalization
 
-Every public readiness/report entrypoint canonicalizes its root before using it
-for containment or identity checks.
+The public readiness entrypoints canonicalize their root before using it for
+containment or identity checks.
 
 - In v0.12, CLI discovery returns the canonical ContextRoot and nominal
   WorkingRoot; full-template wrapper execution also loads KernelRoot there.

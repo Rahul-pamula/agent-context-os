@@ -103,10 +103,12 @@
   documented pre-JSON internal linked `state_dir` exception remains readable
   for compatibility, then snapshots its files without following further links.
   `doctor` now names the link and resolved target and directs migration.
-  Direct start and hook API calls canonicalize their exact supplied root without
-  upward discovery. Diagnostics derive labels only after the guard, accept
-  equivalent POSIX symlink, Windows 8.3, and canonical root spellings, and
-  degrade concurrent path changes to unknown instead of crashing.
+  Direct start, hook, and doctor API calls canonicalize their exact supplied
+  root without upward discovery. Diagnostics derive labels only after the
+  guard, accept equivalent POSIX symlink, Windows junction/8.3, and canonical
+  root spellings, and degrade concurrent path changes to explicit unknown
+  warnings instead of crashing. The diagnostic remains non-failing at the CLI
+  level, so a late race returns the structured warnings with exit status zero.
 - Git-index materialization now stages the exact index blobs verified against
   the bundle lock, so CRLF checkout transforms, clean/smudge filters, and
   unrelated unstaged source edits cannot replace or invalidate approved bytes.

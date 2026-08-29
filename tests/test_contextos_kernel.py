@@ -1532,70 +1532,81 @@ with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_tar
         canonical_hook = hook_report(
             self.root.resolve(), "session-start", {}, today=NOW.date()
         )
-        with tempfile.TemporaryDirectory() as external:
-            linked_root = Path(external) / "linked-root"
-            try:
-                make_directory_link(linked_root, self.root.resolve())
-            except OSError:
-                self.skipTest("directory link creation is unavailable")
+        external = tempfile.TemporaryDirectory()
+        self.addCleanup(external.cleanup)
+        linked_root = Path(external.name) / "linked-root"
+        try:
+            make_directory_link(linked_root, self.root.resolve())
+        except OSError:
+            self.skipTest("directory link creation is unavailable")
 
-            self.assertEqual(canonical_report, start_report(linked_root, NOW))
+        def remove_linked_root() -> None:
+            if os.name == "nt" and linked_root.exists():
+                linked_root.rmdir()
+            elif linked_root.is_symlink():
+                linked_root.unlink()
+
+        # Cleanups run LIFO, so remove the cross-fixture link before deleting
+        # its containing temporary directory on every supported Python version.
+        self.addCleanup(remove_linked_root)
+
+        self.assertEqual(canonical_report, start_report(linked_root, NOW))
+        self.assertEqual(
+            canonical_hook,
+            hook_report(
+                linked_root, "session-start", {}, today=NOW.date()
+            )
+        )
+
+        output = io.StringIO()
+        with mock.patch("sys.stdout", new=output):
             self.assertEqual(
-                canonical_hook,
-                hook_report(
-                    linked_root, "session-start", {}, today=NOW.date()
-                ),
+                0,
+                cli_main([
+                    "--root",
+                    str(linked_root),
+                    "start",
+                    "--now",
+                    NOW.isoformat(),
+                ]),
             )
+        self.assertEqual(canonical_report, json.loads(output.getvalue()))
 
-            output = io.StringIO()
-            with mock.patch("sys.stdout", new=output):
-                self.assertEqual(
-                    0,
-                    cli_main([
-                        "--root",
-                        str(linked_root),
-                        "start",
-                        "--now",
-                        NOW.isoformat(),
-                    ]),
-                )
-            self.assertEqual(canonical_report, json.loads(output.getvalue()))
+        (self.root / "state/current.md").write_text(
+            "# Current State\n\n**Last Updated:** [DATE]\n", encoding="utf-8"
+        )
+        canonical_advisory = hook_report(
+            self.root.resolve(), "session-start", {}, today=NOW.date()
+        )
+        self.assertEqual(
+            canonical_advisory,
+            hook_report(
+                linked_root, "session-start", {}, today=NOW.date()
+            ),
+        )
+        self.assertTrue(any(
+            "not initialized" in finding["message"]
+            for finding in canonical_advisory["findings"]
+        ))
 
-            (self.root / "state/current.md").write_text(
-                "# Current State\n\n**Last Updated:** [DATE]\n", encoding="utf-8"
-            )
-            canonical_advisory = hook_report(
-                self.root.resolve(), "session-start", {}, today=NOW.date()
-            )
+        hook_output = io.StringIO()
+        with mock.patch("sys.stdin", new=io.StringIO("{}")), mock.patch(
+            "sys.stdout", new=hook_output
+        ):
             self.assertEqual(
-                canonical_advisory,
-                hook_report(
-                    linked_root, "session-start", {}, today=NOW.date()
-                ),
+                0,
+                cli_main([
+                    "--root",
+                    str(linked_root),
+                    "hook",
+                    "session-start",
+                    "--runtime",
+                    "codex",
+                ]),
             )
-            self.assertTrue(any(
-                "not initialized" in finding["message"]
-                for finding in canonical_advisory["findings"]
-            ))
-
-            hook_output = io.StringIO()
-            with mock.patch("sys.stdin", new=io.StringIO("{}")), mock.patch(
-                "sys.stdout", new=hook_output
-            ):
-                self.assertEqual(
-                    0,
-                    cli_main([
-                        "--root",
-                        str(linked_root),
-                        "hook",
-                        "session-start",
-                        "--runtime",
-                        "codex",
-                    ]),
-                )
-            rendered_hook = json.loads(hook_output.getvalue())
-            self.assertIn("not initialized", rendered_hook["systemMessage"])
-            self.assertNotIn("could not run", rendered_hook["systemMessage"])
+        rendered_hook = json.loads(hook_output.getvalue())
+        self.assertIn("not initialized", rendered_hook["systemMessage"])
+        self.assertNotIn("could not run", rendered_hook["systemMessage"])
 
     def test_future_dated_state_is_not_treated_as_initialized(self) -> None:
         (self.root / "state/current.md").write_text(
@@ -1641,6 +1652,7 @@ with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_tar
                 "# External\n\n**Last Updated:** 2026-08-23\n", encoding="utf-8"
             )
             current = self.root / "state/current.md"
+            original_current = current.read_bytes()
             current.unlink()
             try:
                 current.symlink_to(outside)
@@ -2558,6 +2570,74 @@ with mock.patch("contextos.kernel._fsync_directory", side_effect=crash_after_tar
         report = doctor(unresolved)
 
         self.assertIn(report["status"], {"pass", "warn"})
+        self.assertTrue(any(
+            item["name"] == "file:state/current.md"
+            and item["status"] == "pass"
+            for item in report["checks"]
+        ))
+
+    @unittest.skipIf(os.name == "nt", "POSIX file-link race regression")
+    def test_doctor_required_file_probe_does_not_follow_a_late_link(self) -> None:
+        with tempfile.TemporaryDirectory() as external:
+            outside = Path(external) / "outside-current.md"
+            outside.write_text(
+                "# External\n\n**Last Updated:** 2026-08-23\n", encoding="utf-8"
+            )
+            current = self.root / "state/current.md"
+            original_guard = __import__(
+                "contextos.kernel", fromlist=["_guard_local_state_path"]
+            )._guard_local_state_path
+            original_freshness = __import__(
+                "contextos.kernel", fromlist=["_state_freshness"]
+            )._state_freshness
+            swapped = False
+
+            def swap_after_label(root: Path, path: Path) -> Path:
+                nonlocal swapped
+                relative = original_guard(root, path)
+                if path == current and not swapped:
+                    current.unlink()
+                    try:
+                        current.symlink_to(outside)
+                    except OSError:
+                        self.skipTest("file symlink creation is unavailable")
+                    swapped = True
+                return relative
+
+            def reject_replacement_snapshot(
+                path: Path, today: date, threshold: int
+            ) -> dict[str, object]:
+                if path == current:
+                    raise AssertionError("replacement state must not be read")
+                return original_freshness(path, today, threshold)
+
+            try:
+                with mock.patch(
+                    "contextos.kernel._guard_local_state_path",
+                    side_effect=swap_after_label,
+                ), mock.patch(
+                    "contextos.kernel._state_freshness",
+                    side_effect=reject_replacement_snapshot,
+                ):
+                    report = doctor(self.root, today=NOW.date())
+            finally:
+                if current.is_symlink():
+                    current.unlink()
+                if not current.exists():
+                    current.write_bytes(original_current)
+
+        required = next(
+            item
+            for item in report["checks"]
+            if item["name"] == "file:state/current.md"
+        )
+        initialization = next(
+            item for item in report["checks"] if item["name"] == "initialization-state"
+        )
+        self.assertEqual("fail", required["status"])
+        self.assertIn("symlink or reparse point", required["detail"])
+        self.assertEqual("warn", initialization["status"])
+        self.assertIn("unknown", initialization["detail"])
 
     def test_doctor_reports_linked_state_file_without_crashing(self) -> None:
         with tempfile.TemporaryDirectory() as external:
