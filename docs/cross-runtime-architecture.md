@@ -5,8 +5,8 @@ runtimes. It does not claim identical command syntax, hook timing, permission
 models, tool names, or native memory.
 
 The [root contract](root-contract.md) defines product assets (`KernelRoot`),
-durable lifecycle state (`ContextRoot`), and the active application repository
-(`WorkingRoot`). v0.12 deliberately supports their nominally colocated
+durable lifecycle state (`ContextRoot`), and the nominal application working
+directory (`WorkingRoot`). v0.12 deliberately supports their nominally colocated
 compatibility mode; external project attachment requires a later versioned
 binding contract.
 

@@ -42,10 +42,10 @@ KernelRoot == ContextRoot == nominal WorkingRoot == canonical discovered root
 `GitEvidenceScope` is a documentation-only evidence source, not a fourth
 authority root or a v0.12 path/identity field. It is the nearest valid containing
 Git worktree, when one exists, used only for existing commit evidence; it is
-absent when no Git repository contains the discovered root. It normally equals
-the discovered root, but an intentionally nested ContextRoot makes it an
-ancestor of the nominal WorkingRoot. That compatibility case does not authorize
-lifecycle mutation outside ContextRoot.
+absent when no valid containing Git worktree with an existing commit resolves.
+It normally equals the discovered root, but an intentionally nested ContextRoot
+makes it an ancestor of the nominal WorkingRoot. That compatibility case does
+not authorize lifecycle mutation outside ContextRoot.
 
 The existing `--root` option supplies the starting path for colocated-root
 discovery; it does not require its argument itself to be the root. Discovery
@@ -184,7 +184,7 @@ fixtures. Each row names a must-fire behavior and its must-not-fire complement.
 
 | Surface | Must fire | Must not fire |
 |---|---|---|
-| Compatibility | `--root R` starts discovery at `R`, resolves KernelRoot, ContextRoot, and the nominal WorkingRoot to the nearest canonical root, attributes existing Git commit fields to `GitEvidenceScope`, and keeps existing commands/receipts valid | A supplied discovery start falls back to cwd or installed product paths; an enclosing Git worktree gains lifecycle mutation authority; future exact role options search upward |
+| Compatibility | `--root R` starts discovery at `R`, resolves KernelRoot, ContextRoot, and the nominal WorkingRoot to the nearest canonical root, attributes existing Git commit fields to `GitEvidenceScope`, and keeps existing commands/receipts valid | A supplied discovery start falls back to cwd or installed product paths; an enclosing Git worktree gains lifecycle mutation authority or is presented as ContextRoot-authored work; future exact role options search upward |
 | Context discovery | Nearest valid marker wins | Invalid inner marker falls outward, or discovery crosses nested `.git` |
 | Canonicalization | Equivalent permitted entrypoints produce one canonical identity for CLI and direct API calls | Link/reparse swaps or alias changes redirect a role after validation |
 | Start | Reads ContextRoot continuity and, in split mode, separately reports WorkingRoot identity/status/history | Writes any root, reads context state from WorkingRoot, or presents KernelRoot commits as user work |

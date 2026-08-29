@@ -227,6 +227,11 @@ class RootDiscoveryTest(unittest.TestCase):
         self.assertNotEqual(expected, nested_expected)
         self.assertEqual(nested_expected, start_report(nested, NOW)["git_head"])
 
+    def test_context_root_without_git_reports_no_commit_evidence(self) -> None:
+        self.write_json(self.root)
+
+        self.assertIsNone(start_report(self.root, NOW)["git_head"])
+
     def test_invalid_inner_json_never_falls_back_to_legacy_or_outer_root(self) -> None:
         self.write_json(self.root)
         inner = self.root / "inner"
