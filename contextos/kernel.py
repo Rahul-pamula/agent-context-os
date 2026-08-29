@@ -3210,6 +3210,10 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
     expected_digest = validate_proposal(document)
     if confirmation != expected_digest:
         raise ContextOSError("--confirm must exactly match the proposal_digest")
+    if runtime == "generic" and not is_agent_workflow:
+        raise ContextOSError(
+            "generic runtime is reserved for agent-config and materialization proposals"
+        )
     validate_execution_runtime(root, runtime)
     with transaction_lock(root):
         # A completed crash journal has priority over every later lifecycle

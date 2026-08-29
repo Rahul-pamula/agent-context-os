@@ -65,9 +65,11 @@ the set. Neither operation deletes bundled adapter files.
 
 Then start your agent from the repository root. In the normal v0.12
 full-template wrapper path, the product kernel, durable context, and nominal
-active work share one root. A core-only JSON workspace may use an already-loaded
-trusted kernel, and a containing Git worktree may supply read-only commit
-evidence, but neither gains context mutation authority. A separate
+active work share one root. A marker-only JSON workspace may use an already-loaded
+executable package for discovery and reports, but a marker-only root cannot
+apply content or configure runtimes until the trusted product closure is
+materialized there. A containing Git worktree may supply read-only commit
+evidence without gaining context mutation authority. A separate
 application-repository attachment is not yet a supported lifecycle path; see
 the [root contract](docs/root-contract.md).
 
@@ -210,7 +212,7 @@ in #65. The template does not ship a live root file because that would override
 an existing clone's legacy YAML before its migration is reviewed.
 
 Once present, `contextos.workspace.json` is the provider-neutral root marker,
-including for a core-only workspace. Existing `AGENTS.md` plus `state/` or
+including for a marker-only workspace. Existing `AGENTS.md` plus `state/` or
 `workspace.yaml` roots remain discoverable. The nearest recognized root wins,
 and discovery never climbs past a nested `.git` repository boundary; use
 `--root` to choose an explicit discovery start when cwd is not the intended

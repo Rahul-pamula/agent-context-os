@@ -132,6 +132,30 @@ class MaterializerTest(unittest.TestCase):
         self.assertEqual("compose", proposal["authorization"]["mode"])
         self.assertEqual("component-materialize", receipt["operation"])
 
+    def test_marker_only_core_profile_can_materialize_verified_product_authority(self) -> None:
+        target = self.root / "marker-only-target"
+        target.mkdir()
+        config = target / "contextos.workspace.json"
+        marker = workspace("fixture-template", "2.0.0")
+        marker["agents"] = []
+        config.write_text(json.dumps(marker, indent=2) + "\n", encoding="utf-8")
+        proposal_path, proposal = create_materialization_proposal(
+            target_root=target,
+            workspace_config_path=config,
+            expected_config_sha256=digest(config),
+            candidate=self.candidate,
+            desired_components=["core"],
+            current=None,
+            current_components=(),
+            now=NOW,
+        )
+        apply_proposal(target, proposal_path, proposal["proposal_digest"], "generic")
+
+        self.assertEqual(marker, json.loads(config.read_text(encoding="utf-8")))
+        self.assertTrue((target / "managed.bin").is_file())
+        self.assertTrue((target / "components/manifest.json").is_file())
+        self.assertTrue((target / INSTALLED_STATE_PATH).is_file())
+
     def test_git_index_upgrade_uses_verified_blobs_not_smudged_worktree(self) -> None:
         fixture = self.git_candidate(version="3.0.0", managed=b"index binary\x00v3\n")
         candidate = fixture.verify()
