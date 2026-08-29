@@ -99,6 +99,22 @@ LAST_UPDATED_RE = re.compile(r"^\*\*Last Updated:\*\*\s*(.+?)\s*$", re.MULTILINE
 REAL_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 SETUP_ROOTS = {"identity", "projects", "state"}
 SETUP_FILES = {"ROUTING.md", "TODO.md", "CLAUDE.md", "AGENTS.md"}
+# Content lifecycle configuration must not turn executable product authority into
+# state/session storage.  Keep this distinct from generic workspace-path
+# validation: bundle and component schemas legitimately name these directories,
+# and pre-JSON workspace configuration remains readable for compatibility.
+LIFECYCLE_PRODUCT_ROOTS = {
+    ".codex",
+    ".github",
+    "adapters",
+    "bundles",
+    "components",
+    "contextos",
+    "integrations",
+    "runtimes",
+    "scripts",
+    "workspace",
+}
 STATE_THRESHOLDS = {"current.md": 3, "weekly-priorities.md": 5, "blockers.md": 7}
 INITIALIZATION_FILE = "current.md"
 SETUP_NEXT_ACTION = (
@@ -1416,6 +1432,8 @@ def create_proposal(root: Path, workflow: str, payload: dict[str, Any], now: dat
     )
     if not changes:
         raise ContextOSError("proposal has no changes")
+    for change in changes:
+        _validate_change_path(workspace, workflow, now, change["path"])
     document: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "workflow": workflow,
@@ -1487,6 +1505,14 @@ def _validate_change_path(workspace: Workspace, workflow: str, created_at: datet
     parts = Path(relative).parts
     if not parts or parts[0] in {".git", ".context-os"}:
         raise ContextOSError(f"proposal path is reserved: {relative}")
+    if (
+        workflow != "setup"
+        and workspace_portable_identity(parts[0])
+        in {workspace_portable_identity(root) for root in LIFECYCLE_PRODUCT_ROOTS}
+    ):
+        raise ContextOSError(
+            f"{workflow} proposal path targets product authority: {relative}"
+        )
     if workflow == "setup":
         allowed = (
             relative in SETUP_FILES

@@ -436,6 +436,50 @@ class KernelTest(unittest.TestCase):
         self.assertIn("## Update: 14:30", session)
         self.assertIn("## Update: 16:00", session)
 
+    def test_content_proposal_rejects_product_authority_from_json_and_legacy_config(self) -> None:
+        cases = (
+            (
+                "json",
+                self.root / "contextos.workspace.json",
+                render_workspace_config({
+                    "schema_version": 1,
+                    "mode": "full-template",
+                    "agents": [],
+                    "paths": {
+                        "state_dir": "state",
+                        "sessions_dir": "scripts",
+                        "task_file": "TODO.md",
+                    },
+                    "template": {"version": "0.12.0", "source": "test"},
+                }),
+            ),
+            ("legacy", self.root / "workspace.yaml", "sessions_dir: scripts\n"),
+        )
+        for name, config_path, config_text in cases:
+            with self.subTest(config=name):
+                config_path.write_text(config_text, encoding="utf-8")
+                try:
+                    with self.assertRaisesRegex(
+                        ContextOSError, "proposal path targets product authority"
+                    ):
+                        self._propose("update", {"progress": ["Must not publish"]})
+                    proposals = self.root / ".context-os/proposals"
+                    self.assertFalse(proposals.exists() and any(proposals.iterdir()))
+                finally:
+                    config_path.unlink()
+
+    def test_content_proposal_allows_benign_custom_session_directory(self) -> None:
+        (self.root / "workspace.yaml").write_text(
+            "sessions_dir: custom-sessions\n", encoding="utf-8"
+        )
+
+        proposal_path, proposal = self._propose(
+            "update", {"progress": ["Custom session path"]}
+        )
+
+        self.assertEqual("custom-sessions/2026-08-23.md", proposal["changes"][0]["path"])
+        self.assertTrue(proposal_path.is_file())
+
     def test_end_appends_session_and_decision(self) -> None:
         existing = self.root / "sessions/2026-08-23.md"
         existing.write_text("# Session — 2026-08-23\n\n## Update: 10:00\n- Began\n", encoding="utf-8")
@@ -1022,6 +1066,19 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
         proposal["proposal_digest"] = sha256_text(canonical_json(unsigned))
         proposal_path.write_text(json.dumps(proposal), encoding="utf-8")
         with self.assertRaisesRegex(ContextOSError, "metadata or local host state"):
+            self._apply(proposal_path, proposal)
+
+    def test_apply_rejects_handcrafted_product_authority_target(self) -> None:
+        proposal_path, proposal = self._propose("update", {"progress": ["One"]})
+        proposal["changes"][0]["path"] = "scripts/2026-08-23.md"
+        unsigned = dict(proposal)
+        unsigned.pop("proposal_digest")
+        proposal["proposal_digest"] = sha256_text(canonical_json(unsigned))
+        proposal_path.write_text(json.dumps(proposal), encoding="utf-8")
+
+        with self.assertRaisesRegex(
+            ContextOSError, "proposal path targets product authority"
+        ):
             self._apply(proposal_path, proposal)
 
     def test_apply_rejects_setup_replacement_bypass(self) -> None:

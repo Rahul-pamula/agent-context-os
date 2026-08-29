@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from contextos.cli import parser as contextos_parser
+from contextos.kernel import LIFECYCLE_PRODUCT_ROOTS, SETUP_FILES, SETUP_ROOTS
 
 # Shell out to the interpreter running these tests, never a bare "python3".
 #
@@ -67,6 +68,12 @@ class DocumentationPositioningTests(unittest.TestCase):
         self.assertIn("enclosing Git worktree", contract)
         self.assertIn("deliberate exception", contract)
         self.assertIn("discovery start", contextos_parser().format_help())
+        for root in SETUP_ROOTS:
+            self.assertIn(f"`{root}", contract)
+        for filename in SETUP_FILES:
+            self.assertIn(f"`{filename}`", contract)
+        for protected in ("contextos", "scripts", "workspace"):
+            self.assertIn(protected, LIFECYCLE_PRODUCT_ROOTS)
 
         for path in (
             "README.md",

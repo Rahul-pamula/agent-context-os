@@ -5,8 +5,9 @@
 ### Changed
 - The v0.12 root contract now names `KernelRoot`, `ContextRoot`, and
   `WorkingRoot`, versions their colocated compatibility mode, confines lifecycle
-  mutation authority to ContextRoot-owned paths, and reserves external project
-  attachment for a later schema- and receipt-versioned binding.
+  mutation authority to ContextRoot-owned paths, blocks configured content
+  lifecycle targets from product-authority namespaces, and reserves external
+  project attachment for a later schema- and receipt-versioned binding.
 - Workspace validation treats `.cursor/` as user-extensible while strict
   maintainer validation still requires ownership for every shipped path.
 - `doctor` is set-aware when tracked workspace configuration exists. It reports

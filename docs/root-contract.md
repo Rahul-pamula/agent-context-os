@@ -26,6 +26,11 @@ personalize even though the component manifest also manages their upgrade
 provenance. Kernel code, wrappers, schemas, manifests, and bundle authority are
 not on that setup allowlist.
 
+The v0.12 setup allowlist is explicit: root files `ROUTING.md`, `TODO.md`,
+`CLAUDE.md`, and `AGENTS.md`; content beneath `identity/`, `projects/`, and
+`state/`; and portable skills beneath `.agents/skills/`. Update and end use the
+configured state/session paths subject to the product-authority guard below.
+
 ## v0.12 compatibility decision
 
 v0.12 supports one colocated repository:
@@ -39,10 +44,13 @@ discovery; it does not require its argument itself to be the root. Discovery
 ascends from that path to the nearest valid `contextos.workspace.json` or legacy
 compound marker and stops at a nested `.git` boundary. Without `--root`, the
 starting path is process cwd. The shell wrapper resolves its own parent and
-changes into that directory before running the kernel. Host skills require the
-exact host-supplied directory containing `AGENTS.md` and `scripts/contextos.sh`.
-Future split-mode role options must identify their exact role roots and must not
-inherit this upward-search compatibility behavior.
+changes into that directory before running the kernel. In the v0.12 colocated
+mode, host lifecycle skills require the exact host-supplied directory containing
+`AGENTS.md` and `scripts/contextos.sh`. That is an adapter heuristic, not
+ContextRoot discovery: a core-only JSON workspace remains CLI-discoverable
+without those files, and split mode must replace the heuristic. Future
+split-mode role options must identify their exact role roots and must not inherit
+this upward-search compatibility behavior.
 
 Consequences that must be stated rather than inferred:
 
@@ -52,8 +60,10 @@ Consequences that must be stated rather than inferred:
   HEAD; v0.12 does not expose a second application-repository identity.
 - Starting an agent in an unrelated application repository and reaching into a
   separate Context OS repository is not a supported v0.12 lifecycle path.
-- `--root` never combines its argument with process cwd, a skill installation
-  directory, or an installed-package location.
+- `--root` is the sole discovery start. A relative value resolves against
+  process cwd like any path argument; when supplied, Context OS never falls
+  back to cwd, a skill installation directory, or an installed-package
+  location.
 - External attachment requires versioned binding, evidence, and receipt
   contracts; it cannot silently change the meaning of v0.12 fields.
 
@@ -137,6 +147,11 @@ Lifecycle setup/update/end obey these invariants:
    boundary with an explicit reviewed destination. It is not a setup/update/end
    lifecycle write to an attached WorkingRoot.
 
+For both canonical JSON and pre-JSON compatibility configuration, update/end
+proposal publication, apply, and recovery reject configured state or session
+targets whose first path component is a product-authority namespace. Config
+readability therefore cannot widen lifecycle mutation authority.
+
 When split mode ships, receipts and reports must use role-qualified identities
 and Git fields. The ambiguous v0.12 `git_head` fields cannot silently acquire a
 second meaning.
@@ -148,7 +163,7 @@ fixtures. Each row names a must-fire behavior and its must-not-fire complement.
 
 | Surface | Must fire | Must not fire |
 |---|---|---|
-| Compatibility | `--root R` starts discovery at `R`, resolves all three roles to the nearest canonical colocated root, and keeps existing commands/receipts valid | `--root` combines its result with cwd or installed product paths; future exact role options search upward |
+| Compatibility | `--root R` starts discovery at `R`, resolves all three roles to the nearest canonical colocated root, and keeps existing commands/receipts valid | A supplied discovery start falls back to cwd or installed product paths; future exact role options search upward |
 | Context discovery | Nearest valid marker wins | Invalid inner marker falls outward, or discovery crosses nested `.git` |
 | Canonicalization | Equivalent permitted entrypoints produce one canonical identity for CLI and direct API calls | Link/reparse swaps or alias changes redirect a role after validation |
 | Start | Reads ContextRoot continuity and, in split mode, separately reports WorkingRoot identity/status/history | Writes any root, reads context state from WorkingRoot, or presents KernelRoot commits as user work |
@@ -174,6 +189,9 @@ second ad hoc root path:
   replacing the caller's WorkingRoot or discovering ContextRoot from cwd.
 - `.agents/skills/context-*` and runtime adapters: execute in WorkingRoot while
   invoking an explicit/bound ContextRoot through KernelRoot.
+- `adapters/openclaw/plugin/lib.js`: replace its colocated root alias with exact
+  ContextRoot and WorkingRoot bindings while preserving ownership,
+  continuation, and no-plugin-apply boundaries.
 - runtime/component/bundle validation: read product authority from KernelRoot;
   never from writable context or application content.
 - materialization: distinguish creation/reconciliation of a ContextRoot from
