@@ -324,6 +324,10 @@
                     "policy": "managed"
                 },
                 {
+                    "path": "scripts/measure-bundle-materialization.py",
+                    "policy": "development"
+                },
+                {
                     "path": "scripts/pre-commit-hook.sh",
                     "policy": "managed"
                 },

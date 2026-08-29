@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Changed
+- Git-index bundle verification now streams locked blobs through one bounded
+  `git cat-file --batch` process per pass, retains only requested candidate
+  write payloads, discards current-bundle payloads after validation, and removes
+  redundant same-boundary apply checks while preserving planner-end and
+  immediate pre-mutation source revalidation. Linux and Windows CI report the
+  full-bundle Git process, wall-time, and logical payload-memory bounds.
 - The v0.12 root contract now names `KernelRoot`, `ContextRoot`, and
   `WorkingRoot`, versions their colocated compatibility mode, separates the
   nominal WorkingRoot path from a possibly enclosing read-only Git evidence

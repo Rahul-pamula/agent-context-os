@@ -1802,10 +1802,17 @@ def _validate_agent_proposal_shape(
     return operation, created_at
 
 
-def _validate_proposal_shape(root: Path, proposal: Path, document: dict[str, Any]) -> tuple[str, datetime]:
+def _validate_proposal_shape(
+    root: Path, proposal: Path, document: dict[str, Any],
+    *, validated_agent_shape: tuple[str, datetime] | None = None,
+) -> tuple[str, datetime]:
     workflow = document.get("workflow")
     if workflow == AGENT_LIFECYCLE_WORKFLOW:
-        operation, created_at = _validate_agent_proposal_shape(root, document)
+        operation, created_at = (
+            validated_agent_shape
+            if validated_agent_shape is not None
+            else _validate_agent_proposal_shape(root, document)
+        )
         workflow_value = AGENT_LIFECYCLE_WORKFLOW
     else:
         operation = "content-lifecycle"
@@ -3273,6 +3280,7 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
             "generic runtime is reserved for agent-config and materialization proposals"
         )
     validate_execution_runtime(root, runtime)
+    prepared_materialization_payloads: dict[str, bytes] | None = None
     with transaction_lock(root):
         # A completed crash journal has priority over every later lifecycle
         # operation, including generic content proposals.
@@ -3284,8 +3292,20 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
                 raise ContextOSError(
                     f"refusing to replay proposal with existing receipt: {receipt_candidate}"
                 )
-            workflow, _ = _validate_proposal_shape(root, proposal, document)
-            _validate_agent_preflight(root, document)
+            if document.get("operation") == MATERIALIZE_OPERATION:
+                from .materializer import prepare_materialization_preflight
+
+                created_at, prepared_materialization_payloads = (
+                    prepare_materialization_preflight(root, document)
+                )
+                _validate_proposal_shape(
+                    root, proposal, document,
+                    validated_agent_shape=(MATERIALIZE_OPERATION, created_at),
+                )
+                workflow = AGENT_LIFECYCLE_WORKFLOW
+            else:
+                workflow, _ = _validate_proposal_shape(root, proposal, document)
+                _validate_agent_preflight(root, document)
         else:
             workflow, created_at = _validate_proposal_shape(root, proposal, document)
             for change in document.get("changes", []):
@@ -3321,7 +3341,9 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
         publication_anchors: dict[Path, Path] = {}
         journal_path: Path | None = None
         receipt_published = False
-        materialization_payloads: dict[str, bytes] = {}
+        materialization_payloads: dict[str, bytes] = (
+            prepared_materialization_payloads or {}
+        )
         staging_root = root / ".context-os" / "staging" / document["proposal_id"]
         receipt_path = root / ".context-os" / "receipts" / f"{document['proposal_id']}.json"
         _guard_local_artifact_path(root, staging_root)
@@ -3339,10 +3361,6 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
                     staging_root,
                 )
             staging_root.mkdir(parents=True)
-            if document.get("operation") == MATERIALIZE_OPERATION:
-                from .materializer import materialization_payloads as load_payloads
-
-                materialization_payloads = load_payloads(root, document)
             for change_index, change in enumerate(document["changes"]):
                 path = _transaction_target(
                     root, change["path"], document.get("operation")
@@ -3371,6 +3389,7 @@ def apply_proposal(root: Path, proposal: Path, confirmation: str, runtime: str) 
                         mode=target_mode,
                     )
                     staged[path] = stage
+            materialization_payloads.clear()
             journal_path = (
                 root / ".context-os" / "journals" / document["proposal_id"]
             )

@@ -81,7 +81,9 @@ def _bundle_spec(bundle: VerifiedBundle) -> dict[str, str]:
     }
 
 
-def _load_bundle_spec(value: Any, field: str, *, role: str) -> VerifiedBundle:
+def _load_bundle_spec(
+    value: Any, field: str, *, role: str, retain_paths: Sequence[str] = (),
+) -> VerifiedBundle:
     if not isinstance(value, dict) or set(value) != BUNDLE_SPEC_KEYS:
         raise BundleError(f"{field}: invalid bundle input shape")
     for key in ("lock", "source", "expected_sha256", "source_mode"):
@@ -101,6 +103,7 @@ def _load_bundle_spec(value: Any, field: str, *, role: str) -> VerifiedBundle:
         expected_sha256=value["expected_sha256"],
         source_mode=value["source_mode"],
         role=role,
+        retain_paths=retain_paths,
     )
 
 
@@ -494,7 +497,7 @@ def create_composition_proposal(
 
 
 def _materialization_context(
-    root: Path, document: dict[str, Any]
+    root: Path, document: dict[str, Any], *, candidate_retain_paths: Sequence[str] = (),
 ) -> tuple[VerifiedBundle, VerifiedBundle | None, dict[str, Any], list[dict[str, Any]]]:
     authorization = document.get("authorization")
     if not isinstance(authorization, dict) or set(authorization) != MATERIALIZE_AUTHORIZATION_KEYS:
@@ -505,7 +508,8 @@ def _materialization_context(
     if mode not in {"compose", "upgrade"}:
         raise BundleError("materialization authorization mode is invalid")
     candidate = _load_bundle_spec(
-        authorization.get("candidate"), "authorization.candidate", role="candidate"
+        authorization.get("candidate"), "authorization.candidate", role="candidate",
+        retain_paths=candidate_retain_paths,
     )
     current_spec = authorization.get("current")
     current = (
@@ -577,9 +581,30 @@ def _materialization_context(
     return candidate, current, recomputed, changes
 
 
-def validate_materialization_proposal_shape(
-    root: Path, document: dict[str, Any]
-) -> tuple[str, datetime]:
+def _candidate_payload_paths(document: dict[str, Any]) -> tuple[str, ...]:
+    """Return untrusted bundle references solely as bounded retention hints."""
+    paths: set[str] = set()
+    changes = document.get("changes")
+    if not isinstance(changes, list):
+        return ()
+    for change in changes:
+        if not isinstance(change, dict):
+            continue
+        reference = change.get("content_ref")
+        if (
+            change.get("action") == "write"
+            and isinstance(reference, dict)
+            and reference.get("kind") == "bundle"
+            and reference.get("role") == "candidate"
+            and isinstance(reference.get("path"), str)
+        ):
+            paths.add(reference["path"])
+    return tuple(sorted(paths, key=portable_path_identity))
+
+
+def _validate_materialization_document(
+    root: Path, document: dict[str, Any], *, candidate_retain_paths: Sequence[str] = (),
+) -> tuple[datetime, VerifiedBundle, list[dict[str, Any]]]:
     kernel = _kernel()
     required = {
         "schema_version", "workflow", "operation", "created_at", "proposal_id",
@@ -591,7 +616,9 @@ def validate_materialization_proposal_shape(
     if document.get("invariants") != MATERIALIZE_INVARIANTS:
         raise BundleError("materialization proposal invariants are invalid")
     created_at = kernel.parse_now(kernel.ensure_text(document.get("created_at"), "created_at"))
-    candidate, _current, plan, expected_changes = _materialization_context(root, document)
+    candidate, _current, plan, expected_changes = _materialization_context(
+        root, document, candidate_retain_paths=candidate_retain_paths
+    )
     changes = document.get("changes")
     if changes != expected_changes:
         raise BundleError("materialization changes are stale or invalid")
@@ -630,6 +657,15 @@ def validate_materialization_proposal_shape(
         expected_sources[current_spec["lock"]] = sha256_bytes(Path(current_spec["lock"]).read_bytes())
     if document.get("source_hashes") != dict(sorted(expected_sources.items())):
         raise BundleError("materialization source hashes are stale or invalid")
+    return created_at, candidate, expected_changes
+
+
+def validate_materialization_proposal_shape(
+    root: Path, document: dict[str, Any]
+) -> tuple[str, datetime]:
+    created_at, _candidate, _changes = _validate_materialization_document(
+        root, document
+    )
     return MATERIALIZE_OPERATION, created_at
 
 
@@ -640,8 +676,9 @@ def validate_materialization_preflight(root: Path, document: dict[str, Any]) -> 
     validate_materialization_proposal_shape(root, document)
 
 
-def materialization_payloads(root: Path, document: dict[str, Any]) -> dict[str, bytes]:
-    candidate, _current, _plan, changes = _materialization_context(root, document)
+def _payloads_from_verified_context(
+    candidate: VerifiedBundle, changes: Sequence[dict[str, Any]],
+) -> dict[str, bytes]:
     payloads: dict[str, bytes] = {}
     for change in changes:
         if change["action"] != "write":
@@ -666,3 +703,17 @@ def materialization_payloads(root: Path, document: dict[str, Any]) -> dict[str, 
             raise BundleError(f"materialization payload hash is invalid: {change['path']}")
         payloads[change["path"]] = payload
     return payloads
+
+
+def prepare_materialization_preflight(
+    root: Path, document: dict[str, Any]
+) -> tuple[datetime, dict[str, bytes]]:
+    """Validate one apply boundary and retain only candidate write payloads."""
+    kernel = _kernel()
+    if document.get("source_git_head") != kernel.git_head(root):
+        raise BundleError("refusing stale materialization proposal; git HEAD changed")
+    retain_paths = _candidate_payload_paths(document)
+    created_at, candidate, changes = _validate_materialization_document(
+        root, document, candidate_retain_paths=retain_paths
+    )
+    return created_at, _payloads_from_verified_context(candidate, changes)

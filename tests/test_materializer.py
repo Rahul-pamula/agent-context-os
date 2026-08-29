@@ -23,6 +23,7 @@ from contextos.materializer import (
     INSTALLED_STATE_PATH,
     create_composition_proposal,
     create_materialization_proposal,
+    prepare_materialization_preflight,
 )
 try:
     from tests.test_bundle_lock import BundleFixture, workspace
@@ -100,6 +101,31 @@ class MaterializerTest(unittest.TestCase):
             managed=managed,
             addon=True,
             source_mode="git-index",
+        )
+
+    def assert_materialization_not_published(
+        self,
+        proposal: dict,
+        *,
+        managed_before: bytes,
+        target: Path | None = None,
+        config: Path | None = None,
+    ) -> None:
+        target = self.target if target is None else target
+        config = self.config if config is None else config
+        self.assertEqual(managed_before, (target / "managed.bin").read_bytes())
+        self.assertFalse((target / "addon.txt").exists())
+        self.assertEqual(
+            "1.0.0",
+            json.loads(config.read_text(encoding="utf-8"))["template"]["version"],
+        )
+        self.assertFalse(
+            (
+                target
+                / ".context-os"
+                / "receipts"
+                / f"{proposal['proposal_id']}.json"
+            ).exists()
         )
 
     def compose(self, target: Path, config_input: Path):
@@ -304,8 +330,233 @@ class MaterializerTest(unittest.TestCase):
                 self.target, proposal_path, proposal["proposal_digest"], "generic"
             )
 
-        self.assertEqual(before, (self.target / "managed.bin").read_bytes())
-        self.assertFalse((self.target / "addon.txt").exists())
+        self.assert_materialization_not_published(proposal, managed_before=before)
+
+    def test_git_index_staged_drift_before_apply_fails_before_target_writes(self) -> None:
+        fixture = self.git_candidate(version="3.0.0", managed=b"index v3\n")
+        candidate = fixture.verify()
+        proposal_path, proposal = create_materialization_proposal(
+            target_root=self.target,
+            workspace_config_path=self.config,
+            expected_config_sha256=digest(self.config),
+            candidate=candidate,
+            desired_components=["addon"],
+            current=self.current,
+            current_components=["core"],
+            now=NOW,
+        )
+        before = (self.target / "managed.bin").read_bytes()
+        (fixture.root / "managed.bin").write_bytes(b"staged v4\n")
+        fixture._git("add", "managed.bin")
+
+        with self.assertRaisesRegex(BundleError, "index differs from HEAD"):
+            apply_proposal(
+                self.target, proposal_path, proposal["proposal_digest"], "generic"
+            )
+
+        self.assert_materialization_not_published(proposal, managed_before=before)
+
+    def test_git_index_staged_drift_after_journal_fails_before_target_writes(self) -> None:
+        fixture = self.git_candidate(version="3.0.0", managed=b"index v3\n")
+        candidate = fixture.verify()
+        proposal_path, proposal = create_materialization_proposal(
+            target_root=self.target,
+            workspace_config_path=self.config,
+            expected_config_sha256=digest(self.config),
+            candidate=candidate,
+            desired_components=["addon"],
+            current=self.current,
+            current_components=["core"],
+            now=NOW,
+        )
+        before = (self.target / "managed.bin").read_bytes()
+        kernel = __import__("contextos.kernel", fromlist=["_create_agent_journal"])
+        original_create_journal = kernel._create_agent_journal
+
+        def stage_source_drift(*args, **kwargs):
+            result = original_create_journal(*args, **kwargs)
+            (fixture.root / "managed.bin").write_bytes(b"staged v4\n")
+            fixture._git("add", "managed.bin")
+            return result
+
+        with mock.patch(
+            "contextos.kernel._create_agent_journal", side_effect=stage_source_drift
+        ), self.assertRaisesRegex(
+            (BundleError, ContextOSError), "index differs from HEAD"
+        ):
+            apply_proposal(
+                self.target, proposal_path, proposal["proposal_digest"], "generic"
+            )
+
+        self.assert_materialization_not_published(proposal, managed_before=before)
+
+    def test_git_index_commit_after_journal_fails_before_target_writes(self) -> None:
+        fixture = self.git_candidate(version="3.0.0", managed=b"index v3\n")
+        candidate = fixture.verify()
+        proposal_path, proposal = create_materialization_proposal(
+            target_root=self.target,
+            workspace_config_path=self.config,
+            expected_config_sha256=digest(self.config),
+            candidate=candidate,
+            desired_components=["addon"],
+            current=self.current,
+            current_components=["core"],
+            now=NOW,
+        )
+        before = (self.target / "managed.bin").read_bytes()
+        kernel = __import__("contextos.kernel", fromlist=["_create_agent_journal"])
+        original_create_journal = kernel._create_agent_journal
+
+        def commit_source_drift(*args, **kwargs):
+            result = original_create_journal(*args, **kwargs)
+            (fixture.root / "managed.bin").write_bytes(b"committed v4\n")
+            fixture.commit_all("change source during apply")
+            return result
+
+        with mock.patch(
+            "contextos.kernel._create_agent_journal", side_effect=commit_source_drift
+        ), self.assertRaisesRegex(
+            (BundleError, ContextOSError), "does not match the local Git HEAD"
+        ):
+            apply_proposal(
+                self.target, proposal_path, proposal["proposal_digest"], "generic"
+            )
+
+        self.assert_materialization_not_published(proposal, managed_before=before)
+
+    def test_git_index_current_staged_drift_after_journal_fails_before_target_writes(
+        self,
+    ) -> None:
+        current_root = self.root / "git-current-source"
+        current_root.mkdir()
+        current_fixture = BundleFixture(
+            current_root,
+            version="1.0.0",
+            managed=b"current index v1\n",
+            addon=False,
+            source_mode="git-index",
+        )
+        current = current_fixture.verify(role="current")
+        target = self.root / "git-current-target"
+        shutil.copytree(
+            current_fixture.root,
+            target,
+            ignore=shutil.ignore_patterns(".git"),
+        )
+        config = target / "contextos.workspace.json"
+        config.write_text(
+            json.dumps(workspace("fixture-template", "1.0.0"), indent=2) + "\n",
+            encoding="utf-8",
+        )
+        proposal_path, proposal = create_materialization_proposal(
+            target_root=target,
+            workspace_config_path=config,
+            expected_config_sha256=digest(config),
+            candidate=self.candidate,
+            desired_components=["addon"],
+            current=current,
+            current_components=["core"],
+            now=NOW,
+        )
+        before = (target / "managed.bin").read_bytes()
+        kernel = __import__("contextos.kernel", fromlist=["_create_agent_journal"])
+        original_create_journal = kernel._create_agent_journal
+
+        def stage_current_source_drift(*args, **kwargs):
+            result = original_create_journal(*args, **kwargs)
+            (current_fixture.root / "managed.bin").write_bytes(b"staged current v2\n")
+            current_fixture._git("add", "managed.bin")
+            return result
+
+        with mock.patch(
+            "contextos.kernel._create_agent_journal",
+            side_effect=stage_current_source_drift,
+        ), self.assertRaisesRegex(
+            (BundleError, ContextOSError), "index differs from HEAD"
+        ):
+            apply_proposal(target, proposal_path, proposal["proposal_digest"], "generic")
+
+        self.assert_materialization_not_published(
+            proposal,
+            managed_before=before,
+            target=target,
+            config=config,
+        )
+
+    def test_git_index_apply_uses_two_context_passes_with_planner_end_rechecks(self) -> None:
+        fixture = self.git_candidate(version="3.0.0", managed=b"index v3\n")
+        candidate = fixture.verify()
+        proposal_path, proposal = create_materialization_proposal(
+            target_root=self.target,
+            workspace_config_path=self.config,
+            expected_config_sha256=digest(self.config),
+            candidate=candidate,
+            desired_components=["addon"],
+            current=self.current,
+            current_components=["core"],
+            now=NOW,
+        )
+        materializer = __import__(
+            "contextos.materializer", fromlist=["_materialization_context"]
+        )
+        bundle_schema = __import__(
+            "contextos.bundle_schema", fromlist=["_git_repository_identity"]
+        )
+
+        with mock.patch(
+            "contextos.materializer._materialization_context",
+            wraps=materializer._materialization_context,
+        ) as context_pass, mock.patch(
+            "contextos.bundle_schema._git_repository_identity",
+            wraps=bundle_schema._git_repository_identity,
+        ) as repository_identity:
+            apply_proposal(
+                self.target, proposal_path, proposal["proposal_digest"], "generic"
+            )
+
+        self.assertEqual(2, context_pass.call_count)
+        # Each context verifies the candidate at load and again at the planner's
+        # end boundary; each verification checks Git identity before and after.
+        self.assertEqual(8, repository_identity.call_count)
+
+    def test_preflight_retains_only_candidate_write_payloads(self) -> None:
+        _proposal_path, proposal = self.propose()
+        materializer = __import__("contextos.materializer", fromlist=["verify_bundle"])
+        original_verify = materializer.verify_bundle
+        observations: list[tuple[str, set[str], set[str]]] = []
+
+        def capture_verification(*args, **kwargs):
+            verified = original_verify(*args, **kwargs)
+            observations.append((
+                kwargs.get("role", "candidate"),
+                set(kwargs.get("retain_paths", ())),
+                set(verified.verified_bytes),
+            ))
+            return verified
+
+        with mock.patch(
+            "contextos.materializer.verify_bundle", side_effect=capture_verification
+        ):
+            _created_at, payloads = prepare_materialization_preflight(
+                self.target, proposal
+            )
+
+        expected_bundle_paths = {
+            change["content_ref"]["path"]
+            for change in proposal["changes"]
+            if change["action"] == "write"
+            and change["content_ref"]["kind"] == "bundle"
+        }
+        expected_write_paths = {
+            change["path"]
+            for change in proposal["changes"]
+            if change["action"] == "write"
+        }
+        self.assertEqual(expected_write_paths, set(payloads))
+        self.assertEqual([
+            ("candidate", expected_bundle_paths, expected_bundle_paths),
+            ("current", set(), set()),
+        ], observations)
 
     def test_bundle_apply_rejects_non_materialization_proposal(self) -> None:
         proposal = self.target / "not-materialization.json"
