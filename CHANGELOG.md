@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Changed
+- Aligned integration proposal, contributor guidance, and PR templates with catalog schema v2 (documentation and template changes only).
 - Workspace validation treats `.cursor/` as user-extensible while strict
   maintainer validation still requires ownership for every shipped path.
 - `doctor` is set-aware when tracked workspace configuration exists. It reports

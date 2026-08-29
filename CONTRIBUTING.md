@@ -90,9 +90,11 @@ to check the entry is wanted before writing it.
    to read-only scopes with writes behind a separate confirmation group.
 6. Regenerate `references/integrations.md` and run the validator.
 
-`maturity` is a claim about metadata, not about testing. `verified` means you
-checked the fields against the linked source on the stated date. If you could
-not confirm something, `listed` is the honest value — and saying "I could not
+`maturity` is a claim about metadata, not about testing. `verified` means
+every submitted field is supported by current first-party evidence on the stated date.
+It does NOT mean that you created an account, installed the integration, authenticated,
+or performed a live end-to-end test. If you could
+not confirm something, `listed` is the honest value - and saying "I could not
 verify X" in the pull request is genuinely useful, not a failure.
 
 Nothing in this repository is installed or enabled at setup. A catalog entry is
