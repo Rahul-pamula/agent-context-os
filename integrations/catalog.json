@@ -660,6 +660,88 @@
         "instructions": "Uninstall Pandoc using the platform package manager and keep generated documents unless the user explicitly asks to remove them; review any separately installed PDF engine independently.",
         "removes_user_data": false
       }
+    },
+    {
+      "id": "trello-mcp",
+      "name": "Trello MCP",
+      "summary": "Trello's official cloud-hosted MCP server for reading, searching, and managing boards, lists, cards, checklists, inbox cards, and planner events in a single OAuth-authorized workspace.",
+      "source_url": "https://support.atlassian.com/trello/docs/connect-trello-to-ai-assistants-with-trello-mcp/",
+      "kind": "mcp_server",
+      "supported_agents": [
+        "claude_code",
+        "cursor",
+        "gemini_cli",
+        "generic"
+      ],
+      "installation": {
+        "automatic": false,
+        "scope": "project_or_user",
+        "prerequisites": [
+          "A Trello account on any plan",
+          "An MCP client supporting remote Streamable HTTP and browser OAuth"
+        ]
+      },
+      "data_boundary": {
+        "credentials": [
+          "Per-user OAuth 2.0 consent authorizing a single Trello workspace, managed by the MCP client and hosted service"
+        ],
+        "reads": [
+          "Sensitive workspace boards, lists, cards, labels, checklists, members, search results, inbox cards, and planner calendar events allowed to the connected user in the authorized workspace"
+        ],
+        "writes": [
+          "Remote create, update, move, and archive of boards, lists, cards, checklists, inbox cards, and planner focus-time events in the authorized workspace",
+          "Checklist item and label additions and updates on cards"
+        ]
+      },
+      "capabilities": {
+        "read": true,
+        "sensitive_read": true,
+        "write": true,
+        "remote_write": true,
+        "publish": false,
+        "overwrite": false,
+        "delete": false,
+        "arbitrary_execution": false,
+        "oauth": true,
+        "destructive": false,
+        "details": [
+          "Use the official hosted endpoint https://mcp.trello.com/v1 and authorize exactly one workspace on the OAuth consent screen; the connection cannot act beyond the connected user's Trello permissions",
+          "Cards and lists can be archived but not permanently destroyed; archiving is the strongest action the server exposes",
+          "Card, list, board, and checklist creation and edits are remote writes; show the exact board, list, card, and field change before every create, update, move, or archive",
+          "Reads and search surface board, card, checklist, member, inbox, and planner data that may be sensitive depending on the workspace"
+        ]
+      },
+      "confirmation": {
+        "required_for": [
+          "credential_setup",
+          "external_install",
+          "read_sensitive",
+          "write",
+          "write_remote",
+          "oauth"
+        ],
+        "notes": "Confirm the exact Trello account, workspace, and OAuth permissions during connection; ask before broad board or search reads, and show the exact board, list, card, checklist, or inbox change before every remote create, update, move, or archive."
+      },
+      "risk_tags": [
+        "credentials",
+        "hosted",
+        "project-management",
+        "sensitive-read",
+        "remote-write",
+        "oauth",
+        "prompt-injection"
+      ],
+      "maturity": "verified",
+      "last_verified": "2026-08-29",
+      "evidence": [
+        "https://support.atlassian.com/trello/docs/connect-trello-to-ai-assistants-with-trello-mcp/",
+        "https://github.com/atlassian/trello-mcp-server"
+      ],
+      "health_check": "After OAuth, read the connected member profile and one explicitly named board, then confirm the authorized workspace and permissions before any search, write, or archive.",
+      "uninstall": {
+        "instructions": "Remove the Trello MCP entry from the MCP client and revoke the authorized connection in Trello; archived cards and lists remain in place unless the user manages them separately in Trello.",
+        "removes_user_data": false
+      }
     }
   ]
 }

@@ -45,6 +45,7 @@
   runtime, a deprecated singleton alias, and local-only `auto` behavior.
 - A reviewed Pandoc catalog entry with a bounded non-PDF profile, explicit network and sensitive-read boundaries, PDF-engine execution guidance, and overwrite confirmation.
 - A reviewed MarkItDown MCP catalog entry covering its local-file and network read boundary, unauthenticated localhost transport, sandboxing guidance, and pinned v0.1.7 evidence.
+- A reviewed Trello MCP catalog entry covering its official Atlassian-hosted OAuth 2.0 workspace-scoped boundary, read and search plus create/update/move/archive capabilities, and a no-destructive-delete surface.
 - Provider-neutral root discovery through validated `contextos.workspace.json`,
   with legacy compound-marker compatibility, nearest-root selection, explicit
   nested Git boundaries, fail-closed invalid markers, and actionable migration
