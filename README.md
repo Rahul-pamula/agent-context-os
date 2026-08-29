@@ -64,8 +64,9 @@ additive proposal; `agent disable` creates the only proposal allowed to shrink
 the set. Neither operation deletes bundled adapter files.
 
 Then start your agent from the repository root. In v0.12 this is intentionally
-one colocated repository: the product kernel, durable context, and active work
-share a root. A separate application-repository attachment is not yet a
+one colocated lifecycle working path: the product kernel, durable context, and
+nominal active work share a root. A containing Git worktree may supply read-only
+commit evidence, but a separate application-repository attachment is not yet a
 supported lifecycle path; see the [root contract](docs/root-contract.md).
 
 | Starting point | Next action |

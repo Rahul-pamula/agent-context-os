@@ -13,7 +13,7 @@ does not have to reinterpret existing proposals, receipts, or safety claims.
 |---|---|---|
 | **KernelRoot** | Authoritative executable product assets: `contextos/`, executable wrappers, runtime and component manifests, schemas, and immutable bundle sources and locks | Read product authority and execute the kernel. Lifecycle setup/update/end never mutate these KernelRoot-owned authority paths. |
 | **ContextRoot** | Tracked workspace intent, materialized repository instructions and portable skill bodies, and durable context: routing, identity, projects, state, sessions, and tasks; plus local `.context-os/` inputs, proposals, locks, staging, journals, receipts, host state, and installed-bundle state | The only mutation authority for lifecycle setup/update/end. Transaction targets and journal entries are ContextRoot-relative. |
-| **WorkingRoot** | The application repository whose files, repository identity, status, and history describe the work being performed | Read-only evidence for Context OS lifecycle. Application edits remain ordinary host/tool actions outside lifecycle proposal/apply. |
+| **WorkingRoot** | The nominal application working directory whose files describe the work being performed. In v0.12 this is the discovered root; its containing Git repository may be an ancestor. | Application-owned paths are read-only evidence for lifecycle. When roles are colocated, lifecycle may mutate only paths authorized as ContextRoot content; other application edits remain ordinary host/tool actions outside proposal/apply. |
 
 Role ownership is stronger than physical containment. In a future split mode,
 the canonical roots must be distinct and non-overlapping: none may be nested
@@ -33,11 +33,19 @@ configured state/session paths subject to the product-authority guard below.
 
 ## v0.12 compatibility decision
 
-v0.12 supports one colocated repository:
+v0.12 supports one colocated lifecycle working path:
 
 ```text
-KernelRoot == ContextRoot == WorkingRoot == canonical discovered root
+KernelRoot == ContextRoot == nominal WorkingRoot == canonical discovered root
 ```
+
+`GitEvidenceScope` is a documentation-only evidence source, not a fourth
+authority root or a v0.12 path/identity field. It is the nearest valid containing
+Git worktree, when one exists, used only for existing commit evidence; it is
+absent when no Git repository contains the discovered root. It normally equals
+the discovered root, but an intentionally nested ContextRoot makes it an
+ancestor of the nominal WorkingRoot. That compatibility case does not authorize
+lifecycle mutation outside ContextRoot.
 
 The existing `--root` option supplies the starting path for colocated-root
 discovery; it does not require its argument itself to be the root. Discovery
@@ -55,15 +63,18 @@ this upward-search compatibility behavior.
 Consequences that must be stated rather than inferred:
 
 - `start.git_head`, proposal `source_git_head`, and receipt Git evidence all
-  describe the Git repository containing this one discovered root. A legacy or
-  non-top-level ContextRoot may therefore report an enclosing Git worktree's
-  HEAD; v0.12 does not expose a second application-repository identity.
+  describe `GitEvidenceScope`, the Git repository containing the discovered
+  root. A legacy or non-top-level ContextRoot may therefore report an enclosing
+  Git worktree's HEAD; the nominal WorkingRoot remains the discovered path and
+  v0.12 exposes neither the evidence-scope path nor a second mutation authority.
+  A new enclosing HEAD therefore invalidates proposal commit evidence even when
+  the commit did not touch ContextRoot; these fields do not represent
+  uncommitted worktree status.
 - Starting an agent in an unrelated application repository and reaching into a
   separate Context OS repository is not a supported v0.12 lifecycle path.
-- `--root` is the sole discovery start. A relative value resolves against
-  process cwd like any path argument; when supplied, Context OS never falls
-  back to cwd, a skill installation directory, or an installed-package
-  location.
+- When supplied, `--root` is the sole discovery start. A relative value resolves
+  against process cwd like any path argument; Context OS never falls back to
+  cwd, a skill installation directory, or an installed-package location.
 - External attachment requires versioned binding, evidence, and receipt
   contracts; it cannot silently change the meaning of v0.12 fields.
 
@@ -173,7 +184,7 @@ fixtures. Each row names a must-fire behavior and its must-not-fire complement.
 
 | Surface | Must fire | Must not fire |
 |---|---|---|
-| Compatibility | `--root R` starts discovery at `R`, resolves all three roles to the nearest canonical colocated root, and keeps existing commands/receipts valid | A supplied discovery start falls back to cwd or installed product paths; future exact role options search upward |
+| Compatibility | `--root R` starts discovery at `R`, resolves KernelRoot, ContextRoot, and the nominal WorkingRoot to the nearest canonical root, attributes existing Git commit fields to `GitEvidenceScope`, and keeps existing commands/receipts valid | A supplied discovery start falls back to cwd or installed product paths; an enclosing Git worktree gains lifecycle mutation authority; future exact role options search upward |
 | Context discovery | Nearest valid marker wins | Invalid inner marker falls outward, or discovery crosses nested `.git` |
 | Canonicalization | Equivalent permitted entrypoints produce one canonical identity for CLI and direct API calls | Link/reparse swaps or alias changes redirect a role after validation |
 | Start | Reads ContextRoot continuity and, in split mode, separately reports WorkingRoot identity/status/history | Writes any root, reads context state from WorkingRoot, or presents KernelRoot commits as user work |

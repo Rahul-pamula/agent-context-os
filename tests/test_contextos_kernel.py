@@ -163,6 +163,70 @@ class RootDiscoveryTest(unittest.TestCase):
         self.write_json(nested)
         self.assertEqual(nested, discover_root(nested))
 
+    def test_nested_context_root_reports_enclosing_git_evidence(self) -> None:
+        subprocess.run(["git", "init", "--quiet"], cwd=self.root, check=True)
+        tracked = self.root / "outer.txt"
+        tracked.write_text("outer repository\n", encoding="utf-8")
+        subprocess.run(["git", "add", "outer.txt"], cwd=self.root, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Context OS Tests",
+                "-c",
+                "user.email=context-os-tests@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            cwd=self.root,
+            check=True,
+        )
+        expected = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        nested = self.root / "nested-context"
+        nested.mkdir()
+        self.write_json(nested)
+
+        self.assertEqual(nested, discover_root(nested))
+        self.assertEqual(expected, start_report(nested, NOW)["git_head"])
+
+        subprocess.run(["git", "init", "--quiet"], cwd=nested, check=True)
+        subprocess.run(
+            ["git", "add", "contextos.workspace.json"], cwd=nested, check=True
+        )
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Context OS Tests",
+                "-c",
+                "user.email=context-os-tests@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "nested fixture",
+            ],
+            cwd=nested,
+            check=True,
+        )
+        nested_expected = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=nested,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        self.assertNotEqual(expected, nested_expected)
+        self.assertEqual(nested_expected, start_report(nested, NOW)["git_head"])
+
     def test_invalid_inner_json_never_falls_back_to_legacy_or_outer_root(self) -> None:
         self.write_json(self.root)
         inner = self.root / "inner"
@@ -1091,6 +1155,16 @@ with mock.patch("contextos.kernel._capture_transaction_before", side_effect=cras
             self._propose("setup", {"files": {"../outside.md": "no"}})
         with self.assertRaisesRegex(ContextOSError, "approved context paths"):
             self._propose("setup", {"files": {"scripts/unsafe.py": "no"}})
+
+    def test_setup_allows_portable_skill_prefix_through_propose_and_apply(self) -> None:
+        target = self.root / ".agents/skills/custom/SKILL.md"
+        proposal_path, proposal = self._propose(
+            "setup", {"files": {".agents/skills/custom/SKILL.md": "# Custom\n"}}
+        )
+
+        self._apply(proposal_path, proposal)
+
+        self.assertEqual("# Custom\n", target.read_text(encoding="utf-8"))
 
     def test_apply_revalidates_workflow_paths_for_handcrafted_proposal(self) -> None:
         proposal_path, proposal = self._propose("update", {"progress": ["One"]})

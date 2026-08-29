@@ -6,8 +6,9 @@ models, tool names, or native memory.
 
 The [root contract](root-contract.md) defines product assets (`KernelRoot`),
 durable lifecycle state (`ContextRoot`), and the active application repository
-(`WorkingRoot`). v0.12 deliberately supports their colocated compatibility mode;
-external project attachment requires a later versioned binding contract.
+(`WorkingRoot`). v0.12 deliberately supports their nominally colocated
+compatibility mode; external project attachment requires a later versioned
+binding contract.
 
 ## Layers
 

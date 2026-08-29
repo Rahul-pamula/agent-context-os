@@ -62,9 +62,10 @@ class DocumentationPositioningTests(unittest.TestCase):
         for role in ("KernelRoot", "ContextRoot", "WorkingRoot"):
             self.assertIn(role, contract)
         self.assertIn(
-            "KernelRoot == ContextRoot == WorkingRoot == canonical discovered root",
+            "KernelRoot == ContextRoot == nominal WorkingRoot == canonical discovered root",
             contract,
         )
+        self.assertIn("GitEvidenceScope", contract)
         self.assertIn("The only mutation authority", contract)
         self.assertIn("not a supported v0.12 lifecycle path", contract)
         self.assertIn("no tracked pointer", contract)
@@ -73,6 +74,10 @@ class DocumentationPositioningTests(unittest.TestCase):
         self.assertIn("enclosing Git worktree", contract)
         self.assertIn("deliberate exception", contract)
         self.assertIn("discovery start", contextos_parser().format_help())
+        self.assertIn(
+            "archive a complete copy",
+            self.text("docs/workspace-configuration.md").casefold(),
+        )
         for root in SETUP_ROOTS:
             self.assertIn(f"`{root}", contract)
         for filename in SETUP_FILES:

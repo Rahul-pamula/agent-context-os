@@ -4,8 +4,9 @@ Context OS separates repository intent from machine-local runtime state and
 per-operation evidence:
 
 All locations below are beneath the v0.12 `ContextRoot`. v0.12 uses the
-colocated root contract (`KernelRoot == ContextRoot == WorkingRoot`); it does
-not store or infer an external application-repository binding. See
+colocated root contract
+(`KernelRoot == ContextRoot == nominal WorkingRoot`); it does not store or
+infer an external application-repository binding. See
 [the root contract](root-contract.md).
 
 | Layer | Location | Meaning |
@@ -176,6 +177,18 @@ deletion retains a staging artifact, first confirm no apply is active. The
 containing `.context-os/staging/<proposal-id>` namespace is then disposable, but
 remove it only with a tool or filesystem that does not change shared-inode
 attributes. Journal paths remain subject to the recovery classifications above.
+
+An upgrade can expose a crash-left journal created by an older version whose
+configured target is now a protected product or host-control namespace. Current
+automatic recovery intentionally retains that journal and refuses to touch the
+target. Stop new applies and keep the evidence intact. Archive a complete copy
+of the journal outside the active `.context-os/journals/` directory, then use an
+explicitly reviewed incident-recovery procedure to restore the target's
+presence, bytes, and mode from an independently verified source. Only after
+verifying the restored target may that one named active journal be removed and
+`doctor` rerun. If the target cannot be independently restored and verified,
+retain the journal and escalate; do not rename it inside the active journal
+directory or delete it to unblock apply.
 
 ## Agent activation lifecycle
 

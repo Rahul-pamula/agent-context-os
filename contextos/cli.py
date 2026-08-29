@@ -50,7 +50,7 @@ def parser() -> argparse.ArgumentParser:
         type=Path,
         help=(
             "v0.12 discovery start for the nearest colocated Context OS root "
-            "(KernelRoot, ContextRoot, and WorkingRoot)"
+            "(KernelRoot, ContextRoot, and nominal WorkingRoot)"
         ),
     )
     result.add_argument("--version", action="version", version=__version__)

@@ -1227,7 +1227,10 @@ def render_setup(workspace: Workspace, payload: dict[str, Any], now: datetime) -
         path = safe_repo_path(workspace.root, raw_path)
         relative = relative_path(workspace.root, path)
         top = Path(relative).parts[0]
-        skill_path = len(Path(relative).parts) >= 3 and Path(relative).parts[:2] == (".agents", "skills")
+        skill_path = (
+            len(Path(relative).parts) >= 3
+            and Path(relative).parts[:2] == SETUP_SKILL_PREFIX
+        )
         if top not in SETUP_ROOTS and relative not in SETUP_FILES and not skill_path:
             raise ContextOSError(f"setup cannot write outside approved context paths: {relative}")
         content = ensure_text(raw_content, f"files[{raw_path}]").replace("{{TODAY}}", today)
