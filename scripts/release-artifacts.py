@@ -163,13 +163,17 @@ source archives are not the release artifact.
 
 Publisher identity: tag `{tag}`, commit `{commit}`.
 
-1. Obtain all five release assets through an authenticated or otherwise trusted
-   GitHub channel. The co-located files prove consistency, not publisher identity.
+1. Create one empty verification directory, obtain all five release assets in
+   that directory through an authenticated or otherwise trusted GitHub channel,
+   and make it the current directory. Keep the assets together throughout these
+   steps. The co-located files prove consistency, not publisher identity.
 2. Check the four payload digests listed in `{names['checksums']}` using
    `sha256sum -c {names['checksums']}` (or an equivalent SHA-256 tool).
-3. Extract `{names['archive']}` into a new directory. It has one root named
-   `{TEMPLATE_NAME}-v{version}`.
-4. From that extracted root, verify the detached lock without network access:
+3. Extract `{names['archive']}` directly in the current verification directory;
+   do not select a separate extraction destination. The archive creates one root
+   named `{TEMPLATE_NAME}-v{version}` beside the five assets.
+4. Change into that extracted root and verify the detached lock without network
+   access:
 
 ```bash
 python -m contextos bundle check \\

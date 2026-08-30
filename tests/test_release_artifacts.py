@@ -3,11 +3,14 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
+import sys
+import tarfile
 import tempfile
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from contextos.primitives import git_environment
 
@@ -28,14 +31,10 @@ class ReleaseFixture:
         self.root = root
         for directory in ("components", "contextos", "workspace", "runtimes", "dev"):
             (root / directory).mkdir(parents=True)
-        (root / "contextos/__init__.py").write_text(
-            '__version__ = "0.12.0"\n', encoding="utf-8"
-        )
-        (root / "contextos/workspace_schema.py").write_text(
-            'DEFAULT_TEMPLATE_VERSION = "0.12.0"\n'
-            'DEFAULT_TEMPLATE_SOURCE = "agent-context-os-template"\n',
-            encoding="utf-8",
-        )
+        contextos_paths = []
+        for source in sorted((ROOT / "contextos").glob("*.py")):
+            shutil.copyfile(source, root / "contextos" / source.name)
+            contextos_paths.append((f"contextos/{source.name}", "managed"))
         workspace = {
             "schema_version": 1,
             "mode": "full-template",
@@ -67,8 +66,7 @@ class ReleaseFixture:
         )
         paths = [
             ("components/manifest.json", "managed"),
-            ("contextos/__init__.py", "managed"),
-            ("contextos/workspace_schema.py", "managed"),
+            *contextos_paths,
             ("workspace/example.json", "managed"),
             ("runtimes/codex.json", "managed"),
             ("managed.txt", "managed"),
@@ -149,6 +147,61 @@ class ReleaseArtifactTest(unittest.TestCase):
         self.assertTrue((extracted / "seed.txt").is_file())
         self.assertFalse((extracted / "dev/test.txt").exists())
         self.assertFalse((extracted / "CHANGELOG.md").exists())
+
+    def test_generated_offline_command_works_in_documented_colocated_layout(self) -> None:
+        output = self.root / "offline-verification"
+        provenance = self.fixture.build(output)
+        names = release_artifacts.artifact_names("0.12.0")
+        instructions = (output / names["instructions"]).read_text(encoding="utf-8")
+        self.assertIn("obtain all five release assets in\n   that directory", instructions)
+        self.assertIn("do not select a separate extraction destination", instructions)
+        self.assertIn("beside the five assets", instructions)
+
+        with tarfile.open(output / names["archive"], mode="r:") as archive:
+            for member in archive.getmembers():
+                self.assertTrue(member.isfile())
+                destination = output.joinpath(*PurePosixPath(member.name).parts)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                payload = archive.extractfile(member)
+                self.assertIsNotNone(payload)
+                assert payload is not None
+                destination.write_bytes(payload.read())
+                if os.name != "nt":
+                    destination.chmod(member.mode)
+
+        extracted = output / "agent-context-os-template-v0.12.0"
+        environment = git_environment()
+        environment.pop("PYTHONPATH", None)
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "contextos",
+                "bundle",
+                "check",
+                "--lock",
+                f"../{names['lock']}",
+                "--source",
+                ".",
+                "--source-mode",
+                "directory",
+                "--expect-sha256",
+                provenance["bundle_lock"]["bundle_sha256"],
+            ],
+            cwd=extracted,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        report = json.loads(completed.stdout)
+        self.assertEqual(report["bundle_sha256"], provenance["bundle_lock"]["bundle_sha256"])
+        self.assertEqual(report["files"], provenance["archive"]["file_count"])
+        self.assertEqual(report["source_mode"], "directory")
+        self.assertTrue(report["unlocked_files_ignored"])
+        self.assertFalse(report["writes"])
+        self.assertEqual(report["executable_modes_verified"], os.name != "nt")
 
     def test_tampered_archive_and_unexpected_asset_fail(self) -> None:
         output = self.root / "release"
