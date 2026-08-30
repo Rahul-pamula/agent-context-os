@@ -167,27 +167,34 @@ class IntegrationCatalogTests(unittest.TestCase):
         self.assert_invalid(lambda catalog: catalog.update({"integrations": []}))
         self.assert_invalid(lambda catalog: catalog.update({"schema_version": 1}))
 
-    def test_trello_mcp_has_no_destructive_delete_surface(self) -> None:
+    def test_trello_mcp_types_overwrite_but_not_delete_surface(self) -> None:
         item = self.entry("trello-mcp")
         self.assertTrue(item["capabilities"]["read"])
         self.assertTrue(item["capabilities"]["sensitive_read"])
         self.assertTrue(item["capabilities"]["write"])
         self.assertTrue(item["capabilities"]["remote_write"])
         self.assertTrue(item["capabilities"]["oauth"])
-        self.assertFalse(item["capabilities"]["overwrite"])
+        self.assertTrue(item["capabilities"]["overwrite"])
+        self.assertTrue(item["capabilities"]["destructive"])
         self.assertFalse(item["capabilities"]["delete"])
-        self.assertFalse(item["capabilities"]["destructive"])
         self.assertFalse(item["capabilities"]["arbitrary_execution"])
-        for gate in ("credential_setup", "external_install", "read_sensitive", "write", "write_remote", "oauth"):
+        for gate in ("credential_setup", "external_install", "read_sensitive", "write", "write_remote", "overwrite", "oauth", "destructive"):
             self.assertIn(gate, item["confirmation"]["required_for"])
-        self.assertNotIn("destructive", item["confirmation"]["required_for"])
         self.assertNotIn("delete", item["confirmation"]["required_for"])
+        self.assertIn("overwrite-capable", item["risk_tags"])
+        self.assertIn("destructive-capable", item["risk_tags"])
+        self.assertNotIn("delete-capable", item["risk_tags"])
         for agent in ("claude_code", "cursor", "gemini_cli", "generic"):
             self.assertIn(agent, item["supported_agents"])
         self.assertNotIn("codex", item["supported_agents"])
         details = " ".join(item["capabilities"]["details"])
         self.assertIn("https://mcp.trello.com/v1", details)
         self.assertIn("archived but not permanently destroyed", details)
+        reads = " ".join(item["data_boundary"]["reads"])
+        self.assertIn("account-level", reads.casefold())
+        self.assertIn("Google or Outlook", reads)
+        writes = " ".join(item["data_boundary"]["writes"])
+        self.assertIn("Trello Premium or Enterprise", writes)
         self.assertTrue(
             any(
                 url
