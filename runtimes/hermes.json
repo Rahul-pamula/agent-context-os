@@ -2,8 +2,8 @@
   "schema_version": 2,
   "runtime": "hermes",
   "display_name": "Hermes Agent",
-  "support_tier": "first-class",
-  "support_summary": "Shared lifecycle through portable skills, advisory hooks, MCP, and separate Hermes-native memory",
+  "support_tier": "experimental",
+  "support_summary": "Deterministic adapter and kernel conformance; installed-client model inference remains unverified, with advisory hooks and separate native memory",
   "components": ["core", "portable-skills", "agents-instructions", "hermes-adapter"],
   "install": {
     "mode": "skill-copy-or-external-directory",
@@ -17,7 +17,7 @@
   "surfaces": {
     "cli": {
       "kind": "cli",
-      "support_tier": "first-class",
+      "support_tier": "experimental",
       "instruction_sources": [
         {"scope": "repository", "role": "canonical", "path": "AGENTS.md", "precedence": 100}
       ],
@@ -55,7 +55,7 @@
   },
   "evidence": {
     "checked_on": "2026-08-24",
-    "tested_versions": [{"surface": "cli", "version": "0.20.5"}],
+    "tested_versions": [],
     "sources": [
       {
         "id": "hermes-overview",

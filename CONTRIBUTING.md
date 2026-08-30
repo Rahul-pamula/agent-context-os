@@ -139,6 +139,11 @@ Update `CHANGELOG.md` whenever you add, remove, or significantly change a file.
 Use each applicable `Added`, `Changed`, `Fixed`, or `Removed` heading at most
 once per release block, and list each public behavior change once.
 
+Release maintainers must follow [`docs/release-process.md`](docs/release-process.md).
+The tag and staged assets are created only after the Linux and Windows candidate
+gates pass; the draft is published only after both platforms verify the exact
+downloaded release assets.
+
 ## Pull requests
 
 - Branch from `main`. Keep one concern per pull request.

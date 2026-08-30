@@ -52,6 +52,10 @@
                     "policy": "development"
                 },
                 {
+                    "path": ".github/workflows/release.yml",
+                    "policy": "development"
+                },
+                {
                     "path": ".gitignore",
                     "policy": "managed"
                 },
@@ -196,6 +200,14 @@
                     "policy": "managed"
                 },
                 {
+                    "path": "docs/release-process.md",
+                    "policy": "managed"
+                },
+                {
+                    "path": "docs/releases/v0.12.0.md",
+                    "policy": "managed"
+                },
+                {
                     "path": "docs/root-contract.md",
                     "policy": "managed"
                 },
@@ -328,6 +340,10 @@
                     "policy": "development"
                 },
                 {
+                    "path": "scripts/release-artifacts.py",
+                    "policy": "development"
+                },
+                {
                     "path": "scripts/pre-commit-hook.sh",
                     "policy": "managed"
                 },
@@ -409,6 +425,10 @@
                 },
                 {
                     "path": "tests/test_materializer.py",
+                    "policy": "development"
+                },
+                {
+                    "path": "tests/test_release_artifacts.py",
                     "policy": "development"
                 },
                 {

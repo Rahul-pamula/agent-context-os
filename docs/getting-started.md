@@ -2,14 +2,15 @@
 
 Context OS can begin with a blank interview or selected context from another
 assistant. The result is a small, reviewable repository that Claude Code,
-Codex, Hermes, and OpenClaw, plus the experimental Cursor adapter, can use as
-shared state.
+Codex, and OpenClaw, plus the experimental Hermes, Cursor, and Devin adapters,
+can use as shared state.
 
 ## Before you clone
 
 You need Git, Bash, and Python 3.10 or newer. Local hosts include Claude Code,
-Codex, Hermes, OpenClaw, and Cursor; verify Devin's managed cloud path separately
-in its account UI. claude.ai cannot maintain a local checkout directly.
+Codex, OpenClaw, and the experimental Hermes and Cursor adapters; verify Devin's
+managed cloud path separately in its account UI. claude.ai cannot maintain a
+local checkout directly.
 
 Python may be installed as either `python3` or `python`; the repository resolves
 whichever works. To pin a specific interpreter — a virtualenv, or one of several

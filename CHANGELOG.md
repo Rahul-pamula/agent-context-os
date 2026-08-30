@@ -2,7 +2,20 @@
 
 ## [Unreleased]
 
-### Changed
+---
+
+## [0.12.0] — 2026-08-29 — Immutable full-template release
+
+v0.12.0 publishes the colocated full-template, full-component-closure contract.
+It does not claim external repository attachment or a durable slim workspace
+profile; those require later binding and workspace-schema revisions.
+
+### Release contract
+- Release qualification now distinguishes deterministic adapter/kernel
+  conformance from installed-client execution. Hermes 0.20.5 was installed and
+  its deterministic lifecycle passed, but its retained live run did not complete
+  model inference; Hermes is experimental and that attempt is not counted as
+  successful installed-client conformance.
 - Git-index bundle verification now streams locked blobs through one bounded
   `git cat-file --batch` process per pass, retains only requested candidate
   write payloads, discards current-bundle payloads after validation, and removes
@@ -34,6 +47,11 @@
   README support claims, plus strict maintainer and conformance checks.
 
 ### Added
+- Deterministic v0.12 release tooling and a gated manual workflow build the exact
+  full component closure twice from a clean Linux Git index, bind archive, lock,
+  version, tag, commit, provenance, and offline instructions, verify candidate
+  bytes on Linux and Windows before creating a tag or draft, then verify the
+  exact staged assets on both platforms before immutable publication.
 - Digest-bound bundle composition and upgrade proposals that materialize binary
   and text component files through the existing journal, receipt, recovery, and
   rollback engine. Clean composition writes workspace configuration in the same
@@ -188,7 +206,7 @@
 
 ### Changed
 - **Repository renamed `claude-context-os` → `agent-context-os`.** Self-references updated across the README (badges, clone commands, UTM), docs, setup remote check, test fixtures, and the og-image SVG; old GitHub URLs redirect automatically. Re-render and re-upload `docs/assets/og-image.png` via Settings → Social preview.
-- Added first-class Hermes Agent support: an AGENTS.md Hermes section (Hermes loads `AGENTS.md` as project rules), a memory-mapping guide (`docs/memory-across-agents.md`) covering native Hermes memory and its Curator versus repository state and `/dream`, a hooks-equivalents note, and a new [memory across agents](docs/memory-across-agents.md) README row in host support.
+- Added an experimental Hermes Agent adapter: an AGENTS.md Hermes section (Hermes loads `AGENTS.md` as project rules), a memory-mapping guide (`docs/memory-across-agents.md`) covering native Hermes memory and its Curator versus repository state and `/dream`, a hooks-equivalents note, and a new [memory across agents](docs/memory-across-agents.md) README row in host support.
 - `scripts/setup.sh` now detects and offers to launch Claude Code, Codex, Hermes, Cursor CLI, or OpenClaw (`--agent auto|claude|codex|hermes|cursor|openclaw|none`), with per-host next steps.
 - The public product name and repository slug are now `agent-context-os`; historical `claude-context-os` URLs continue to redirect.
 - The README now follows the complete user journey: privacy-aware setup, selective import, honest host support, opt-in integrations, maintenance, and a task-based documentation map.

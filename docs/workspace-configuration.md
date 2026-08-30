@@ -44,8 +44,10 @@ means core-only. The CLI token `none` maps to that empty set but is never stored
 intent. `generic` is reserved for operation receipts and is not a runtime ID.
 
 Version 1 intentionally uses only `full-template`. Selecting agents records
-intent and controls bare `doctor` validation scope. Removal of unselected
-adapters remains later transaction-backed work.
+intent and controls bare `doctor` validation scope. Activation and disable never
+remove adapter files. A low-level detached-bundle materializer exists, but a
+durable desired slim closure and supported slim reconciliation require workspace
+schema v2.
 
 The public template ships `workspace/example.json` with `agents: []`, but no
 live root configuration. This avoids overriding an existing clone's legacy YAML
