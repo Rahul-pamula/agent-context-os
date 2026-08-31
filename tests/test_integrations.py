@@ -183,6 +183,8 @@ class IntegrationCatalogTests(unittest.TestCase):
         self.assertNotIn("delete", item["confirmation"]["required_for"])
         self.assertIn("overwrite-capable", item["risk_tags"])
         self.assertIn("destructive-capable", item["risk_tags"])
+        self.assertIn("connected-sources", item["risk_tags"])
+        self.assertIn("account-level", item["risk_tags"])
         self.assertNotIn("delete-capable", item["risk_tags"])
         for agent in ("claude_code", "cursor", "gemini_cli", "generic"):
             self.assertIn(agent, item["supported_agents"])
@@ -190,17 +192,30 @@ class IntegrationCatalogTests(unittest.TestCase):
         details = " ".join(item["capabilities"]["details"])
         self.assertIn("https://mcp.trello.com/v1", details)
         self.assertIn("archived but not permanently destroyed", details)
+        self.assertIn("account-level Inbox and Planner", item["summary"])
+        credentials = " ".join(item["data_boundary"]["credentials"])
+        self.assertIn("account-level Inbox and Planner", credentials)
         reads = " ".join(item["data_boundary"]["reads"])
         self.assertIn("account-level", reads.casefold())
         self.assertIn("Google or Outlook", reads)
         writes = " ".join(item["data_boundary"]["writes"])
+        self.assertIn(
+            "Remote list creation, move, and archive",
+            item["data_boundary"]["writes"],
+        )
+        self.assertNotIn("list creation is not supported", writes)
         self.assertIn("Trello Premium or Enterprise", writes)
+        self.assertIn("account-level Inbox and Planner", item["health_check"])
         self.assertTrue(
             any(
                 url
                 == "https://support.atlassian.com/trello/docs/connect-trello-to-ai-assistants-with-trello-mcp/"
                 for url in item["evidence"]
             )
+        )
+        self.assertIn(
+            "https://github.com/atlassian/trello-mcp-server/blob/d37a70182902b71f36821f140d92c22c3a9f74a4/skills/trello-use/SKILL.md",
+            item["evidence"],
         )
 
     def test_agent_skills_discloses_replacement_removal_and_uninstall_loss(self) -> None:

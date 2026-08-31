@@ -20,7 +20,7 @@ These add-ons are **references, not bundled dependencies**. Setup does not insta
 | [Readwise MCP](https://docs.readwise.io/tools/mcp) | `mcp_server` | verified | Yes | Yes | No | Yes | Yes | 2026-08-18 |
 | [Substack MCP](https://github.com/conorbronsdon/substack-mcp) | `mcp_server` | verified | Yes | Yes | Yes | Yes | No | 2026-08-15 |
 | [Tolaria MCP](https://github.com/refactoringhq/tolaria) | `local_workspace` | verified | Yes | No | No | Yes | Yes | 2026-08-15 |
-| [Trello MCP](https://support.atlassian.com/trello/docs/connect-trello-to-ai-assistants-with-trello-mcp/) | `mcp_server` | verified | Yes | Yes | No | Yes | Yes | 2026-08-29 |
+| [Trello MCP](https://support.atlassian.com/trello/docs/connect-trello-to-ai-assistants-with-trello-mcp/) | `mcp_server` | verified | Yes | Yes | No | Yes | Yes | 2026-08-30 |
 
 ## Agent Skills
 
@@ -394,25 +394,25 @@ Capabilities and limits:
 
 ## Trello MCP
 
-Trello's official cloud-hosted MCP server for reading, searching, and managing boards, lists, cards, checklists, inbox cards, and planner events in a single OAuth-authorized workspace.
+Trello's official cloud-hosted MCP server for workspace-scoped boards, lists, cards, and checklists plus account-level Inbox and Planner access under per-user OAuth.
 
 - **Supported agents:** `claude_code`, `cursor`, `gemini_cli`, `generic`
 - **Install scope:** `project_or_user`; never automatic
 - **Prerequisites:** A Trello account on any plan; An MCP client supporting remote Streamable HTTP and browser OAuth
-- **Credentials:** Per-user OAuth 2.0 consent authorizing a single Trello workspace, managed by the MCP client and hosted service
+- **Credentials:** Per-user OAuth 2.0 consent authorizing one Trello workspace plus separately controlled account-level Inbox and Planner permissions, managed by the MCP client and hosted service
 - **Reads:** Sensitive workspace boards, lists, cards, labels, checklists, members, and search results allowed to the connected user in the authorized workspace; Account-level Inbox cards and Planner calendar events, including events read from a connected Google or Outlook calendar, which follow organization controls and can remain available without a connected workspace
-- **Writes / external effects:** Remote board creation (board update, move, and archive are not supported); Remote list moves (list creation is not supported); Remote card creation, update, move, archive, mark-done, and label attach or detach; Remote checklist creation and update, plus checklist-item add and update; Remote Inbox card creation, update, and archive; Planner focus-time event creation and card link or unlink, which requires Trello Premium or Enterprise
+- **Writes / external effects:** Remote board creation (board update, move, and archive are not supported); Remote list creation, move, and archive; Remote card creation, update, move, archive, mark-done, and label attach or detach; Remote checklist creation and update, plus checklist-item add and update; Remote Inbox card creation, update, and archive; Planner focus-time event creation and card link or unlink, which requires Trello Premium or Enterprise
 - **Typed safety signals:** sensitive read, remote write, overwrite, oauth
 - **Required confirmation gates:** `credential_setup`, `external_install`, `read_sensitive`, `write`, `write_remote`, `overwrite`, `oauth`, `destructive`
 - **Confirmation:** Confirm the exact Trello account, workspace, and OAuth permissions during connection; ask before broad board or search reads, show the exact board, list, card, checklist, Inbox card, or planner field change before every remote create, update, move, archive, link, or unlink, and separately confirm account-level Inbox and Planner access plus any connected Google or Outlook calendar.
 - **Risk tags:** `credentials`, `hosted`, `project-management`, `sensitive-read`, `remote-write`, `overwrite-capable`, `oauth`, `destructive-capable`, `connected-sources`, `account-level`, `prompt-injection`
-- **Evidence:** [1](https://support.atlassian.com/trello/docs/connect-trello-to-ai-assistants-with-trello-mcp/); [2](https://github.com/atlassian/trello-mcp-server)
+- **Evidence:** [1](https://support.atlassian.com/trello/docs/connect-trello-to-ai-assistants-with-trello-mcp/); [2](https://github.com/atlassian/trello-mcp-server/blob/d37a70182902b71f36821f140d92c22c3a9f74a4/skills/trello-use/SKILL.md)
 - **Health check:** After OAuth, read the connected member profile and one explicitly named board to confirm the authorized workspace and its read/write permissions, then separately verify account-level Inbox and Planner access and any connected Google or Outlook calendar before any search, write, move, archive, link, or unlink.
 - **Uninstall:** Remove the Trello MCP entry from the MCP client and revoke the authorized connection in Trello; archived cards and lists remain in place unless the user manages them separately in Trello. (removes user data: No)
 
 Capabilities and limits:
 
-- Use the official hosted endpoint https://mcp.trello.com/v1 and authorize exactly one workspace on the OAuth consent screen; the connection cannot act beyond the connected user's Trello permissions
+- Use the official hosted endpoint https://mcp.trello.com/v1 and authorize exactly one workspace for boards, lists, cards, and checklists; separately review account-level Inbox and Planner permissions, and note that the connection cannot act beyond the connected user's Trello permissions
 - Cards and lists can be archived but not permanently destroyed; archiving is the strongest action the server exposes
 - Card, checklist, checklist-item, and Inbox card updates replace existing remote field values, so type them as overwrite-capable and destructive and show the exact field change before every create, update, move, archive, link, or unlink
 - Inbox and Planner permissions are account-level and tied to organization controls, so they can remain available even without a connected workspace; Planner can read events from a connected Google or Outlook calendar, and creating focus time requires Trello Premium or Enterprise
