@@ -27,7 +27,7 @@ class IntegrationCatalogTests(unittest.TestCase):
     def test_catalog_has_expected_entries_and_visible_safety_columns(self) -> None:
         rendered = MODULE.render_reference(self.catalog)
         self.assertEqual(self.catalog["schema_version"], 2)
-        self.assertEqual(len(self.catalog["integrations"]), 15)
+        self.assertEqual(len(self.catalog["integrations"]), 16)
         self.assertTrue(
             {
                 "github-mcp",
@@ -166,6 +166,57 @@ class IntegrationCatalogTests(unittest.TestCase):
     def test_empty_catalog_and_old_schema_are_rejected(self) -> None:
         self.assert_invalid(lambda catalog: catalog.update({"integrations": []}))
         self.assert_invalid(lambda catalog: catalog.update({"schema_version": 1}))
+
+    def test_trello_mcp_types_overwrite_but_not_delete_surface(self) -> None:
+        item = self.entry("trello-mcp")
+        self.assertTrue(item["capabilities"]["read"])
+        self.assertTrue(item["capabilities"]["sensitive_read"])
+        self.assertTrue(item["capabilities"]["write"])
+        self.assertTrue(item["capabilities"]["remote_write"])
+        self.assertTrue(item["capabilities"]["oauth"])
+        self.assertTrue(item["capabilities"]["overwrite"])
+        self.assertTrue(item["capabilities"]["destructive"])
+        self.assertFalse(item["capabilities"]["delete"])
+        self.assertFalse(item["capabilities"]["arbitrary_execution"])
+        for gate in ("credential_setup", "external_install", "read_sensitive", "write", "write_remote", "overwrite", "oauth", "destructive"):
+            self.assertIn(gate, item["confirmation"]["required_for"])
+        self.assertNotIn("delete", item["confirmation"]["required_for"])
+        self.assertIn("overwrite-capable", item["risk_tags"])
+        self.assertIn("destructive-capable", item["risk_tags"])
+        self.assertIn("connected-sources", item["risk_tags"])
+        self.assertIn("account-level", item["risk_tags"])
+        self.assertNotIn("delete-capable", item["risk_tags"])
+        for agent in ("claude_code", "cursor", "gemini_cli", "generic"):
+            self.assertIn(agent, item["supported_agents"])
+        self.assertNotIn("codex", item["supported_agents"])
+        details = " ".join(item["capabilities"]["details"])
+        self.assertIn("https://mcp.trello.com/v1", details)
+        self.assertIn("archived but not permanently destroyed", details)
+        self.assertIn("account-level Inbox and Planner", item["summary"])
+        credentials = " ".join(item["data_boundary"]["credentials"])
+        self.assertIn("account-level Inbox and Planner", credentials)
+        reads = " ".join(item["data_boundary"]["reads"])
+        self.assertIn("account-level", reads.casefold())
+        self.assertIn("Google or Outlook", reads)
+        writes = " ".join(item["data_boundary"]["writes"])
+        self.assertIn(
+            "Remote list creation, move, and archive",
+            item["data_boundary"]["writes"],
+        )
+        self.assertNotIn("list creation is not supported", writes)
+        self.assertIn("Trello Premium or Enterprise", writes)
+        self.assertIn("account-level Inbox and Planner", item["health_check"])
+        self.assertTrue(
+            any(
+                url
+                == "https://support.atlassian.com/trello/docs/connect-trello-to-ai-assistants-with-trello-mcp/"
+                for url in item["evidence"]
+            )
+        )
+        self.assertIn(
+            "https://github.com/atlassian/trello-mcp-server/blob/d37a70182902b71f36821f140d92c22c3a9f74a4/skills/trello-use/SKILL.md",
+            item["evidence"],
+        )
 
     def test_agent_skills_discloses_replacement_removal_and_uninstall_loss(self) -> None:
         item = self.entry("agent-skills")
