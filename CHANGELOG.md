@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+- `shortcut-mcp` integration catalog entry for Shortcut's hosted MCP server with
+  granular OAuth scopes and dedicated read-only mode (#49).
+
 ---
 
 ## [0.12.0] — 2026-08-29 — Immutable full-template release
