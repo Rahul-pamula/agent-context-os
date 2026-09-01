@@ -783,7 +783,7 @@
         "arbitrary_execution": false,
         "oauth": true,
         "destructive": true,
-        "details": ["Start with the dedicated read OAuth scope for read-only story and epic search", "The hosted service supports granular write, story-write, and comment-write OAuth scopes for explicit creation and update workflows", "The open-source repository is archived but the hosted https://mcp.shortcut.com/mcp service remains actively documented", "The server exposes no destructive card operations; archiving remains within standard Shortcut workflows"]
+        "details": ["Start with the dedicated read OAuth scope for read-only story and epic search", "The hosted service supports granular write, story-write, and comment-write OAuth scopes for explicit creation and update workflows", "The open-source repository is archived but the hosted https://mcp.shortcut.com/mcp service remains actively documented", "The documented surface is overwrite-capable but includes no permanently destructive operations; archiving remains within standard Shortcut workflows"]
       },
       "confirmation": {
         "required_for": ["credential_setup", "external_install", "read_sensitive", "write", "write_remote", "overwrite", "oauth", "destructive"],
