@@ -55,11 +55,15 @@ def _canonical_directory(value: Path | str, field: str) -> Path:
 
 
 def _contains(parent: Path, child: Path) -> bool:
-    try:
-        child.relative_to(parent)
-    except ValueError:
-        return False
-    return True
+    for candidate in (child, *child.parents):
+        try:
+            if os.path.samefile(parent, candidate):
+                return True
+        except OSError as exc:
+            raise AttachmentError(
+                f"cannot compare root ancestor identity: {exc}"
+            ) from exc
+    return False
 
 
 def resolve_root_roles(

@@ -255,6 +255,26 @@ class AttachmentLifecycleTest(unittest.TestCase):
             validate_proposal(proposal)
             _validate_project_proposal_shape(self.context_root, proposal)
 
+        binding_path, binding_proposal = create_project_attachment_proposal(
+            self.roles,
+            "replace-binding-app",
+            datetime.fromisoformat("2026-08-31T10:01:00-07:00"),
+        )
+        binding_change = binding_proposal["changes"][1]
+        binding_change["before_raw_sha256"] = "0" * 64
+        binding_change["before_mode"] = binding_change["after_mode"]
+        unsigned = dict(binding_proposal)
+        unsigned.pop("proposal_digest")
+        binding_proposal["proposal_digest"] = sha256_text(canonical_json(unsigned))
+        binding_path.write_text(
+            json.dumps(binding_proposal, indent=2) + "\n", encoding="utf-8"
+        )
+        with self.assertRaisesRegex(
+            ContextOSError, "project-attach must create a new local binding"
+        ):
+            validate_proposal(binding_proposal)
+            _validate_project_proposal_shape(self.context_root, binding_proposal)
+
     def test_cli_attach_apply_and_start_use_exact_roles(self) -> None:
         roots = [
             "--kernel-root", str(KERNEL_ROOT),

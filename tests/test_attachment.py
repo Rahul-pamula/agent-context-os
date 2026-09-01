@@ -6,9 +6,11 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from contextos.attachment import (
     AttachmentError,
+    _contains,
     create_local_binding,
     create_tracked_manifest,
     git_evidence,
@@ -150,6 +152,19 @@ class AttachmentTest(unittest.TestCase):
                 context_root=self.context,
                 working_root=link,
             )
+
+    def test_overlap_uses_filesystem_identity_not_lexical_case(self) -> None:
+        parent = Path("/Volumes/Application")
+        child = Path("/volumes/application/context")
+
+        def samefile(left: Path, right: Path) -> bool:
+            return str(left).casefold() == str(right).casefold()
+
+        with mock.patch(
+            "contextos.attachment.os.path.samefile", side_effect=samefile
+        ) as identity_check:
+            self.assertTrue(_contains(parent, child))
+            self.assertGreater(identity_check.call_count, 0)
 
     def test_tracked_manifest_is_closed_portable_and_contains_no_path(self) -> None:
         manifest = self.manifest()

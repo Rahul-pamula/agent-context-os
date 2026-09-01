@@ -1945,14 +1945,19 @@ def _validate_project_proposal_shape(
             raise ContextOSError(f"project attachment authorization mismatch: {relative}")
         if (
             operation == PROJECT_ATTACH_OPERATION
-            and relative == manifest_relative
+            and relative in {manifest_relative, PROJECT_BINDING_PATH}
             and (
                 change.get("before_raw_sha256") is not None
                 or change.get("before_mode") is not None
             )
         ):
+            target = (
+                "tracked project manifest"
+                if relative == manifest_relative
+                else "local binding"
+            )
             raise ContextOSError(
-                "project-attach must create a new tracked project manifest"
+                f"project-attach must create a new {target}"
             )
         after_text = ensure_text(change.get("after_text"), f"changes[{index}].after_text")
         if change.get("after_raw_sha256") != sha256_bytes(after_text.encode("utf-8")):
