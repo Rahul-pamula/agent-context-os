@@ -18,6 +18,7 @@ These add-ons are **references, not bundled dependencies**. Setup does not insta
 | [Obsidian CLI](https://obsidian.md/help/cli) | `editor_guide` | verified | Yes | Yes | Yes | Yes | Yes | 2026-08-15 |
 | [Pandoc](https://github.com/jgm/pandoc) | `connector` | verified | Yes | No | No | Yes | Yes | 2026-08-25 |
 | [Readwise MCP](https://docs.readwise.io/tools/mcp) | `mcp_server` | verified | Yes | Yes | No | Yes | Yes | 2026-08-18 |
+| [Shortcut MCP](https://www.shortcut.com/help/integrations/mcp-server/) | `mcp_server` | verified | Yes | Yes | No | Yes | Yes | 2026-08-30 |
 | [Substack MCP](https://github.com/conorbronsdon/substack-mcp) | `mcp_server` | verified | Yes | Yes | Yes | Yes | No | 2026-08-15 |
 | [Tolaria MCP](https://github.com/refactoringhq/tolaria) | `local_workspace` | verified | Yes | No | No | Yes | Yes | 2026-08-15 |
 | [Trello MCP](https://support.atlassian.com/trello/docs/connect-trello-to-ai-assistants-with-trello-mcp/) | `mcp_server` | verified | Yes | Yes | No | Yes | Yes | 2026-08-30 |
@@ -343,6 +344,31 @@ Capabilities and limits:
 - Use the current https://mcp2.readwise.io/mcp endpoint; the older Readwise-only MCP is deprecated
 - The server indexes both Readwise highlights and Reader documents, so connecting it exposes a broader personal knowledge boundary than a single selected document
 - No separate read-only endpoint is documented; treat organizing, bulk editing, updating, and deleting tools as disabled by policy until the user requests a specific change
+
+## Shortcut MCP
+
+Shortcut's hosted MCP server for stories, epics, iterations, objectives, and docs with granular OAuth scopes including a dedicated read-only scope.
+
+- **Supported agents:** `claude_code`, `codex`, `cursor`, `generic`
+- **Install scope:** `project_or_user`; never automatic
+- **Prerequisites:** A Shortcut account and workspace; An MCP client supporting remote Streamable HTTP and browser OAuth; An authorized Shortcut workspace
+- **Credentials:** OAuth 2.0 token managed by the MCP client for the authorized Shortcut workspace
+- **Reads:** Sensitive Shortcut stories, epics, iterations, objectives, teams, members, workflows, and docs across the authorized workspace
+- **Writes / external effects:** Remote creation of stories, epics, iterations, and docs in the authorized workspace; Overwrite-capable updates to existing story descriptions, assignees, estimates, workflows, or doc contents
+- **Typed safety signals:** sensitive read, remote write, overwrite, oauth
+- **Required confirmation gates:** `credential_setup`, `external_install`, `read_sensitive`, `write`, `write_remote`, `overwrite`, `oauth`, `destructive`
+- **Confirmation:** Confirm the target Shortcut workspace before reading sensitive project state; show proposed story, epic, or doc changes before executing writes, and prefer the dedicated read OAuth scope for session briefings.
+- **Risk tags:** `credentials`, `hosted`, `project-management`, `sensitive-read`, `remote-write`, `overwrite-capable`, `oauth`, `destructive-capable`, `prompt-injection`
+- **Evidence:** [1](https://www.shortcut.com/help/integrations/mcp-server/)
+- **Health check:** Connect to https://mcp.shortcut.com/mcp using the read scope, verify authorized workspace and user identity, then fetch one explicitly named story or epic without modifying content.
+- **Uninstall:** Remove the Shortcut MCP entry from the client and revoke the authorized application connection in Shortcut account settings; preserve all workspace, story, epic, and doc data. (removes user data: No)
+
+Capabilities and limits:
+
+- Start with the dedicated read OAuth scope for read-only story and epic search
+- The hosted service supports granular write, story-write, and comment-write OAuth scopes for explicit creation and update workflows
+- The open-source repository is archived but the hosted https://mcp.shortcut.com/mcp service remains actively documented
+- The server exposes no destructive card operations; archiving remains within standard Shortcut workflows
 
 ## Substack MCP
 
