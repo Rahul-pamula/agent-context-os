@@ -340,6 +340,10 @@
                     "policy": "development"
                 },
                 {
+                    "path": "scripts/publish-release.py",
+                    "policy": "development"
+                },
+                {
                     "path": "scripts/release-artifacts.py",
                     "policy": "development"
                 },
@@ -425,6 +429,10 @@
                 },
                 {
                     "path": "tests/test_materializer.py",
+                    "policy": "development"
+                },
+                {
+                    "path": "tests/test_publish_release.py",
                     "policy": "development"
                 },
                 {
