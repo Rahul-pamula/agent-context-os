@@ -13,6 +13,7 @@ Nothing in this guide installs, activates, authenticates, or grants permissions 
 | Discover creator-oriented tools without installing one | [AI Tools for Creators](../references/integrations.md#ai-tools-for-creators) | Listings can drift and are not endorsements |
 | Inspect repositories, issues, pull requests, or CI context | [GitHub MCP](../references/integrations.md#github-mcp) | Private-repository reads, public comments, branch or file changes, and enabled toolsets |
 | Read or update product work in Linear | [Linear MCP](../references/integrations.md#linear-mcp) | Workspace-wide reads and remote issue, project, relationship, or comment changes |
+| Read or manage Trello boards, lists, and cards | [Trello MCP](../references/integrations.md#trello-mcp) | OAuth 2.0 consent for one workspace plus account-level Inbox/Planner access, connected-calendar reads, and remote create/update/move/archive writes |
 | Search a personal reading library or organize highlights | [Readwise MCP](../references/integrations.md#readwise-mcp) | Full-library indexing, sensitive reading history, bulk edits, and highlight deletion |
 | Read calendar, email, Drive, or Sheets data | [Google Workspace CLI](../references/integrations.md#google-workspace-cli) | OAuth identity, sensitive reads, and the CLI's broader write-capable surface |
 | Search or change a Notion workspace | [Notion MCP](../references/integrations.md#notion-mcp) | OAuth, sensitive and connected-source reads, remote writes, and overwrite-capable updates |

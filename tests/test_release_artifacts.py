@@ -254,7 +254,7 @@ class ReleaseArtifactTest(unittest.TestCase):
                 tag="v0.12.1", commit=self.fixture.commit,
             )
 
-    def test_workflow_requires_both_platforms_before_tag_and_publication(self) -> None:
+    def test_workflow_requires_both_platforms_before_tag_and_verified_draft(self) -> None:
         workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
         self.assertIn(
             "needs: [verify-candidate-linux, verify-candidate-windows]", workflow
@@ -262,33 +262,42 @@ class ReleaseArtifactTest(unittest.TestCase):
         self.assertIn(
             "needs: [stage-draft, verify-draft-linux, verify-draft-windows]", workflow
         )
-        self.assertLess(workflow.index("stage-draft:"), workflow.index("publish:"))
+        self.assertLess(workflow.index("stage-draft:"), workflow.index("ready-to-publish:"))
         self.assertNotIn("always()", workflow)
         self.assertEqual(workflow.count("contents: write"), 4)
         self.assertIn('-f "ref=refs/tags/$TAG"', workflow)
         self.assertIn("--verify-tag", workflow)
         self.assertNotIn('--target "$RELEASE_COMMIT"', workflow)
+        self.assertIn("retention-days: 7", workflow)
         build = workflow.split("  build-linux:", 1)[1].split(
             "  verify-candidate-linux:", 1
         )[0]
         self.assertNotIn("chmod +x", build)
-        publish = workflow.split("  publish:", 1)[1]
+        self.assertIn('test "$GITHUB_REF" = refs/heads/main', build)
+        self.assertIn('test "$GITHUB_SHA" = "$RELEASE_COMMIT"', build)
+        final = workflow.split("  ready-to-publish:", 1)[1]
         self.assertLess(
-            publish.index('gh release download "$TAG"'),
-            publish.index('gh api --method PATCH'),
+            final.index("actions/download-artifact@"),
+            final.index('gh release download "$TAG"'),
         )
         self.assertLess(
-            publish.index("scripts/release-artifacts.py verify"),
-            publish.index('gh api --method PATCH'),
+            final.index("scripts/release-artifacts.py verify"),
+            final.index('item["digest"] == "sha256:"'),
         )
-        self.assertLess(
-            publish.index('item["digest"] == "sha256:"'),
-            publish.index('gh api --method PATCH'),
-        )
+        self.assertIn('diff --recursive --brief "$RUNNER_TEMP/candidate-assets"', final)
+        self.assertIn('value["draft"] is True', final)
+        self.assertIn('value["prerelease"] is False', final)
         self.assertIn("release_id: ${{ steps.stage.outputs.release_id }}", workflow)
-        self.assertIn('"repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"', publish)
-        self.assertNotIn('releases/tags/$TAG', publish)
-        self.assertIn("already_published=true", publish)
+        self.assertIn('"repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"', final)
+        self.assertNotIn('releases/tags/$TAG', final)
+        self.assertNotIn("\n  publish:", workflow)
+        self.assertNotIn("immutable-releases", workflow)
+        self.assertNotIn("gh api --method PATCH", workflow)
+        self.assertNotIn("draft=false", workflow)
+        self.assertNotIn("make_latest=true", workflow)
+        self.assertNotIn("gh release verify", workflow)
+        self.assertNotIn("already_published", workflow)
+        self.assertNotIn("secrets.", workflow)
         action_references = [
             line.strip().split("uses: ", 1)[1].split(" #", 1)[0]
             for line in workflow.splitlines() if "uses: actions/" in line
