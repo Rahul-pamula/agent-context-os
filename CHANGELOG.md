@@ -2,13 +2,9 @@
 
 ## [Unreleased]
 
-### Added
-- `shortcut-mcp` integration catalog entry for Shortcut's hosted MCP server with
-  granular OAuth scopes and dedicated read-only mode (#49).
-
 ---
 
-## [0.12.0] — 2026-08-29 — Immutable full-template release
+## [0.12.0] — 2026-08-31 — Immutable full-template release
 
 v0.12.0 publishes the colocated full-template, full-component-closure contract.
 It does not claim external repository attachment or a durable slim workspace
@@ -86,6 +82,9 @@ profile; those require later binding and workspace-schema revisions.
 - A reviewed Pandoc catalog entry with a bounded non-PDF profile, explicit network and sensitive-read boundaries, PDF-engine execution guidance, and overwrite confirmation.
 - A reviewed MarkItDown MCP catalog entry covering its local-file and network read boundary, unauthenticated localhost transport, sandboxing guidance, and pinned v0.1.7 evidence.
 - A reviewed Trello MCP catalog entry covering one authorized workspace plus account-level Inbox and Planner permissions, connected-calendar reads, create/update/move/archive capabilities, and a no-permanent-delete surface.
+- A reviewed Shortcut MCP catalog entry for Shortcut's hosted server, with
+  granular OAuth scopes, a dedicated read-only mode, and explicit gates for
+  workspace-wide sensitive reads and story or document updates (#49).
 - Provider-neutral root discovery through validated `contextos.workspace.json`,
   with legacy compound-marker compatibility, nearest-root selection, explicit
   nested Git boundaries, fail-closed invalid markers, and actionable migration

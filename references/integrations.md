@@ -368,7 +368,7 @@ Capabilities and limits:
 - Start with the dedicated read OAuth scope for read-only story and epic search
 - The hosted service supports granular write, story-write, and comment-write OAuth scopes for explicit creation and update workflows
 - The open-source repository is archived but the hosted https://mcp.shortcut.com/mcp service remains actively documented
-- The server exposes no destructive card operations; archiving remains within standard Shortcut workflows
+- The documented surface is overwrite-capable but includes no permanently destructive operations; archiving remains within standard Shortcut workflows
 
 ## Substack MCP
 
