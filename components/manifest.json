@@ -464,6 +464,10 @@
                     "policy": "development"
                 },
                 {
+                    "path": "tests/test_coordination.py",
+                    "policy": "development"
+                },
+                {
                     "path": "tests/test_cross_runtime_hooks.py",
                     "policy": "development"
                 },
