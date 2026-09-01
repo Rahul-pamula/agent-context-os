@@ -50,6 +50,8 @@ from .workspace_schema import (
 from .primitives import (
     SnapshotError,
     canonical_json,
+    git_command,
+    git_environment,
     git_repository_identity,
     is_link_like,
     read_regular_file_snapshot,
@@ -1629,12 +1631,61 @@ def _render_attachment_json(value: dict[str, Any]) -> str:
     return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
+def _validate_project_binding_ignored(root: Path) -> None:
+    command = git_command(root, safe_root=root)
+    try:
+        tracked = subprocess.run(
+            [*command, "ls-files", "--stage", "--", PROJECT_BINDING_PATH],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=git_environment(),
+        )
+        ignored = subprocess.run(
+            [
+                *command,
+                "check-ignore",
+                "--quiet",
+                "--no-index",
+                "--",
+                PROJECT_BINDING_PATH,
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=git_environment(),
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        detail = (
+            exc.stderr.decode("utf-8", errors="replace").strip()
+            if isinstance(exc, subprocess.CalledProcessError)
+            else str(exc)
+        )
+        raise ContextOSError(
+            f"cannot verify local project binding ignore rule: {detail}"
+        ) from exc
+    if tracked.stdout:
+        raise ContextOSError(
+            f"local project binding must not be tracked: {PROJECT_BINDING_PATH}"
+        )
+    if ignored.returncode == 1:
+        raise ContextOSError(
+            f"local project binding must be ignored by ContextRoot Git: {PROJECT_BINDING_PATH}"
+        )
+    if ignored.returncode != 0:
+        detail = ignored.stderr.decode("utf-8", errors="replace").strip()
+        raise ContextOSError(
+            f"cannot verify local project binding ignore rule: {detail or 'git check-ignore failed'}"
+        )
+
+
 def load_project_attachment(
     roles: RootRoles,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Load and strictly validate the one active ContextRoot-local binding."""
     if roles.colocated:
         raise ContextOSError("external project attachment requires split root roles")
+    _validate_project_binding_ignored(roles.context_root)
     resolution = resolve_workspace(roles.context_root)
     if resolution.source != "json" or not resolution.canonical:
         raise ContextOSError(
@@ -1734,6 +1785,7 @@ def create_project_attachment_proposal(
             )
         # Split ContextRoot is exact rather than a nested compatibility root.
         git_evidence(root, max_commits=0)
+        _validate_project_binding_ignored(root)
         project_id = validate_project_id(project_id)
         manifest_relative = tracked_manifest_relative_path(project_id)
         manifest_path = safe_repo_path(root, manifest_relative)
@@ -2269,6 +2321,7 @@ def _validate_agent_preflight(
         validate_materialization_preflight(root, document)
         return
     if document.get("operation") in PROJECT_OPERATIONS:
+        _validate_project_binding_ignored(root)
         if document.get("source_git_head") != git_head(root):
             raise ContextOSError("refusing stale project proposal; ContextRoot Git HEAD changed")
         authorization = document["authorization"]
@@ -3711,6 +3764,12 @@ def apply_proposal(
     _guard_local_artifact_path(root, proposal)
     document = read_json(proposal)
     is_agent_workflow = document.get("workflow") == AGENT_LIFECYCLE_WORKFLOW
+    if document.get("operation") in PROJECT_OPERATIONS and (
+        roles is None or roles.colocated
+    ):
+        raise ContextOSError(
+            "project attachment apply requires explicit split root roles"
+        )
     if is_agent_workflow:
         workflow = AGENT_LIFECYCLE_WORKFLOW
     else:

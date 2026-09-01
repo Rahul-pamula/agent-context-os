@@ -283,6 +283,10 @@ class AttachmentLifecycleTest(unittest.TestCase):
         environment.pop("PYTHONPATH", None)
         environment["PYTHONNOUSERSITE"] = "1"
         environment["CONTEXTOS_PYTHON"] = sys.executable
+        (self.working_root / "json.py").write_text(
+            'raise RuntimeError("WorkingRoot json.py must not execute")\n',
+            encoding="utf-8",
+        )
         result = subprocess.run(
             [
                 "bash",
@@ -697,6 +701,47 @@ with mock.patch('contextos.kernel._fsync_directory', side_effect=crash_after_fir
                 proposal["proposal_digest"],
                 "generic",
                 roles=alternate_roles,
+            )
+        self.assertFalse((self.context_root / PROJECT_BINDING_PATH).exists())
+
+    def test_attachment_requires_and_rechecks_local_binding_ignore_rule(self) -> None:
+        (self.context_root / ".gitignore").write_text("*.tmp\n", encoding="utf-8")
+        git(self.context_root, "add", ".gitignore")
+        git(self.context_root, "commit", "--quiet", "-m", "remove local-state ignore")
+        with self.assertRaisesRegex(ContextOSError, "must be ignored by ContextRoot Git"):
+            create_project_attachment_proposal(self.roles, "ignore-app", NOW)
+
+        (self.context_root / ".gitignore").write_text(".context-os/\n", encoding="utf-8")
+        git(self.context_root, "add", ".gitignore")
+        git(self.context_root, "commit", "--quiet", "-m", "restore local-state ignore")
+        proposal_path, proposal = create_project_attachment_proposal(
+            self.roles, "ignore-app", NOW
+        )
+        apply_proposal(
+            self.context_root,
+            proposal_path,
+            proposal["proposal_digest"],
+            "generic",
+            roles=self.roles,
+        )
+        (self.context_root / ".gitignore").write_text("*.tmp\n", encoding="utf-8")
+        git(self.context_root, "add", ".gitignore")
+        git(self.context_root, "commit", "--quiet", "-m", "remove binding ignore")
+        with self.assertRaisesRegex(ContextOSError, "must be ignored by ContextRoot Git"):
+            load_project_attachment(self.roles)
+
+    def test_project_apply_requires_explicit_split_roles(self) -> None:
+        proposal_path, proposal = create_project_attachment_proposal(
+            self.roles, "role-required-app", NOW
+        )
+        with self.assertRaisesRegex(
+            ContextOSError, "project attachment apply requires explicit split root roles"
+        ):
+            apply_proposal(
+                self.context_root,
+                proposal_path,
+                proposal["proposal_digest"],
+                "generic",
             )
         self.assertFalse((self.context_root / PROJECT_BINDING_PATH).exists())
 
