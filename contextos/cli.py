@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .attachment import AttachmentError, RootRoles, resolve_root_roles
 from .bundle_schema import (
     BundleError,
     create_bundle_lock,
@@ -14,10 +15,12 @@ from .bundle_schema import (
 )
 from .kernel import (
     ContextOSError,
+    PROJECT_OPERATIONS,
     agent_list_report,
     apply_proposal,
     create_agent_activation_proposal,
     create_proposal,
+    create_project_attachment_proposal,
     create_workspace_migration_proposal,
     create_workspace_setup_proposal,
     discover_root,
@@ -26,6 +29,7 @@ from .kernel import (
     install_runtime,
     migrate_legacy_runtime_state,
     parse_now,
+    project_attachment_doctor,
     plan_workspace_migration,
     read_json,
     render_hook_payload,
@@ -33,6 +37,7 @@ from .kernel import (
     runtime_manifest,
     runtime_surface,
     start_report,
+    load_project_attachment,
     workspace_resolution_report,
 )
 from .coordination import (
@@ -62,6 +67,21 @@ def parser() -> argparse.ArgumentParser:
             "(ContextRoot and nominal WorkingRoot; also KernelRoot for the "
             "full-template wrapper path)"
         ),
+    )
+    result.add_argument(
+        "--kernel-root",
+        type=Path,
+        help="exact trusted product root (normally supplied by scripts/contextos.sh)",
+    )
+    result.add_argument(
+        "--context-root",
+        type=Path,
+        help="exact attached ContextRoot; requires --working-root and --kernel-root",
+    )
+    result.add_argument(
+        "--working-root",
+        type=Path,
+        help="exact attached application root; requires --context-root and --kernel-root",
     )
     result.add_argument("--version", action="version", version=__version__)
     commands = result.add_subparsers(dest="command", required=True)
@@ -104,6 +124,22 @@ def parser() -> argparse.ArgumentParser:
         activation.add_argument(
             "--now", help="ISO-8601 timestamp for deterministic proposal IDs"
         )
+
+    project = commands.add_parser(
+        "project", help="Create or inspect an external-project attachment"
+    )
+    project_commands = project.add_subparsers(dest="project_command", required=True)
+    attach = project_commands.add_parser(
+        "attach", help="Propose an exact tracked identity and machine-local binding"
+    )
+    attach.add_argument("--id", dest="project_id", required=True)
+    attach.add_argument("--now", help="ISO-8601 timestamp for deterministic proposal IDs")
+    rebind = project_commands.add_parser(
+        "rebind", help="Propose a new local path for an existing tracked project"
+    )
+    rebind.add_argument("--id", dest="project_id", required=True)
+    rebind.add_argument("--now", help="ISO-8601 timestamp for deterministic proposal IDs")
+    project_commands.add_parser("show", help="Validate and show the active attachment")
 
     diagnose = commands.add_parser(
         "doctor", help="Check workspace health with tracked agent-set awareness"
@@ -286,6 +322,31 @@ def parser() -> argparse.ArgumentParser:
 
 def emit(value: object) -> None:
     print(json.dumps(value, indent=2, ensure_ascii=False))
+
+
+def _resolve_cli_roles(args: argparse.Namespace) -> RootRoles:
+    split_requested = args.context_root is not None or args.working_root is not None
+    if args.root is not None and split_requested:
+        raise ContextOSError("--root cannot be combined with split-root options")
+    if split_requested:
+        if args.kernel_root is None:
+            raise ContextOSError(
+                "split attachment requires --kernel-root, --context-root, and --working-root"
+            )
+        try:
+            return resolve_root_roles(
+                kernel_root=args.kernel_root,
+                context_root=args.context_root,
+                working_root=args.working_root,
+            )
+        except AttachmentError as exc:
+            raise ContextOSError(str(exc)) from exc
+    root = discover_root(args.root if args.root is not None else args.kernel_root)
+    kernel = args.kernel_root.resolve() if args.kernel_root is not None else root
+    try:
+        return resolve_root_roles(kernel_root=kernel, legacy_root=root)
+    except AttachmentError as exc:
+        raise ContextOSError(str(exc)) from exc
 
 
 def component_selection(raw: str, field: str) -> list[str]:
@@ -530,9 +591,21 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "bundle":
             return _bundle_main(args)
-        root = discover_root(args.root)
+        roles = _resolve_cli_roles(args)
+        root = roles.context_root
+        split_mode = args.context_root is not None or args.working_root is not None
+        if split_mode and args.command not in {
+            "start", "propose", "apply", "hook", "project", "doctor"
+        }:
+            raise ContextOSError(
+                f"{args.command} is not yet a split-root lifecycle surface"
+            )
+        if split_mode and args.command not in {"doctor", "apply"} and not (
+            args.command == "project" and args.project_command in {"attach", "rebind"}
+        ):
+            load_project_attachment(roles)
         if args.command == "start":
-            emit(start_report(root, parse_now(args.now)))
+            emit(start_report(root, parse_now(args.now), roles=roles if split_mode else None))
         elif args.command == "propose":
             path, document = create_proposal(root, args.workflow, read_json(args.input), parse_now(args.now))
             emit({
@@ -543,8 +616,54 @@ def main(argv: list[str] | None = None) -> int:
             })
         elif args.command == "apply":
             proposal = args.proposal if args.proposal.is_absolute() else root / args.proposal
-            receipt_path, receipt = apply_proposal(root, proposal, args.confirm, args.runtime)
+            if split_mode and read_json(proposal).get("operation") not in PROJECT_OPERATIONS:
+                load_project_attachment(roles)
+            receipt_path, receipt = apply_proposal(
+                root,
+                proposal,
+                args.confirm,
+                args.runtime,
+                roles=roles if split_mode else None,
+            )
             emit({"receipt": receipt_path.relative_to(root).as_posix(), **receipt})
+        elif args.command == "project":
+            if not split_mode:
+                raise ContextOSError(
+                    "project attachment requires exact --kernel-root, --context-root, and --working-root"
+                )
+            if args.project_command in {"attach", "rebind"}:
+                path, document = create_project_attachment_proposal(
+                    roles,
+                    args.project_id,
+                    parse_now(args.now),
+                    rebind=args.project_command == "rebind",
+                )
+                emit({
+                    "proposal": path.relative_to(root).as_posix(),
+                    "proposal_id": document["proposal_id"],
+                    "proposal_digest": document["proposal_digest"],
+                    "operation": document["operation"],
+                    "changes": [
+                        {"path": item["path"], "diff": item["diff"]}
+                        for item in document["changes"]
+                    ],
+                    "working_root_access": "read-only",
+                    "nonexclusive_claim": True,
+                })
+            else:
+                manifest, binding = load_project_attachment(roles)
+                emit({
+                    "schema_version": 1,
+                    "root_roles": {
+                        "kernel_root": str(roles.kernel_root),
+                        "context_root": str(roles.context_root),
+                        "working_root": str(roles.working_root),
+                    },
+                    "project": manifest,
+                    "binding": binding,
+                    "working_root_access": "read-only",
+                    "nonexclusive_claim": True,
+                })
         elif args.command == "install":
             path, manifest = install_runtime(root, args.runtime)
             relative = path.relative_to(root).as_posix()
@@ -566,7 +685,13 @@ def main(argv: list[str] | None = None) -> int:
                 ]
                 emit(workspace_proposal_report(root, path, document, notices))
         elif args.command == "doctor":
-            report = doctor(root, args.runtime, all_runtimes=args.all)
+            report = (
+                project_attachment_doctor(
+                    roles, args.runtime, all_runtimes=args.all
+                )
+                if split_mode
+                else doctor(root, args.runtime, all_runtimes=args.all)
+            )
             emit(report)
             return 1 if report["status"] == "fail" else 0
         elif args.command == "workspace":
@@ -654,7 +779,8 @@ def main(argv: list[str] | None = None) -> int:
             elif args.board_command == "validate":
                 emit(validate_board(root, roles=_board_roles(root), now=now))
         elif args.command == "hook":
-            hook_manifest = runtime_manifest(root, args.runtime, check_paths=False)
+            product_root = roles.kernel_root if split_mode else root
+            hook_manifest = runtime_manifest(product_root, args.runtime, check_paths=False)
             surface_outputs = {
                 surface.get("hook_output")
                 for surface in hook_manifest["surfaces"].values()
@@ -666,7 +792,9 @@ def main(argv: list[str] | None = None) -> int:
             payload = json.loads(raw) if raw else {}
             if not isinstance(payload, dict):
                 raise ContextOSError("hook input must be a JSON object")
-            report = hook_report(root, args.event, payload)
+            report = hook_report(
+                root, args.event, payload, roles=roles if split_mode else None
+            )
             messages = [item["message"] for item in report["findings"]]
             rendered = render_hook_payload(hook_output, messages)
             if rendered is not None:
@@ -676,6 +804,7 @@ def main(argv: list[str] | None = None) -> int:
         ContextOSError,
         BundleError,
         WorkspaceConfigError,
+        AttachmentError,
         json.JSONDecodeError,
         OSError,
         UnicodeError,

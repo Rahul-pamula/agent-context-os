@@ -287,7 +287,10 @@ intent with these rules:
 ## Root discovery
 
 In this section, `root` means the v0.12 colocated ContextRoot selected by the
-CLI. `--root` does not designate a separate application WorkingRoot.
+CLI. `--root` does not designate a separate application WorkingRoot. External
+attachment instead requires exact `--kernel-root`, `--context-root`, and
+`--working-root` roles plus a validated project binding; it does not revise or
+overload workspace schema v1.
 
 `contextos.workspace.json` is the provider-neutral root marker. A valid tracked
 configuration is sufficient even for a minimal marker-only workspace with no
