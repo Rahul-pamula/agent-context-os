@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+- External-project attachment now keeps Context OS in its own ContextRoot while
+  binding an ordinary application as a read-only WorkingRoot. `project attach`
+  and `project rebind` publish digest-bound proposals for a portable tracked Git
+  identity plus an ignored machine-local path binding; start, hooks, apply,
+  receipts, rollback, and recovery retain exact role boundaries.
+- Split-root start reports ContextRoot and WorkingRoot Git evidence separately,
+  including bounded application status and history. Claude and Codex lifecycle
+  skills use the same provider-neutral kernel contract, while the existing
+  colocated v0.12 command form remains compatible.
+
 ### Fixed
 - The enabled Claude worktree guard now counts exact Claude executable names and identifies linked worktrees from Git's common-directory structure, with must-fire and must-not-fire controls for primary, linked, guarded, unguarded, and single-session paths.
 - Release draft staging now creates only after a classified HTTP 404, recovers duplicate-create races without re-uploading, and binds publication and recovery to an operator-supplied positive numeric release ID.
