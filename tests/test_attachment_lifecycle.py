@@ -267,6 +267,43 @@ class AttachmentLifecycleTest(unittest.TestCase):
         self.assertEqual(report["project"]["project_id"], "cli-app")
         self.assertEqual(report["root_roles"]["working_root"], str(self.working_root))
 
+    @unittest.skipIf(os.name == "nt", "POSIX wrapper execution control")
+    def test_split_wrapper_loads_exact_kernel_without_pythonpath(self) -> None:
+        proposal_path, proposal = create_project_attachment_proposal(
+            self.roles, "wrapper-app", NOW
+        )
+        apply_proposal(
+            self.context_root,
+            proposal_path,
+            proposal["proposal_digest"],
+            "generic",
+            roles=self.roles,
+        )
+        environment = subprocess_environment()
+        environment.pop("PYTHONPATH", None)
+        environment["PYTHONNOUSERSITE"] = "1"
+        environment["CONTEXTOS_PYTHON"] = sys.executable
+        result = subprocess.run(
+            [
+                "bash",
+                str(KERNEL_ROOT / "scripts" / "contextos.sh"),
+                "--context-root", str(self.context_root),
+                "--working-root", str(self.working_root),
+                "start",
+                "--now", NOW.isoformat(),
+            ],
+            cwd=self.working_root,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=environment,
+        )
+        report = json.loads(result.stdout)
+        self.assertEqual(report["root_roles"]["kernel_root"], str(KERNEL_ROOT))
+        self.assertEqual(report["root_roles"]["context_root"], str(self.context_root))
+        self.assertEqual(report["root_roles"]["working_root"], str(self.working_root))
+
     def test_split_skills_and_board_cli_keep_one_root_contract(self) -> None:
         roots = [
             "--kernel-root", str(KERNEL_ROOT),

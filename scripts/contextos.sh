@@ -16,4 +16,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/python-env.sh"
 
 KERNEL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-exec "$CONTEXTOS_PYTHON_CMD" -m contextos --kernel-root "$KERNEL_ROOT" "$@"
+exec "$CONTEXTOS_PYTHON_CMD" -c \
+  'import runpy, sys; sys.path.insert(0, sys.argv.pop(1)); runpy.run_module("contextos", run_name="__main__")' \
+  "$KERNEL_ROOT" --kernel-root "$KERNEL_ROOT" "$@"
