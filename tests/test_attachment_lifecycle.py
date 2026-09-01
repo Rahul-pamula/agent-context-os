@@ -16,6 +16,7 @@ from contextos.kernel import (
     ContextOSError,
     LOCAL_BINDING_MODE,
     PROJECT_BINDING_PATH,
+    _validate_project_proposal_shape,
     apply_proposal,
     canonical_json,
     create_proposal,
@@ -24,6 +25,7 @@ from contextos.kernel import (
     load_project_attachment,
     start_report,
     sha256_text,
+    validate_proposal,
 )
 from contextos.workspace_schema import render_workspace_config
 from contextos.cli import main as cli_main
@@ -233,6 +235,25 @@ class AttachmentLifecycleTest(unittest.TestCase):
             (self.context_root / PROJECT_BINDING_PATH).stat().st_mode & 0o7777,
             LOCAL_BINDING_MODE,
         )
+
+    def test_hand_authored_attach_cannot_replace_tracked_manifest(self) -> None:
+        proposal_path, proposal = create_project_attachment_proposal(
+            self.roles, "replace-app", NOW
+        )
+        manifest_change = proposal["changes"][0]
+        manifest_change["before_raw_sha256"] = "0" * 64
+        manifest_change["before_mode"] = manifest_change["after_mode"]
+        unsigned = dict(proposal)
+        unsigned.pop("proposal_digest")
+        proposal["proposal_digest"] = sha256_text(canonical_json(unsigned))
+        proposal_path.write_text(
+            json.dumps(proposal, indent=2) + "\n", encoding="utf-8"
+        )
+        with self.assertRaisesRegex(
+            ContextOSError, "project-attach must create a new tracked project manifest"
+        ):
+            validate_proposal(proposal)
+            _validate_project_proposal_shape(self.context_root, proposal)
 
     def test_cli_attach_apply_and_start_use_exact_roles(self) -> None:
         roots = [

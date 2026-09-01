@@ -1943,6 +1943,17 @@ def _validate_project_proposal_shape(
         expected_auth = _agent_lifecycle_authorization(root, operation, relative)
         if change.get("authorization") != expected_auth:
             raise ContextOSError(f"project attachment authorization mismatch: {relative}")
+        if (
+            operation == PROJECT_ATTACH_OPERATION
+            and relative == manifest_relative
+            and (
+                change.get("before_raw_sha256") is not None
+                or change.get("before_mode") is not None
+            )
+        ):
+            raise ContextOSError(
+                "project-attach must create a new tracked project manifest"
+            )
         after_text = ensure_text(change.get("after_text"), f"changes[{index}].after_text")
         if change.get("after_raw_sha256") != sha256_bytes(after_text.encode("utf-8")):
             raise ContextOSError(f"invalid raw after hash: {relative}")
