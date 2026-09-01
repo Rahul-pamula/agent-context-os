@@ -348,6 +348,10 @@
                     "policy": "development"
                 },
                 {
+                    "path": "scripts/stage-release.py",
+                    "policy": "development"
+                },
+                {
                     "path": "scripts/pre-commit-hook.sh",
                     "policy": "managed"
                 },
@@ -437,6 +441,10 @@
                 },
                 {
                     "path": "tests/test_release_artifacts.py",
+                    "policy": "development"
+                },
+                {
+                    "path": "tests/test_stage_release.py",
                     "policy": "development"
                 },
                 {

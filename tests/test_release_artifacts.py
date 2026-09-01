@@ -266,7 +266,15 @@ class ReleaseArtifactTest(unittest.TestCase):
         self.assertNotIn("always()", workflow)
         self.assertEqual(workflow.count("contents: write"), 4)
         self.assertIn('-f "ref=refs/tags/$TAG"', workflow)
-        self.assertIn("--verify-tag", workflow)
+        staging = (ROOT / "scripts/stage-release.py").read_text(encoding="utf-8")
+        self.assertIn("--verify-tag", staging)
+        self.assertIn("python scripts/stage-release.py", workflow)
+        stage = workflow.split("  stage-draft:", 1)[1].split(
+            "  verify-draft-linux:", 1
+        )[0]
+        self.assertNotIn("gh release create", stage)
+        self.assertNotIn("gh release view", stage)
+        self.assertIn('echo "release_id=$RELEASE_ID"', stage)
         self.assertNotIn('--target "$RELEASE_COMMIT"', workflow)
         self.assertIn("retention-days: 7", workflow)
         build = workflow.split("  build-linux:", 1)[1].split(
