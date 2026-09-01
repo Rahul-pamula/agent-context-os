@@ -92,7 +92,7 @@ The catalog must describe the full surface; it does not disable tools or enforce
 
 ## Evidence & Health
 
-- `evidence`: <!-- Links to first-party documentation for verified fields -->
+- `evidence`: <!-- Non-empty list of first-party links supporting the fields you verified. Listed or experimental entries still require evidence for the claims they make. -->
 - `health_check`:
 
 ## Uninstall

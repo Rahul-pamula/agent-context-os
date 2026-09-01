@@ -17,7 +17,7 @@
 - [ ] Data boundary is fully disclosed
 - [ ] Every verified field is supported by first-party evidence, and unverified fields are explicitly disclosed (no live installation or testing used)
 - [ ] `last_verified` is the personally checked date
-- [ ] Confirmation gates and risk tags are derived from capabilities
+- [ ] Confirmation gates are derived from capabilities, installation scope, and credential boundaries; risk tags are derived from capabilities
 - [ ] `references/integrations.md` was regenerated via script
 - [ ] `CHANGELOG.md` updated
 - [ ] Full validation (`bash scripts/validate-all.sh`) passes locally
