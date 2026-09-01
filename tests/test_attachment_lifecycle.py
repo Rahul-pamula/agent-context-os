@@ -4,11 +4,12 @@ import json
 import io
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 from contextos.attachment import resolve_root_roles
 from contextos.kernel import (
@@ -33,14 +34,30 @@ NOW = datetime.fromisoformat("2026-08-31T10:00:00-07:00")
 
 
 def git(root: Path, *arguments: str) -> str:
+    environment = dict(os.environ)
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
     result = subprocess.run(
         ["git", "-c", f"safe.directory={root}", "-C", str(root), *arguments],
         check=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        env=environment,
     )
     return result.stdout.strip()
+
+
+def git_bytes(root: Path, *arguments: str) -> bytes:
+    environment = dict(os.environ)
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    result = subprocess.run(
+        ["git", "-c", f"safe.directory={root}", "-C", str(root), *arguments],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=environment,
+    )
+    return result.stdout
 
 
 def initialize_repository(root: Path, files: dict[str, str]) -> None:
@@ -57,17 +74,45 @@ def initialize_repository(root: Path, files: dict[str, str]) -> None:
     git(root, "commit", "--quiet", "-m", "fixture")
 
 
-def tree_snapshot(root: Path) -> dict[str, tuple[bytes, int]]:
+def tree_snapshot(root: Path) -> dict[str, object]:
+    files: dict[str, tuple[bytes, int]] = {}
+    directories: dict[str, int] = {}
+    links: dict[str, tuple[str, int]] = {}
+    for path in root.rglob("*"):
+        relative = path.relative_to(root)
+        if ".git" in relative.parts or "__pycache__" in relative.parts:
+            continue
+        name = relative.as_posix()
+        mode = path.lstat().st_mode & 0o7777
+        if path.is_symlink():
+            links[name] = (os.readlink(path), mode)
+        elif path.is_dir():
+            directories[name] = mode
+        elif path.is_file():
+            files[name] = (path.read_bytes(), mode)
     return {
-        path.relative_to(root).as_posix(): (
-            path.read_bytes(),
-            path.stat().st_mode & 0o7777,
-        )
-        for path in root.rglob("*")
-        if path.is_file()
-        and ".context-os" not in path.relative_to(root).parts
-        and "__pycache__" not in path.relative_to(root).parts
+        "files": files,
+        "directories": directories,
+        "links": links,
+        "context_os_exists": (
+            (root / ".context-os").exists() or (root / ".context-os").is_symlink()
+        ),
+        "git_head": git(root, "rev-parse", "HEAD"),
+        "git_tree": git(root, "rev-parse", "HEAD^{tree}"),
+        "git_index": git_bytes(root, "ls-files", "--stage", "-z"),
+        "git_index_flags": git_bytes(root, "ls-files", "-v", "-z"),
+        "git_status": git_bytes(
+            root, "status", "--porcelain=v1", "-z", "--untracked-files=all"
+        ),
     }
+
+
+def subprocess_environment() -> dict[str, str]:
+    environment = dict(os.environ)
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    environment["PYTHONPATH"] = str(KERNEL_ROOT)
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    return environment
 
 
 class AttachmentLifecycleTest(unittest.TestCase):
@@ -222,8 +267,55 @@ class AttachmentLifecycleTest(unittest.TestCase):
         self.assertEqual(report["project"]["project_id"], "cli-app")
         self.assertEqual(report["root_roles"]["working_root"], str(self.working_root))
 
+    def test_split_skills_and_board_cli_keep_one_root_contract(self) -> None:
+        roots = [
+            "--kernel-root", str(KERNEL_ROOT),
+            "--context-root", str(self.context_root),
+            "--working-root", str(self.working_root),
+        ]
+        error = io.StringIO()
+        with redirect_stderr(error):
+            result = cli_main([
+                *roots,
+                "board", "sync",
+                "--runtime", "codex",
+                "--role", "generalist",
+                "--run-id", "issue-155-control",
+            ])
+        self.assertEqual(result, 2)
+        self.assertIn("board is not yet a split-root lifecycle surface", error.getvalue())
+
+        split_prefix = (
+            "split:     bash <KernelRoot>/scripts/contextos.sh "
+            "--context-root <ContextRoot> --working-root <WorkingRoot>"
+        )
+        skill_names = ("context-setup", "context-start", "context-update", "context-end")
+        for name in skill_names:
+            with self.subTest(skill=name):
+                text = (
+                    KERNEL_ROOT / ".agents" / "skills" / name / "SKILL.md"
+                ).read_text(encoding="utf-8")
+                self.assertIn(split_prefix, text)
+                self.assertNotIn("under `.context-os/inputs/`", text)
+                self.assertNotIn("Run `bash scripts/contextos.sh start`", text)
+
+        for name in ("context-start", "context-end"):
+            with self.subTest(skill=name, surface="coordination"):
+                text = (
+                    KERNEL_ROOT / ".agents" / "skills" / name / "SKILL.md"
+                ).read_text(encoding="utf-8")
+                self.assertIn(
+                    "skip coordination-board operations explicitly because the CLI",
+                    text,
+                )
+                self.assertIn("do not probe WorkingRoot for board", text)
+                self.assertIn("<ContextRoot>/coordination/README.md", text)
+
     def test_golden_claude_to_codex_handoff_stays_in_context_root(self) -> None:
-        before = tree_snapshot(self.working_root)
+        working_before = tree_snapshot(self.working_root)
+        kernel_before = tree_snapshot(KERNEL_ROOT)
+        self.assertFalse(working_before["context_os_exists"])
+        self.assertFalse(kernel_before["context_os_exists"])
         attach_path, attach = create_project_attachment_proposal(
             self.roles, "handoff-app", NOW
         )
@@ -234,47 +326,294 @@ class AttachmentLifecycleTest(unittest.TestCase):
             "generic",
             roles=self.roles,
         )
-        update_time = datetime.fromisoformat("2026-08-31T10:15:00-07:00")
-        update_path, update = create_proposal(
-            self.context_root,
-            "update",
-            {"progress": ["Claude recorded the implementation checkpoint"]},
-            update_time,
-        )
-        _, claude_receipt = apply_proposal(
-            self.context_root,
-            update_path,
-            update["proposal_digest"],
-            "claude",
-            roles=self.roles,
-        )
-        self.assertEqual(claude_receipt["runtime"], "claude")
+        feature_name = "issue_155_claude_bounded_change.py"
+        sentinel = "ISSUE-155-CLAUDE-END: bounded_change=PASS"
+        claude_script = r'''
+import json
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
 
-        end_time = datetime.fromisoformat("2026-08-31T10:30:00-07:00")
-        end_path, end = create_proposal(
-            self.context_root,
-            "end",
-            {
-                "what_happened": ["Codex resumed from Claude's durable checkpoint"],
-                "decisions": [],
-                "next_time": ["Continue in the attached application"],
-            },
-            end_time,
+from contextos.attachment import resolve_root_roles
+from contextos.kernel import apply_proposal, create_proposal
+
+kernel_root = Path(sys.argv[1]).resolve()
+context_root = Path(sys.argv[2]).resolve()
+working_root = Path(sys.argv[3]).resolve()
+feature_name = sys.argv[4]
+sentinel = sys.argv[5]
+feature = working_root / feature_name
+feature.write_text('def bounded_result():\n    return "issue-155-pass"\n', encoding='utf-8')
+test = subprocess.run(
+    [sys.executable, '-c',
+     'import issue_155_claude_bounded_change as feature; '
+     'assert feature.bounded_result() == "issue-155-pass"; print("PASS")'],
+    cwd=working_root,
+    check=True,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+)
+roles = resolve_root_roles(
+    kernel_root=kernel_root,
+    context_root=context_root,
+    working_root=working_root,
+)
+proposal_path, proposal = create_proposal(
+    context_root,
+    'end',
+    {
+        'what_happened': [sentinel, f'Changed {feature_name}', f'Test result: {test.stdout.strip()}'],
+        'decisions': [],
+        'next_time': ['Codex: inspect the bounded working-root change'],
+    },
+    datetime.fromisoformat('2026-08-31T10:30:00-07:00'),
+)
+receipt_path, receipt = apply_proposal(
+    context_root,
+    proposal_path,
+    proposal['proposal_digest'],
+    'claude',
+    roles=roles,
+)
+print(json.dumps({'receipt': str(receipt_path), 'runtime': receipt['runtime']}))
+'''
+        claude = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                claude_script,
+                str(KERNEL_ROOT),
+                str(self.context_root),
+                str(self.working_root),
+                feature_name,
+                sentinel,
+            ],
+            cwd=self.working_root,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=subprocess_environment(),
         )
-        _, codex_receipt = apply_proposal(
-            self.context_root,
-            end_path,
-            end["proposal_digest"],
-            "codex",
-            roles=self.roles,
+        self.assertEqual(json.loads(claude.stdout)["runtime"], "claude")
+
+        codex_script = r'''
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+
+from contextos.attachment import resolve_root_roles
+from contextos.kernel import start_report
+
+kernel_root = Path(sys.argv[1]).resolve()
+context_root = Path(sys.argv[2]).resolve()
+working_root = Path(sys.argv[3]).resolve()
+sentinel = sys.argv[4]
+roles = resolve_root_roles(
+    kernel_root=kernel_root,
+    context_root=context_root,
+    working_root=working_root,
+)
+report = start_report(
+    context_root,
+    datetime.fromisoformat('2026-08-31T10:31:00-07:00'),
+    roles=roles,
+)
+session_path = context_root / report['latest_session']
+session_text = session_path.read_text(encoding='utf-8')
+print(json.dumps({
+    'runtime': 'codex',
+    'report': report,
+    'sentinel_present': sentinel in session_text,
+}))
+'''
+        codex = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                codex_script,
+                str(KERNEL_ROOT),
+                str(self.context_root),
+                str(self.working_root),
+                sentinel,
+            ],
+            cwd=self.working_root,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=subprocess_environment(),
         )
-        self.assertEqual(codex_receipt["runtime"], "codex")
+        resumed = json.loads(codex.stdout)
+        self.assertEqual(resumed["runtime"], "codex")
+        self.assertTrue(resumed["sentinel_present"])
+        status_paths = {
+            entry["path"]
+            for entry in resumed["report"]["working_repository"]["status"]["entries"]
+        }
+        self.assertEqual(status_paths, {feature_name})
+
         session = (self.context_root / "sessions/2026-08-31.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("Claude recorded the implementation checkpoint", session)
-        self.assertIn("Codex resumed from Claude's durable checkpoint", session)
-        self.assertEqual(tree_snapshot(self.working_root), before)
+        self.assertIn(sentinel, session)
+        self.assertIn("Test result: PASS", session)
+
+        working_after = tree_snapshot(self.working_root)
+        expected_files = dict(working_before["files"])
+        expected_files[feature_name] = (
+            (self.working_root / feature_name).read_bytes(),
+            (self.working_root / feature_name).stat().st_mode & 0o7777,
+        )
+        self.assertEqual(working_after["files"], expected_files)
+        for key in (
+            "directories",
+            "links",
+            "context_os_exists",
+            "git_head",
+            "git_tree",
+            "git_index",
+            "git_index_flags",
+        ):
+            self.assertEqual(working_after[key], working_before[key], key)
+        self.assertEqual(tree_snapshot(KERNEL_ROOT), kernel_before)
+
+    def test_split_root_crash_recovery_preserves_kernel_and_working_roots(self) -> None:
+        attach_path, attach = create_project_attachment_proposal(
+            self.roles, "crash-app", NOW
+        )
+        apply_proposal(
+            self.context_root,
+            attach_path,
+            attach["proposal_digest"],
+            "generic",
+            roles=self.roles,
+        )
+        proposal_path, proposal = create_proposal(
+            self.context_root,
+            "setup",
+            {
+                "files": {
+                    "identity/issue-155-crash-a.md": "# Crash A\n",
+                    "identity/issue-155-crash-b.md": "# Crash B\n",
+                }
+            },
+            datetime.fromisoformat("2026-08-31T10:45:00-07:00"),
+        )
+        kernel_before = tree_snapshot(KERNEL_ROOT)
+        working_before = tree_snapshot(self.working_root)
+        self.assertFalse(kernel_before["context_os_exists"])
+        self.assertFalse(working_before["context_os_exists"])
+        first = self.context_root / proposal["changes"][0]["path"]
+        crash_script = r'''
+import os
+import sys
+from pathlib import Path
+from unittest import mock
+
+import contextos.kernel as kernel
+from contextos.attachment import resolve_root_roles
+
+kernel_root = Path(sys.argv[1]).resolve()
+context_root = Path(sys.argv[2]).resolve()
+working_root = Path(sys.argv[3]).resolve()
+proposal = Path(sys.argv[4]).resolve()
+digest = sys.argv[5]
+first = Path(sys.argv[6]).resolve()
+after = bytes.fromhex(sys.argv[7])
+roles = resolve_root_roles(
+    kernel_root=kernel_root,
+    context_root=context_root,
+    working_root=working_root,
+)
+real_sync = kernel._fsync_directory
+
+def crash_after_first_target(directory):
+    real_sync(directory)
+    if Path(directory) == first.parent and first.is_file() and first.read_bytes() == after:
+        os._exit(86)
+
+with mock.patch('contextos.kernel._fsync_directory', side_effect=crash_after_first_target):
+    kernel.apply_proposal(context_root, proposal, digest, 'codex', roles=roles)
+'''
+        crashed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                crash_script,
+                str(KERNEL_ROOT),
+                str(self.context_root),
+                str(self.working_root),
+                str(proposal_path),
+                proposal["proposal_digest"],
+                str(first),
+                proposal["changes"][0]["after_text"].encode("utf-8").hex(),
+            ],
+            cwd=self.working_root,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=subprocess_environment(),
+        )
+        self.assertEqual(crashed.returncode, 86, crashed.stderr.decode(errors="replace"))
+        journal = self.context_root / ".context-os/journals" / proposal["proposal_id"]
+        self.assertTrue(journal.is_dir())
+        self.assertEqual(tree_snapshot(KERNEL_ROOT), kernel_before)
+        self.assertEqual(tree_snapshot(self.working_root), working_before)
+
+        (self.context_root / ".context-os/apply.lock").unlink()
+        receipt_path, receipt = apply_proposal(
+            self.context_root,
+            proposal_path,
+            proposal["proposal_digest"],
+            "codex",
+            roles=self.roles,
+        )
+        self.assertTrue(receipt_path.is_file())
+        self.assertEqual(receipt["runtime"], "codex")
+        self.assertFalse(journal.exists())
+        self.assertEqual(
+            (self.context_root / "identity/issue-155-crash-a.md").read_text(),
+            "# Crash A\n",
+        )
+        self.assertEqual(
+            (self.context_root / "identity/issue-155-crash-b.md").read_text(),
+            "# Crash B\n",
+        )
+        self.assertEqual(tree_snapshot(KERNEL_ROOT), kernel_before)
+        self.assertEqual(tree_snapshot(self.working_root), working_before)
+
+    def test_root_snapshot_must_not_fire_mutation_controls(self) -> None:
+        mutations = {
+            "file bytes": lambda root: (root / "app.txt").write_bytes(b"mutated\n"),
+            "directory": lambda root: (root / "unexpected-directory").mkdir(),
+            "local state": lambda root: (root / ".context-os").mkdir(),
+            "git index": lambda root: git(
+                root, "update-index", "--assume-unchanged", "app.txt"
+            ),
+        }
+        if os.name != "nt":
+            mutations["file mode"] = lambda root: os.chmod(root / "app.txt", 0o600)
+        for label, mutate in mutations.items():
+            with self.subTest(label=label):
+                root = Path(self.temporary.name) / f"control-{label.replace(' ', '-')}"
+                initialize_repository(root, {"app.txt": "ordinary application bytes\n"})
+                before = tree_snapshot(root)
+                mutate(root)
+                with self.assertRaises(AssertionError):
+                    self.assertEqual(tree_snapshot(root), before)
+
+        tree_root = Path(self.temporary.name) / "control-git-tree"
+        initialize_repository(tree_root, {"app.txt": "ordinary application bytes\n"})
+        tree_before = tree_snapshot(tree_root)
+        (tree_root / "tree-change.txt").write_text("tracked tree change\n", encoding="utf-8")
+        git(tree_root, "add", "tree-change.txt")
+        git(tree_root, "commit", "--quiet", "-m", "tree mutation control")
+        with self.assertRaises(AssertionError):
+            self.assertEqual(tree_snapshot(tree_root), tree_before)
 
     def test_resigned_project_proposal_cannot_escape_attachment_allowlist(self) -> None:
         before = tree_snapshot(self.working_root)
