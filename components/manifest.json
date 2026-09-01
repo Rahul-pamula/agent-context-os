@@ -104,6 +104,14 @@
                     "policy": "managed"
                 },
                 {
+                    "path": "contextos/coordination.py",
+                    "policy": "managed"
+                },
+                {
+                    "path": "coordination/README.md",
+                    "policy": "managed"
+                },
+                {
                     "path": "contextos/materializer.py",
                     "policy": "managed"
                 },
@@ -405,6 +413,10 @@
                 },
                 {
                     "path": "state/decisions.md",
+                    "policy": "seed"
+                },
+                {
+                    "path": "state/roles.md",
                     "policy": "seed"
                 },
                 {
