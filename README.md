@@ -184,6 +184,8 @@ identity/                  Stable personal and professional context
 projects/                  Project context and project-specific workflows
 state/                     Current focus, priorities, blockers, and decisions
 sessions/                  Reviewed session handoffs
+coordination/              Multi-run message board contract; the board itself
+                           lives on a dedicated coordination branch
 .agents/skills/            Provider-neutral workflow cores
 contextos/                 Deterministic lifecycle kernel
                            and offline bundle materializer

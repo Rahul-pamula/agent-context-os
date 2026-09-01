@@ -104,6 +104,14 @@
                     "policy": "managed"
                 },
                 {
+                    "path": "contextos/coordination.py",
+                    "policy": "managed"
+                },
+                {
+                    "path": "coordination/README.md",
+                    "policy": "managed"
+                },
+                {
                     "path": "contextos/materializer.py",
                     "policy": "managed"
                 },
@@ -408,6 +416,10 @@
                     "policy": "seed"
                 },
                 {
+                    "path": "state/roles.md",
+                    "policy": "seed"
+                },
+                {
                     "path": "state/gws-references.md",
                     "policy": "seed"
                 },
@@ -449,6 +461,10 @@
                 },
                 {
                     "path": "tests/test_contextos_kernel.py",
+                    "policy": "development"
+                },
+                {
+                    "path": "tests/test_coordination.py",
                     "policy": "development"
                 },
                 {
