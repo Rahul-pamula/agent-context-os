@@ -1,4 +1,4 @@
-name: Release v0.12.0
+name: Qualify and stage v0.12.0
 
 on:
   workflow_dispatch:
@@ -35,18 +35,14 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Require the exact reviewed commit on main and immutable releases
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Require the exact reviewed commit on main
         run: |
           [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_SHA" = "$RELEASE_COMMIT"
           test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
           test "$(git rev-parse origin/main)" = "$RELEASE_COMMIT"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          gh api \
-            -H 'X-GitHub-Api-Version: 2026-03-10' \
-            "repos/$GITHUB_REPOSITORY/immutable-releases" \
-            --jq '.enabled' | grep -Fx true
 
       - name: Run the canonical validator on the release source
         run: |
@@ -81,12 +77,11 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: v0.12.0-candidate-${{ inputs.commit }}
+          name: v0.12.0-candidate-${{ inputs.commit }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/release-one/*
           compression-level: 0
           if-no-files-found: error
-          overwrite: true
-          retention-days: 1
+          retention-days: 7
 
   verify-candidate-linux:
     needs: build-linux
@@ -103,7 +98,7 @@ jobs:
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: v0.12.0-candidate-${{ inputs.commit }}
+          name: v0.12.0-candidate-${{ inputs.commit }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/assets
 
       - name: Verify the candidate and execute its extracted verifier
@@ -140,7 +135,7 @@ jobs:
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: v0.12.0-candidate-${{ inputs.commit }}
+          name: v0.12.0-candidate-${{ inputs.commit }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/assets
 
       - name: Verify the candidate and execute its extracted verifier
@@ -187,7 +182,7 @@ jobs:
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: v0.12.0-candidate-${{ inputs.commit }}
+          name: v0.12.0-candidate-${{ inputs.commit }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/assets
 
       - name: Recheck and verify the candidate before staging
@@ -217,8 +212,8 @@ jobs:
           fi
           test "$(git ls-remote origin "refs/tags/$TAG" | cut -f1)" = "$RELEASE_COMMIT"
 
-          if gh release view "$TAG" --json isDraft,isImmutable,isPrerelease > "$RUNNER_TEMP/existing-release.json" 2>/dev/null; then
-            python -c 'import json, os, pathlib; value=json.loads(pathlib.Path(os.environ["RUNNER_TEMP"] + "/existing-release.json").read_text()); assert value["isPrerelease"] is False and (value["isDraft"] is True or value["isImmutable"] is True)'
+          if gh release view "$TAG" --json isDraft,isPrerelease > "$RUNNER_TEMP/existing-release.json" 2>/dev/null; then
+            python -c 'import json, os, pathlib; value=json.loads(pathlib.Path(os.environ["RUNNER_TEMP"] + "/existing-release.json").read_text()); assert value == {"isDraft": True, "isPrerelease": False}'
             gh release download "$TAG" --dir "$RUNNER_TEMP/existing-assets"
             python scripts/release-artifacts.py verify \
               --artifacts "$RUNNER_TEMP/existing-assets" \
@@ -322,10 +317,11 @@ jobs:
           $value = Get-Content -Raw "$env:RUNNER_TEMP/draft-windows.json" | ConvertFrom-Json
           if ($value.executable_modes_verified -ne $false -or $value.writes -ne $false) { throw "Staged Windows asset verification mismatch" }
 
-  publish:
+  ready-to-publish:
     needs: [stage-draft, verify-draft-linux, verify-draft-windows]
     runs-on: ubuntu-latest
     permissions:
+      # GitHub exposes draft releases only to tokens with push access.
       contents: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -337,64 +333,39 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Re-download and verify the exact release immediately before publication
-        id: final
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: v0.12.0-candidate-${{ inputs.commit }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/candidate-assets
+
+      - name: Re-download and bind the verified draft to the exact-run candidate
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_ID: ${{ needs.stage-draft.outputs.release_id }}
         run: |
           test "$(git ls-remote https://github.com/$GITHUB_REPOSITORY.git refs/heads/main | cut -f1)" = "$RELEASE_COMMIT"
           test "$(git ls-remote https://github.com/$GITHUB_REPOSITORY.git refs/tags/$TAG | cut -f1)" = "$RELEASE_COMMIT"
-          gh api \
-            -H 'X-GitHub-Api-Version: 2026-03-10' \
-            "repos/$GITHUB_REPOSITORY/immutable-releases" \
-            --jq '.enabled' | grep -Fx true
-          gh release verify --help >/dev/null
           test "$(gh release view "$TAG" --json databaseId --jq .databaseId)" = "$RELEASE_ID"
-          gh release download "$TAG" --dir "$RUNNER_TEMP/final-assets"
+          gh release download "$TAG" --dir "$RUNNER_TEMP/draft-assets"
           python scripts/release-artifacts.py verify \
-            --artifacts "$RUNNER_TEMP/final-assets" \
-            --extract-to "$RUNNER_TEMP/final-extracted" \
+            --artifacts "$RUNNER_TEMP/draft-assets" \
+            --extract-to "$RUNNER_TEMP/draft-final-extracted" \
             --version "$VERSION" \
             --tag "$TAG" \
             --commit "$RELEASE_COMMIT" \
-            > "$RUNNER_TEMP/final-verification.json"
+            > "$RUNNER_TEMP/draft-final-verification.json"
+          diff --recursive --brief "$RUNNER_TEMP/candidate-assets" "$RUNNER_TEMP/draft-assets"
           gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
             "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
-            --jq '{draft, prerelease, assets: [.assets[] | {name, size, digest}]}' \
-            > "$RUNNER_TEMP/release-state.json"
-          python -c 'import hashlib, json, os, pathlib; root=pathlib.Path(os.environ["RUNNER_TEMP"] + "/final-assets"); value=json.loads(pathlib.Path(os.environ["RUNNER_TEMP"] + "/release-state.json").read_text()); remote={item["name"]: item for item in value["assets"]}; local={path.name: path for path in root.iterdir() if path.is_file()}; assert type(value["draft"]) is bool and value["prerelease"] is False and set(remote) == set(local); assert all(item["size"] == local[name].stat().st_size and item["digest"] == "sha256:" + hashlib.sha256(local[name].read_bytes()).hexdigest() for name, item in remote.items())'
-          DRAFT=$(python -c 'import json, os, pathlib; print(str(json.loads(pathlib.Path(os.environ["RUNNER_TEMP"] + "/release-state.json").read_text())["draft"]).lower())')
-          if [[ "$DRAFT" == "false" ]]; then
-            test "$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq .immutable)" = true
-            echo "already_published=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "already_published=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Publish the verified draft
-        if: steps.final.outputs.already_published != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_ID: ${{ needs.stage-draft.outputs.release_id }}
-        run: |
-          gh api --method PATCH -H 'X-GitHub-Api-Version: 2026-03-10' \
-            "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
-            -F draft=false \
-            -f make_latest=true >/dev/null
-
-      - name: Require immutability and verify the release attestation
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_ID: ${{ needs.stage-draft.outputs.release_id }}
-        run: |
-          for attempt in 1 2 3 4 5 6; do
-            IMMUTABLE=$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
-              "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq .immutable 2>/dev/null || true)
-            if [[ "$IMMUTABLE" == "true" ]] && gh release verify "$TAG"; then
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "published release did not expose a valid immutable attestation" >&2
-          exit 1
+            --jq '{id, tag_name, name, body, draft, prerelease, assets: [.assets[] | {id, name, size, digest}]}' \
+            > "$RUNNER_TEMP/draft-state.json"
+          python -c 'import hashlib, json, os, pathlib; temp=pathlib.Path(os.environ["RUNNER_TEMP"]); root=temp / "draft-assets"; value=json.loads((temp / "draft-state.json").read_text()); expected_body=(pathlib.Path("docs/releases/v0.12.0.md").read_text()).replace("\r\n", "\n").rstrip("\n"); remote={item["name"]: item for item in value["assets"]}; local={path.name: path for path in root.iterdir() if path.is_file()}; assert value["id"] == int(os.environ["RELEASE_ID"]) and value["tag_name"] == os.environ["TAG"] and value["name"] == "Context OS v0.12.0" and (value["body"] or "").replace("\r\n", "\n").rstrip("\n") == expected_body and value["draft"] is True and value["prerelease"] is False and set(remote) == set(local); assert all(type(item["id"]) is int and item["id"] > 0 and item["size"] == local[name].stat().st_size and item["digest"] == "sha256:" + hashlib.sha256(local[name].read_bytes()).hexdigest() for name, item in remote.items())'
+          {
+            echo "## Verified draft ready for local admin publication"
+            echo "- Commit: \`$RELEASE_COMMIT\`"
+            echo "- Tag: \`$TAG\`"
+            echo "- Numeric release ID: \`$RELEASE_ID\`"
+            echo "- Workflow run: \`$GITHUB_RUN_ID\` attempt \`$GITHUB_RUN_ATTEMPT\`"
+            echo "- Candidate and draft bytes: identical"
+            echo "- Draft assets: independently verified on Linux and Windows"
+          } >> "$GITHUB_STEP_SUMMARY"
