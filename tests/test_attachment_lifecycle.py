@@ -307,6 +307,14 @@ class AttachmentLifecycleTest(unittest.TestCase):
         self.assertEqual(report["root_roles"]["kernel_root"], str(KERNEL_ROOT))
         self.assertEqual(report["root_roles"]["context_root"], str(self.context_root))
         self.assertEqual(report["root_roles"]["working_root"], str(self.working_root))
+        contract = (KERNEL_ROOT / "docs" / "root-contract.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "executes Python from that root so\ncaller cwd cannot influence imports",
+            contract,
+        )
+        self.assertNotIn("preserves process cwd", contract)
 
     def test_split_skills_and_board_cli_keep_one_root_contract(self) -> None:
         roots = [

@@ -80,9 +80,10 @@ the root. Discovery
 ascends from that path to the nearest valid `contextos.workspace.json` or legacy
 compound marker and stops at a nested `.git` boundary. Without `--root`, a
 direct module invocation starts from process cwd. The shell wrapper instead
-passes its own parent as exact KernelRoot and preserves process cwd; when no
-split roles are supplied, compatibility discovery deliberately starts at that
-KernelRoot. In the v0.12 full-template colocated mode, host lifecycle skills require the exact
+passes its own parent as exact KernelRoot and executes Python from that root so
+caller cwd cannot influence imports; when no split roles are supplied,
+compatibility discovery deliberately starts at that KernelRoot. In the v0.12
+full-template colocated mode, host lifecycle skills require the exact
 host-supplied directory containing
 `AGENTS.md` and `scripts/contextos.sh`. That is an adapter heuristic, not
 ContextRoot discovery: a marker-only JSON workspace remains CLI-discoverable
