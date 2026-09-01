@@ -12,10 +12,10 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 source "$SCRIPT_DIR/python-env.sh"
 
-KERNEL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+KERNEL_ROOT="$(cd -P -- "$SCRIPT_DIR/.." && pwd -P)"
 cd "$KERNEL_ROOT"
 exec "$CONTEXTOS_PYTHON_CMD" -c \
   'import runpy, sys; sys.path.insert(0, sys.argv.pop(1)); runpy.run_module("contextos", run_name="__main__")' \

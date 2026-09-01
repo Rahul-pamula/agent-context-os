@@ -316,6 +316,30 @@ class AttachmentLifecycleTest(unittest.TestCase):
         )
         self.assertNotIn("preserves process cwd", contract)
 
+        linked_kernel = Path(self.temporary.name) / "linked-kernel"
+        try:
+            linked_kernel.symlink_to(KERNEL_ROOT, target_is_directory=True)
+        except OSError:
+            self.skipTest("directory symlink creation is unavailable")
+        linked_result = subprocess.run(
+            [
+                "bash",
+                str(linked_kernel / "scripts" / "contextos.sh"),
+                "--context-root", str(self.context_root),
+                "--working-root", str(self.working_root),
+                "start",
+                "--now", NOW.isoformat(),
+            ],
+            cwd=self.working_root,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=environment,
+        )
+        linked_report = json.loads(linked_result.stdout)
+        self.assertEqual(linked_report["root_roles"]["kernel_root"], str(KERNEL_ROOT))
+
     def test_split_skills_and_board_cli_keep_one_root_contract(self) -> None:
         roots = [
             "--kernel-root", str(KERNEL_ROOT),
@@ -795,6 +819,27 @@ with mock.patch('contextos.kernel._fsync_directory', side_effect=crash_after_fir
             binding_path.symlink_to(external)
         except OSError:
             self.skipTest("file symlink creation is unavailable")
+        with self.assertRaisesRegex(ContextOSError, "symlink or reparse point"):
+            load_project_attachment(self.roles)
+
+    def test_attachment_read_rejects_linked_tracked_manifest_parent(self) -> None:
+        proposal_path, proposal = create_project_attachment_proposal(
+            self.roles, "linked-manifest-app", NOW
+        )
+        apply_proposal(
+            self.context_root,
+            proposal_path,
+            proposal["proposal_digest"],
+            "generic",
+            roles=self.roles,
+        )
+        manifest_dir = self.context_root / "projects" / "linked-manifest-app"
+        external = self.context_root.parent / "external-project-manifest"
+        manifest_dir.rename(external)
+        try:
+            manifest_dir.symlink_to(external, target_is_directory=True)
+        except OSError:
+            self.skipTest("directory symlink creation is unavailable")
         with self.assertRaisesRegex(ContextOSError, "symlink or reparse point"):
             load_project_attachment(self.roles)
 

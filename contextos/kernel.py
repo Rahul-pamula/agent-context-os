@@ -1701,7 +1701,9 @@ def load_project_attachment(
                 "local binding registry must contain exactly one active project"
             )
         project_id = next(iter(bindings))
-        manifest_path = roles.context_root / tracked_manifest_relative_path(project_id)
+        manifest_path = safe_repo_path(
+            roles.context_root, tracked_manifest_relative_path(project_id)
+        )
         manifest = validate_tracked_manifest(read_json(manifest_path))
         bound_roles = validate_local_binding(binding, manifest)
     except (AttachmentError, OSError, UnicodeError) as exc:
