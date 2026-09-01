@@ -808,6 +808,73 @@ class CoordinationTests(unittest.TestCase):
         self.assertIn("run this now", joined_warnings)
         self.assertEqual(report["notices"], report["warnings"])
 
+    def test_claim_succession_after_release_and_lease_ttl_bound(self) -> None:
+        bootstrap_board(self.repo_a, now=NOW)
+        with mock.patch.object(coordination.secrets, "token_hex", return_value="aaaa"):
+            first = create_claim(
+                self.repo_a,
+                task="TASK-303",
+                owner="claude/run-a",
+                runtime="claude",
+                now=NOW,
+            )
+        with mock.patch.object(coordination.secrets, "token_hex", return_value="bbbb"):
+            second = create_claim(
+                self.repo_a,
+                task="TASK-303",
+                owner="codex/run-b",
+                runtime="codex",
+                now=NOW + timedelta(minutes=1),
+            )
+        report = validate_board(self.repo_a, now=NOW + timedelta(minutes=2))
+        self.assertEqual(
+            report["claim_order"]["TASK-303"], [first["id"], second["id"]]
+        )
+
+        released = release_claim(
+            self.repo_a,
+            claim_id=first["id"],
+            runtime="claude",
+            now=NOW + timedelta(minutes=3),
+        )
+        self.assertTrue(released["delivered"])
+        report = validate_board(self.repo_a, now=NOW + timedelta(minutes=4))
+        self.assertEqual(report["claim_order"]["TASK-303"], [second["id"]])
+
+        with self.assertRaises(ContextOSError):
+            create_claim(
+                self.repo_a,
+                task="TASK-404",
+                owner="claude/run-a",
+                lease_expires=iso(NOW + MAX_TTL + timedelta(days=1)),
+                runtime="claude",
+                now=NOW,
+            )
+
+    def test_unreachable_reference_degrades_to_summary_only(self) -> None:
+        bootstrap_board(self.repo_a, now=NOW)
+        receipt = post_message(
+            self.repo_a,
+            sender="claude/researcher",
+            audience="all",
+            kind="note",
+            body="Points at a commit origin has never seen",
+            re_ref=("0" * 40) + ":docs/missing.md",
+            runtime="claude",
+            now=NOW,
+        )
+        self.assertTrue(receipt["delivered"])
+        self.assertTrue(
+            any(
+                notice.startswith("Reference omitted; message is summary-only")
+                for notice in receipt["notices"]
+            ),
+            receipt["notices"],
+        )
+        content = self._show(receipt["path"])
+        frontmatter = content.split("---")[1]
+        self.assertNotIn("re:", frontmatter)
+
     def test_fetch_only_queues_and_later_flushes_messages_in_order(self) -> None:
         bootstrap_board(self.repo_a, now=NOW)
 
