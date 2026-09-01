@@ -88,6 +88,10 @@
                     "policy": "managed"
                 },
                 {
+                    "path": "contextos/attachment.py",
+                    "policy": "managed"
+                },
+                {
                     "path": "contextos/cli.py",
                     "policy": "managed"
                 },
@@ -433,6 +437,14 @@
                 },
                 {
                     "path": "tests/test_agent_lifecycle_transactions.py",
+                    "policy": "development"
+                },
+                {
+                    "path": "tests/test_attachment.py",
+                    "policy": "development"
+                },
+                {
+                    "path": "tests/test_attachment_lifecycle.py",
                     "policy": "development"
                 },
                 {

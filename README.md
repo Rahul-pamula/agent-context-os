@@ -69,9 +69,24 @@ active work share one root. A marker-only JSON workspace may use an already-load
 executable package for discovery and reports, but a marker-only root cannot
 apply content or configure runtimes until the trusted product closure is
 materialized there. A containing Git worktree may supply read-only commit
-evidence without gaining context mutation authority. A separate
-application-repository attachment is not yet a supported lifecycle path; see
-the [root contract](docs/root-contract.md).
+evidence without gaining context mutation authority.
+
+For a separate application repository, pass exact distinct roots and create a
+reviewable attachment proposal (global role options precede the command):
+
+```bash
+bash /path/to/context-os/scripts/contextos.sh \
+  --context-root /path/to/context-repo \
+  --working-root /path/to/application \
+  project attach --id my-app
+```
+
+Apply the returned digest with the same root options and `--runtime generic`.
+Later start/setup/update/end invocations use those exact roots. Context OS writes
+only ContextRoot; WorkingRoot contributes bounded Git identity, status, and
+history evidence and receives no marker or lifecycle file. A moved application
+requires a reviewed `project rebind --id my-app` proposal. See the [root
+contract](docs/root-contract.md).
 
 | Starting point | Next action |
 |---|---|

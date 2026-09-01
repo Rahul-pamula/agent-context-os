@@ -117,7 +117,8 @@ class DocumentationPositioningTests(unittest.TestCase):
             self.assertIn("KernelRoot", skill, workflow)
             self.assertIn("ContextRoot", skill, workflow)
             self.assertIn("WorkingRoot", skill, workflow)
-            self.assertIn("not a supported lifecycle execution root", skill, workflow)
+            self.assertIn("--context-root", skill, workflow)
+            self.assertIn("WorkingRoot is read-only evidence", skill, workflow)
 
     def test_getting_started_keeps_mutations_opt_in(self) -> None:
         guide = self.text("docs/getting-started.md")
