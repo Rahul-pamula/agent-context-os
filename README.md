@@ -15,8 +15,8 @@ A portable Git-backed context and workflow layer for agents like Claude Code, Co
 
 Chat history, project instructions, and copied prompts drift apart. Context OS puts the durable parts in plain Markdown: who you are, what you are working on, decisions already made, and the workflows you want an agent to follow.
 
-Claude Code, Codex, Hermes, and OpenClaw, plus the experimental Cursor and Devin adapters,
-read the same repository state. A deterministic
+Claude Code, Codex, and OpenClaw, plus the experimental Hermes, Cursor, and
+Devin adapters, read the same repository state. A deterministic
 lifecycle kernel turns reviewed setup, checkpoint, and close requests into
 hash-checked proposals and receipts, without treating native memory as the
 source of truth.
@@ -77,7 +77,7 @@ the [root contract](docs/root-contract.md).
 |---|---|
 | New workspace in Claude Code | Run `/setup` |
 | New workspace in Codex | Run `$setup` |
-| New workspace in Hermes | Run `/setup` after exposing the repository skills |
+| New workspace in experimental Hermes support | Read the [evidence limit](adapters/hermes/README.md), then run `/setup` after exposing the repository skills |
 | New workspace in OpenClaw | Follow the [OpenClaw adapter](adapters/openclaw/README.md), then run `/contextos <alias> setup` through an authorized operator surface |
 | New workspace in Cursor | Follow the separate [experimental IDE and CLI paths](adapters/cursor/README.md), then run `/context-setup` |
 | New cloud session in Devin | Complete the [managed-account checks](adapters/devin/README.md), then run `@skills:context-setup` |
@@ -103,7 +103,7 @@ At the end, `/end` or `$end` proposes a handoff for review before it updates `se
 
 Start small. Use the core loop for a week, add one active project, then turn a repeated task into a skill when the repetition is clear.
 
-| Moment | Claude Code | Codex | Hermes | OpenClaw | Cursor IDE/CLI (experimental) | Devin session (experimental) | Shared result |
+| Moment | Claude Code | Codex | Hermes (experimental) | OpenClaw | Cursor IDE/CLI (experimental) | Devin session (experimental) | Shared result |
 |---|---|---|---|---|---|---|---|
 | First run or major refresh | `/setup` | `$setup` | `/setup` | `/contextos <alias> setup` | `/context-setup` | `@skills:context-setup` | Reviewed context proposal |
 | Start work | `/start` | `$start` | `/start` | `/contextos <alias> start` | `/context-start` | `@skills:context-start` | Read-only continuity inventory and briefing |
@@ -141,7 +141,7 @@ The guide covers ChatGPT, Claude, Gemini Apps, Gemini CLI, and a generic path fo
 | Codex | first-class | Shared lifecycle, native skills, project instructions, hooks, and reviewed proposal/apply writes |
 | Cursor | experimental | Separate IDE and CLI onboarding through root AGENTS.md and project Agent Skills, without hook, memory, or rule-conflict claims |
 | Devin | experimental | Experimental cloud-session lifecycle through repository AGENTS.md and Agent Skills, with Devin Review and all account-managed state kept separate |
-| Hermes Agent | first-class | Shared lifecycle through portable skills, advisory hooks, MCP, and separate Hermes-native memory |
+| Hermes Agent | experimental | Deterministic adapter and kernel conformance; installed-client model inference remains unverified, with advisory hooks and separate native memory |
 | OpenClaw | first-class | External-plugin multi-turn lifecycle with alias-bound lightweight subagents, copied portable skills, separate private memory, and trusted-shell kernel apply |
 <!-- runtime-support:end -->
 
@@ -155,7 +155,7 @@ Compatibility paths that are not registered runtime adapters:
 
 ## One source, explicit host adapters
 
-| Capability | Shared | Claude Code | Codex | Hermes | OpenClaw | Cursor IDE/CLI (experimental) | Devin session (experimental) |
+| Capability | Shared | Claude Code | Codex | Hermes (experimental) | OpenClaw | Cursor IDE/CLI (experimental) | Devin session (experimental) |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Identity, project, state, and session files | Yes | Reads | Reads | Reads | Reads | Reads | Reads |
 | Deterministic proposal/apply and receipts | Yes | Adapter | Native skill calls | Installed skill calls | Copied skill calls | Native skill calls | Native skill calls |
@@ -184,6 +184,8 @@ identity/                  Stable personal and professional context
 projects/                  Project context and project-specific workflows
 state/                     Current focus, priorities, blockers, and decisions
 sessions/                  Reviewed session handoffs
+coordination/              Multi-run message board contract; the board itself
+                           lives on a dedicated coordination branch
 .agents/skills/            Provider-neutral workflow cores
 contextos/                 Deterministic lifecycle kernel
                            and offline bundle materializer
@@ -262,8 +264,9 @@ behavior of an installed agent version or an external service.
 | Use the repository in Cursor | [Experimental Cursor IDE and CLI adapter](adapters/cursor/README.md) |
 | Keep claude.ai projects aligned | [Claude projects sync](docs/claude-projects-sync.md) |
 | See every command and portable skill | [Commands and skills](docs/commands-and-skills.md) |
-| Understand component ownership and future clean composition | [Component model](docs/component-model.md) |
+| Understand component ownership and the composition/materialization substrate | [Component model](docs/component-model.md) |
 | Verify an offline bundle or inspect a structural plan | [Bundle locks and plans](docs/bundle-locks.md) |
+| Read the v0.12 release scope and evidence limits | [v0.12.0 release notes](docs/releases/v0.12.0.md) |
 | Understand KernelRoot, ContextRoot, WorkingRoot, and the v0.12 compatibility boundary | [Root contract](docs/root-contract.md) |
 | Choose an optional add-on | [Integration chooser](docs/integrations-guide.md) and [catalog](references/integrations.md) |
 | Understand product language and boundaries | [Positioning](docs/positioning.md) |

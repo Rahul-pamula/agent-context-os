@@ -59,10 +59,26 @@ fi
 # Normalize Claude's native Windows paths before dirname/git inspection.
 FILE_PATH="${FILE_PATH//\\//}"
 
-# 3. Session count. tasklist on Windows, ps elsewhere.
-SESSION_COUNT=$(tasklist //FI "IMAGENAME eq claude.exe" 2>/dev/null | grep -c "^claude.exe")
+# 3. Session count. tasklist on Windows, ps elsewhere. Match executable names,
+# not arbitrary command-line text: the hook itself contains "claude" and must
+# never count itself as another session.
+SESSION_COUNT=0
+if command -v tasklist >/dev/null 2>&1; then
+  SESSION_COUNT=$(tasklist //FI "IMAGENAME eq claude.exe" 2>/dev/null | awk '
+    tolower($1) == "claude.exe" { count++ }
+    END { print count + 0 }
+  ')
+fi
 if [ "$SESSION_COUNT" -eq 0 ]; then
-  SESSION_COUNT=$(ps aux 2>/dev/null | grep -E "\\bclaude(\\.exe)?\\b" | grep -v grep | wc -l)
+  SESSION_COUNT=$(ps -A -o comm= 2>/dev/null | awk '
+    {
+      executable = $0
+      sub(/^.*\//, "", executable)
+      executable = tolower(executable)
+      if (executable == "claude" || executable == "claude.exe") count++
+    }
+    END { print count + 0 }
+  ')
 fi
 [ "$SESSION_COUNT" -le 1 ] && exit 0
 
@@ -74,22 +90,22 @@ while [ ! -d "$TARGET_DIR" ] && [ "$TARGET_DIR" != "/" ] && [ "$TARGET_DIR" != "
 done
 [ ! -d "$TARGET_DIR" ] && exit 0
 
-GIT_DIR=$(git -C "$TARGET_DIR" rev-parse --git-dir 2>/dev/null) || exit 0
-
-# 5. Inside a worktree? Allow.
-case "$GIT_DIR" in
-  *worktrees*) exit 0 ;;
-esac
-
 REPO_ROOT=$(git -C "$TARGET_DIR" rev-parse --show-toplevel 2>/dev/null) || exit 0
-# Resolve canonical repo via git-common-dir (worktrees report their own dirname).
-GIT_COMMON_DIR=$(git -C "$TARGET_DIR" rev-parse --git-common-dir 2>/dev/null)
+GIT_DIR=$(git -C "$TARGET_DIR" rev-parse --absolute-git-dir 2>/dev/null) || exit 0
+GIT_COMMON_DIR=$(git -C "$TARGET_DIR" rev-parse --git-common-dir 2>/dev/null) || exit 0
+
+GIT_DIR=$(cd "$GIT_DIR" 2>/dev/null && pwd -P) || exit 0
 case "$GIT_COMMON_DIR" in
-  /*|[A-Za-z]:*) CANONICAL_ROOT=$(dirname "$GIT_COMMON_DIR") ;;
-  *) CANONICAL_ROOT=$(cd "$TARGET_DIR/$(dirname "$GIT_COMMON_DIR")" 2>/dev/null && pwd) ;;
+  /*|[A-Za-z]:*) GIT_COMMON_DIR=$(cd "$GIT_COMMON_DIR" 2>/dev/null && pwd -P) || exit 0 ;;
+  *) GIT_COMMON_DIR=$(cd "$TARGET_DIR/$GIT_COMMON_DIR" 2>/dev/null && pwd -P) || exit 0 ;;
 esac
-[ -z "$CANONICAL_ROOT" ] && CANONICAL_ROOT="$REPO_ROOT"
-REPO_NAME=$(basename "$CANONICAL_ROOT")
+
+# 5. A linked worktree has a per-worktree git directory and a distinct common
+# directory. A primary checkout (including one with --separate-git-dir) has the
+# same directory for both. Compare Git's structure; path names are not identity.
+[ "$GIT_DIR" != "$GIT_COMMON_DIR" ] && exit 0
+
+REPO_NAME=$(basename "$REPO_ROOT")
 
 # 6. Is this repo guarded?
 if ! tr -d '\r' < "$GUARD_LIST" | grep -v '^[[:space:]]*#' | grep -v '^[[:space:]]*$' | grep -Fxq "$REPO_NAME"; then

@@ -36,6 +36,33 @@ Generation prints JSON and does not write a lock. It rejects unclassified or
 owned-but-untracked index paths. Release automation can publish the printed lock
 beside an archive of the recorded commit.
 
+## v0.12 release artifact contract
+
+The supported v0.12 distribution is the full-template, full-component closure.
+Although the low-level planner accepts explicit component closures for
+conformance and future composition work, workspace schema v1 cannot persist a
+desired slim closure. Guided slim installation and reconciliation wait for
+workspace schema v2.
+
+The maintainer procedure is [`release-process.md`](release-process.md). Its
+canonical Linux build reads exact bytes from a clean Git index at the reviewed
+commit and emits a deterministic uncompressed USTAR archive containing only the
+lock's non-development paths. The detached lock and provenance bind template
+name and version, anticipated tag, exact commit, archive digest, whole lock-file
+digest, and the lock's internal `bundle_sha256`.
+
+These three digests have different scopes:
+
+- the archive SHA-256 identifies the canonical tar container;
+- the whole lock-file SHA-256 identifies the detached JSON file; and
+- `bundle_sha256` identifies the lock's canonical bundle payload and is the
+  independent value passed to offline directory verification.
+
+Release automation builds twice on Linux, verifies the same candidate artifact
+on Linux and Windows before creating its tag or draft, then downloads and
+verifies the exact staged release assets on both platforms before publication.
+No failed or skipped installed-client check is represented as green evidence.
+
 ## Offline verification
 
 Verification requires both a local source and the independently obtained exact
@@ -147,7 +174,11 @@ both platforms, but records time and memory without platform-sensitive
 thresholds because shared-runner measurements are not stable correctness
 signals. Exact subset-retention tests enforce the payload policy separately.
 
-## Materializing a clean workspace
+## Developer substrate: materializing a clean workspace
+
+The following component-subset interfaces exercise the materializer and future
+composition boundary. They do not create a supported v0.12 slim-workspace
+profile; release-grade v0.12 installs use the full component closure.
 
 Prepare a canonical workspace JSON file whose template name and version match
 the pinned candidate. The target directory must already exist, but its tracked
@@ -175,7 +206,7 @@ The explicit `bundle apply --target` route exists because a clean destination
 has no tracked marker for ordinary root discovery until the approved transaction
 publishes it.
 
-## Materializing a marker-only root
+## Developer substrate: materializing a marker-only root
 
 A marker-only root already has `contextos.workspace.json`, so it is not a clean
 target and `bundle compose` must not be used. The marker's `template.source`
@@ -202,7 +233,7 @@ bash scripts/contextos.sh bundle apply \
 The pinned candidate bundle supplies product authority for this installation
 boundary. The already-loaded executable package and writable marker do not.
 
-## Materializing an upgrade
+## Developer substrate: materializing an upgrade
 
 `bundle propose` consumes the exact current configuration and, when applicable,
 a verified current bundle plus the component closure actually installed. It can

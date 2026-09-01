@@ -52,6 +52,10 @@
                     "policy": "development"
                 },
                 {
+                    "path": ".github/workflows/release.yml",
+                    "policy": "development"
+                },
+                {
                     "path": ".gitignore",
                     "policy": "managed"
                 },
@@ -97,6 +101,14 @@
                 },
                 {
                     "path": "contextos/kernel.py",
+                    "policy": "managed"
+                },
+                {
+                    "path": "contextos/coordination.py",
+                    "policy": "managed"
+                },
+                {
+                    "path": "coordination/README.md",
                     "policy": "managed"
                 },
                 {
@@ -193,6 +205,14 @@
                 },
                 {
                     "path": "docs/repo-maintenance.md",
+                    "policy": "managed"
+                },
+                {
+                    "path": "docs/release-process.md",
+                    "policy": "managed"
+                },
+                {
+                    "path": "docs/releases/v0.12.0.md",
                     "policy": "managed"
                 },
                 {
@@ -328,6 +348,18 @@
                     "policy": "development"
                 },
                 {
+                    "path": "scripts/publish-release.py",
+                    "policy": "development"
+                },
+                {
+                    "path": "scripts/release-artifacts.py",
+                    "policy": "development"
+                },
+                {
+                    "path": "scripts/stage-release.py",
+                    "policy": "development"
+                },
+                {
                     "path": "scripts/pre-commit-hook.sh",
                     "policy": "managed"
                 },
@@ -384,6 +416,10 @@
                     "policy": "seed"
                 },
                 {
+                    "path": "state/roles.md",
+                    "policy": "seed"
+                },
+                {
                     "path": "state/gws-references.md",
                     "policy": "seed"
                 },
@@ -412,7 +448,23 @@
                     "policy": "development"
                 },
                 {
+                    "path": "tests/test_publish_release.py",
+                    "policy": "development"
+                },
+                {
+                    "path": "tests/test_release_artifacts.py",
+                    "policy": "development"
+                },
+                {
+                    "path": "tests/test_stage_release.py",
+                    "policy": "development"
+                },
+                {
                     "path": "tests/test_contextos_kernel.py",
+                    "policy": "development"
+                },
+                {
+                    "path": "tests/test_coordination.py",
                     "policy": "development"
                 },
                 {

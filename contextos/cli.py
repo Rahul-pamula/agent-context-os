@@ -35,6 +35,15 @@ from .kernel import (
     start_report,
     workspace_resolution_report,
 )
+from .coordination import (
+    bootstrap_board,
+    compact_board,
+    create_claim,
+    post_message,
+    release_claim,
+    sync_board,
+    validate_board,
+)
 from .materializer import (
     MATERIALIZE_OPERATION,
     create_composition_proposal,
@@ -162,6 +171,53 @@ def parser() -> argparse.ArgumentParser:
         "migrate-local-runtime",
         help="Atomically copy legacy local runtime state into hosts.json",
     )
+
+    board = commands.add_parser(
+        "board", help="Coordination board operations (contract: coordination/README.md)"
+    )
+    board_commands = board.add_subparsers(dest="board_command", required=True)
+    board_bootstrap = board_commands.add_parser(
+        "bootstrap", help="Create the coordination ref on the remote if absent"
+    )
+    board_bootstrap.add_argument("--now")
+    board_post = board_commands.add_parser("post", help="Validate and publish one board message")
+    board_post.add_argument("--runtime", required=True)
+    board_post.add_argument("--from", dest="sender", required=True, help="runtime/role of the posting run")
+    board_post.add_argument("--audience", required=True, help="all, an enumerated role, or runtime/run-id")
+    board_post.add_argument("--kind", required=True, choices=["note", "alert", "query", "handoff"])
+    board_post.add_argument("--re", dest="re_ref", help="commit:path reference, optional #sha256:<hex>")
+    board_post.add_argument("--expires", help="UTC ISO expiry; defaults to now + 7 days")
+    board_post.add_argument("--body", required=True, help="message body, or '-' to read stdin")
+    board_post.add_argument("--now")
+    board_claim = board_commands.add_parser("claim", help="Publish an advisory claim")
+    board_claim.add_argument("--runtime", required=True)
+    board_claim.add_argument("--task", required=True, help="stable reference: commit:path or a task id")
+    board_claim.add_argument("--owner", required=True, help="runtime/run-id")
+    board_claim.add_argument("--lease-expires", dest="lease_expires", help="UTC ISO; defaults to now + 7 days")
+    board_claim.add_argument("--now")
+    board_release = board_commands.add_parser(
+        "release", help="Release a claim, optionally handing off atomically in the same commit"
+    )
+    board_release.add_argument("--runtime", required=True)
+    board_release.add_argument("--claim", dest="claim_id", required=True)
+    board_release.add_argument("--then-claim-task", dest="then_claim_task")
+    board_release.add_argument("--then-claim-owner", dest="then_claim_owner")
+    board_release.add_argument("--now")
+    board_sync = board_commands.add_parser(
+        "sync", help="Fetch and surface unexpired messages addressed to this run"
+    )
+    board_sync.add_argument("--runtime", required=True)
+    board_sync.add_argument("--role", required=True)
+    board_sync.add_argument("--run-id", dest="run_id", required=True)
+    board_sync.add_argument("--cursor-file", dest="cursor_file", type=Path)
+    board_sync.add_argument("--now")
+    board_compact = board_commands.add_parser(
+        "compact", help="Report expired messages and stale claims; --apply deletes expired messages"
+    )
+    board_compact.add_argument("--apply", action="store_true")
+    board_compact.add_argument("--now")
+    board_validate = board_commands.add_parser("validate", help="Validate the fetched coordination tree")
+    board_validate.add_argument("--now")
 
     hook = commands.add_parser("hook", help="Run a normalized read-only lifecycle hook check")
     hook.add_argument("event", choices=("session-start", "pre-write"))
@@ -456,6 +512,18 @@ def workspace_proposal_report(
     }
 
 
+def _board_roles(root: Path) -> list[str] | None:
+    roles_file = root / "state" / "roles.md"
+    if not roles_file.exists():
+        return None
+    roles: list[str] = []
+    for line in roles_file.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            roles.append(stripped[2:].strip().lower())
+    return roles or None
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     hook_output: str | None = None
@@ -545,6 +613,46 @@ def main(argv: list[str] | None = None) -> int:
                     "legacy_runtime_retained": False,
                     **state,
                 })
+        elif args.command == "board":
+            now = parse_now(getattr(args, "now", None))
+            if args.board_command == "bootstrap":
+                emit(bootstrap_board(root, now=now))
+            elif args.board_command == "post":
+                body = sys.stdin.read() if args.body == "-" else args.body
+                emit(post_message(
+                    root, sender=args.sender, audience=args.audience, kind=args.kind,
+                    body=body, re_ref=args.re_ref, expires=args.expires,
+                    runtime=args.runtime, now=now,
+                ))
+            elif args.board_command == "claim":
+                emit(create_claim(
+                    root, task=args.task, owner=args.owner,
+                    lease_expires=args.lease_expires, runtime=args.runtime, now=now,
+                ))
+            elif args.board_command == "release":
+                then_claim = None
+                if args.then_claim_task or args.then_claim_owner:
+                    if not (args.then_claim_task and args.then_claim_owner):
+                        raise ContextOSError(
+                            "--then-claim-task and --then-claim-owner are required together"
+                        )
+                    then_claim = {"task": args.then_claim_task, "owner": args.then_claim_owner}
+                emit(release_claim(
+                    root, claim_id=args.claim_id, then_claim=then_claim,
+                    runtime=args.runtime, now=now,
+                ))
+            elif args.board_command == "sync":
+                cursor = args.cursor_file or (
+                    root / ".context-os" / "coordination" / f"cursor-{args.runtime}.json"
+                )
+                emit(sync_board(
+                    root, runtime=args.runtime, role=args.role, run_id=args.run_id,
+                    cursor_file=cursor, roles=_board_roles(root), now=now,
+                ))
+            elif args.board_command == "compact":
+                emit(compact_board(root, apply=args.apply, now=now))
+            elif args.board_command == "validate":
+                emit(validate_board(root, roles=_board_roles(root), now=now))
         elif args.command == "hook":
             hook_manifest = runtime_manifest(root, args.runtime, check_paths=False)
             surface_outputs = {

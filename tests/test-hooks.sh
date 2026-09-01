@@ -104,6 +104,9 @@ mkdir -p "$TEST_REPO/.claude/hooks" "$TEMP_ROOT/bin"
 git -C "$TEMP_ROOT_WIN" init -q -b main guarded-repo
 cp "$ROOT/.claude/hooks/worktree-guard.sh" "$TEST_REPO/.claude/hooks/worktree-guard.sh"
 printf 'guarded-repo\r\n' > "$TEST_REPO/.claude/hooks/guarded-repos.txt"
+printf 'baseline\n' > "$TEST_REPO/README.md"
+git -C "$TEST_REPO" add README.md
+git -C "$TEST_REPO" -c user.name=Test -c user.email=test@example.invalid commit -qm baseline
 printf '%s\n' '#!/usr/bin/env bash' 'printf "claude.exe one\\nclaude.exe two\\n"' > "$TEMP_ROOT/bin/tasklist"
 chmod +x "$TEMP_ROOT/bin/tasklist"
 
@@ -143,6 +146,81 @@ set -e
 if [ "$WINDOWS_GUARD_STATUS" -ne 2 ] || ! printf '%s' "$WINDOWS_GUARD_STDERR" | grep -q "Blocked: 2 Claude sessions"; then
   echo "worktree-guard did not normalize backslash paths or CRLF guard entries" >&2
   exit 1
+fi
+
+# One session must never block a guarded primary checkout.
+printf '%s\n' '#!/usr/bin/env bash' 'printf "claude.exe one\\n"' > "$TEMP_ROOT/bin/tasklist"
+set +e
+printf '%s' "{\"tool_input\":{\"file_path\":\"$TEST_REPO/note.md\"}}" | \
+  PATH="$TEMP_ROOT/bin:$PATH" bash "$TEST_REPO/.claude/hooks/worktree-guard.sh" >/dev/null 2>&1
+ONE_SESSION_STATUS=$?
+set -e
+[ "$ONE_SESSION_STATUS" -eq 0 ] \
+  || fail "worktree-guard fired with only one Claude session"
+
+# The POSIX fallback must match the executable name, not helper processes or
+# command-line text that merely contains the word claude.
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$TEMP_ROOT/bin/tasklist"
+printf '%s\n' '#!/usr/bin/env bash' \
+  'printf "/usr/local/bin/claude-helper\\nclaude-monitor\\nmyclaude\\nbash\\n"' > "$TEMP_ROOT/bin/ps"
+chmod +x "$TEMP_ROOT/bin/tasklist" "$TEMP_ROOT/bin/ps"
+set +e
+printf '%s' "{\"tool_input\":{\"file_path\":\"$TEST_REPO/note.md\"}}" | \
+  PATH="$TEMP_ROOT/bin:$PATH" bash "$TEST_REPO/.claude/hooks/worktree-guard.sh" >/dev/null 2>&1
+NON_CLAUDE_STATUS=$?
+set -e
+[ "$NON_CLAUDE_STATUS" -eq 0 ] \
+  || fail "worktree-guard counted non-Claude process names"
+
+# The same POSIX path must still fire for two exact Claude executables.
+printf '%s\n' '#!/usr/bin/env bash' \
+  'printf "/usr/local/bin/claude\\nclaude.exe\\n"' > "$TEMP_ROOT/bin/ps"
+set +e
+POSIX_GUARD_STDERR=$(printf '%s' "{\"tool_input\":{\"file_path\":\"$TEST_REPO/note.md\"}}" | \
+  PATH="$TEMP_ROOT/bin:$PATH" bash "$TEST_REPO/.claude/hooks/worktree-guard.sh" 2>&1 >/dev/null)
+POSIX_GUARD_STATUS=$?
+set -e
+if [ "$POSIX_GUARD_STATUS" -ne 2 ] || ! printf '%s' "$POSIX_GUARD_STDERR" | grep -q "Blocked: 2 Claude sessions"; then
+  fail "worktree-guard POSIX fallback did not count exact Claude executables"
+fi
+
+# Two sessions do not block a repository that is absent from the guard list.
+UNGUARDED_REPO="$TEMP_ROOT_WIN/unguarded-repo"
+git -C "$TEMP_ROOT_WIN" init -q -b main unguarded-repo
+printf '%s\n' '#!/usr/bin/env bash' 'printf "claude.exe one\\nclaude.exe two\\n"' > "$TEMP_ROOT/bin/tasklist"
+set +e
+printf '%s' "{\"tool_input\":{\"file_path\":\"$UNGUARDED_REPO/note.md\"}}" | \
+  PATH="$TEMP_ROOT/bin:$PATH" bash "$TEST_REPO/.claude/hooks/worktree-guard.sh" >/dev/null 2>&1
+UNGUARDED_STATUS=$?
+set -e
+[ "$UNGUARDED_STATUS" -eq 0 ] \
+  || fail "worktree-guard fired for an unguarded repository"
+
+# A real linked worktree must remain editable with two sessions.
+LINKED_REPO="$TEMP_ROOT_WIN/guarded-repo-linked"
+git -C "$TEST_REPO" worktree add -q -b linked-test "$LINKED_REPO"
+set +e
+printf '%s' "{\"tool_input\":{\"file_path\":\"$LINKED_REPO/note.md\"}}" | \
+  PATH="$TEMP_ROOT/bin:$PATH" bash "$TEST_REPO/.claude/hooks/worktree-guard.sh" >/dev/null 2>&1
+LINKED_STATUS=$?
+set -e
+[ "$LINKED_STATUS" -eq 0 ] \
+  || fail "worktree-guard fired inside a real linked worktree"
+
+# A primary checkout can legitimately use a separate Git directory whose path
+# contains "worktrees". It must still block; path substrings are not identity.
+SEPARATE_REPO="$TEMP_ROOT_WIN/guarded-separate"
+SEPARATE_GIT_DIR="$TEMP_ROOT_WIN/worktrees-metadata/guarded-separate.git"
+mkdir -p "$(dirname "$SEPARATE_GIT_DIR")"
+git init -q -b main --separate-git-dir "$SEPARATE_GIT_DIR" "$SEPARATE_REPO"
+printf 'guarded-separate\r\n' >> "$TEST_REPO/.claude/hooks/guarded-repos.txt"
+set +e
+SEPARATE_GUARD_STDERR=$(printf '%s' "{\"tool_input\":{\"file_path\":\"$SEPARATE_REPO/note.md\"}}" | \
+  PATH="$TEMP_ROOT/bin:$PATH" bash "$TEST_REPO/.claude/hooks/worktree-guard.sh" 2>&1 >/dev/null)
+SEPARATE_GUARD_STATUS=$?
+set -e
+if [ "$SEPARATE_GUARD_STATUS" -ne 2 ] || ! printf '%s' "$SEPARATE_GUARD_STDERR" | grep -q "guarded-separate"; then
+  fail "worktree-guard mistook a primary checkout for a linked worktree from a path substring"
 fi
 
 for hook in "$ROOT"/.claude/hooks/*.sh; do

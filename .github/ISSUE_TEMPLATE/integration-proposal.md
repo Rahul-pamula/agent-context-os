@@ -72,7 +72,14 @@ The catalog must describe the full surface; it does not disable tools or enforce
 - [ ] `arbitrary_execution`
 - [ ] `oauth`
 
-- `details`: <!-- Recommended client-side scope/tool restrictions belong here -->
+- `details`:
+  <!--
+  Required non-empty list. Describe the tool's full reachable surface area,
+  not merely the preferred/recommended subset. Include relevant read, write,
+  delete, overwrite, remote-write, or arbitrary-execution surface details
+  when applicable. Also contain any recommended client-side restrictions
+  or scope/tool recommendations. Stay consistent with the typed capability flags.
+  -->
 
 ## Confirmation
 

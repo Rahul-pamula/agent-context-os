@@ -72,7 +72,18 @@ the same files, show uncommitted files, and show the count of unpushed commits
 when an upstream exists. Flag conflicts and wait for direction. Never commit,
 push, discard, or reconcile without explicit approval. Outside git, skip this.
 
-### 5. Confirm the handoff
+### 5. Coordination board (when present)
+
+If the workspace has a coordination board (`coordination/README.md` exists),
+offer — never auto-execute — to post a short board message for other runs
+(`board post`) and to release or hand off any claims this run holds
+(`board release`, optionally with `--then-claim-*`). Follow the board
+contract: no secrets or sensitive personal data ever (git history keeps every
+message), durable facts stay canonical elsewhere and are referenced with
+`commit:path`, and publishing pushes to the remote, so it happens only with
+the user's approval at the host permission boundary.
+
+### 6. Confirm the handoff
 
 Report the receipt path, what was logged, changed state files, and the top next
 action. Mention any conflict or repository work still awaiting a decision.

@@ -86,8 +86,10 @@ to check the entry is wanted before writing it.
 4. Describe `capabilities` honestly, including the unpleasant parts. If a
    server can delete remote objects, `delete` and `destructive` are `true` even
    when you never intend to use those tools.
-5. Recommend the narrowest useful default profile. Most entries should default
-   to read-only scopes with writes behind a separate confirmation group.
+5. The catalog documents metadata. It does not configure tools, disable
+   functionality, or enforce default profiles. Place client-side scope and
+   tool recommendations, along with the full reachable surface area, in
+   `capabilities.details`. Provide confirmation guidance in `confirmation.notes`.
 6. Regenerate `references/integrations.md` and run the validator.
 
 `maturity` is a claim about metadata, not about testing. `verified` means
@@ -140,6 +142,11 @@ a doc that still exists but that nothing points to any more.
 Update `CHANGELOG.md` whenever you add, remove, or significantly change a file.
 Use each applicable `Added`, `Changed`, `Fixed`, or `Removed` heading at most
 once per release block, and list each public behavior change once.
+
+Release maintainers must follow [`docs/release-process.md`](docs/release-process.md).
+The tag and staged assets are created only after the Linux and Windows candidate
+gates pass; the draft is published only after both platforms verify the exact
+downloaded release assets.
 
 ## Pull requests
 
